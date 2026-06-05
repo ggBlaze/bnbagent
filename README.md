@@ -44,10 +44,16 @@ bash bnbagent
 ```
 
 That's it. The dashboard auto-loads in any browser pointed at port 8000.
-It shows live equity, drawdown, sleeve breakdown, **CMC x402 microcharge
-ledger**, **TWAK-signed tx list with BscScan links**, **ERC-8004 identity NFT**,
-**ERC-8183 job escrow**, the **signed User Policy**, a **config editor**,
-and a **kill switch** in the right rail.
+**First-time users land in the Setup wizard** (Network → Wallet → Sign
+Policy → Ready). The wizard lets you generate a wallet, import an
+existing private key, set RPC endpoints, and sign the policy — all from
+the browser, with the private key encrypted to disk and never echoed
+back. After the wizard completes the dashboard switches to the Live pane.
+
+The Live pane shows equity, drawdown, sleeve breakdown, **CMC x402
+microcharge ledger**, **TWAK-signed tx list with BscScan links**,
+**ERC-8004 identity NFT**, **ERC-8183 job escrow**, the **signed User
+Policy**, a **config editor**, and a **kill switch** in the right rail.
 
 For the live PnL-replay rehearsal:
 

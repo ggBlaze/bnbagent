@@ -18,6 +18,13 @@ Endpoints
   POST /api/control            dashboard → agent intent (kill/resume/sleeve toggles/risk)
   GET  /api/config-schema      JSON schema for config.yaml (for the editor)
   GET  /api/config             current effective config
+  GET  /api/setup              current operator setup state
+  POST /api/setup/config       update mode / chain / rpcs / cmc
+  POST /api/setup/wallet       create a new wallet (returns address only, never the key)
+  POST /api/setup/wallet/import   import existing private key (returns address only)
+  POST /api/setup/sign         sign the current policy with the wallet's password
+  GET  /api/setup/checklist    returns { complete: bool, missing: [...] }
+  POST /api/setup/reset        wipe all operator state
   WS   /ws                     real-time stats push (1Hz)
   GET  /                       single-file frontend
 """
@@ -45,6 +52,11 @@ except ImportError:
     DASHBOARD_STATE = {}
 
 from core.control import read_control, write_control
+from core.setup import (
+    SetupState, load_setup_state, set_runtime_config, generate_wallet,
+    import_wallet, sign_current_policy, reset as reset_setup,
+    export_env_for_process,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +332,92 @@ def build_app() -> FastAPI:
                 }
             }
         })
+
+    # ------------------------------------------------------------------ setup
+    @app.get("/api/setup")
+    async def setup_get():
+        s = load_setup_state()
+        return JSONResponse({
+            "mode": s.mode,
+            "chain_id": s.chain_id,
+            "rpcs": s.rpcs,
+            "cmc_api_key_set": bool(s.cmc_api_key),
+            "cmc_x402_base": s.cmc_x402_base,
+            "wallet_address": s.wallet_address,
+            "keystore_path": s.keystore_path,
+            "evaluator_address": s.evaluator_address,
+            "policy_signed": s.policy_signed,
+            "policy_signature": s.policy_signature,
+            "policy_version": s.policy_version,
+            "is_complete": s.is_complete(),
+            "missing": s.missing(),
+            "env": export_env_for_process(),
+        })
+
+    @app.get("/api/setup/checklist")
+    async def setup_checklist():
+        s = load_setup_state()
+        return JSONResponse({
+            "complete": s.is_complete(),
+            "missing": s.missing(),
+            "wallet_ready": bool(s.wallet_address),
+            "evaluator_set": bool(s.evaluator_address),
+            "policy_signed": s.policy_signed,
+            "chain_id": s.chain_id,
+            "mode": s.mode,
+        })
+
+    @app.post("/api/setup/config")
+    async def setup_config(body: dict):
+        try:
+            cfg = set_runtime_config(
+                mode=str(body.get("mode", "testnet")),
+                chain_id=int(body.get("chain_id", 97)),
+                rpcs=list(body.get("rpcs", []) or []),
+                cmc_api_key=str(body.get("cmc_api_key", "")),
+                cmc_x402_base=body.get("cmc_x402_base"),
+            )
+            return JSONResponse({"ok": True, "config": cfg})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    @app.post("/api/setup/wallet")
+    async def setup_wallet(body: dict):
+        """Generate a new wallet. Returns ONLY the address; the private key
+        is encrypted to disk and never leaves the host process."""
+        password = body.get("password", "")
+        try:
+            r = generate_wallet(password)
+            return JSONResponse({"ok": True, **r})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    @app.post("/api/setup/wallet/import")
+    async def setup_wallet_import(body: dict):
+        """Import an existing private key. Returns ONLY the address; the key
+        is encrypted to disk and never leaves the host process."""
+        pk = body.get("private_key", "")
+        password = body.get("password", "")
+        try:
+            r = import_wallet(pk, password)
+            return JSONResponse({"ok": True, **r})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    @app.post("/api/setup/sign")
+    async def setup_sign(body: dict):
+        """Sign the current policy.yaml with the unlocked wallet."""
+        password = body.get("password", "")
+        try:
+            r = sign_current_policy(password)
+            return JSONResponse({"ok": True, **r})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    @app.post("/api/setup/reset")
+    async def setup_reset():
+        r = reset_setup()
+        return JSONResponse({"ok": True, **r})
 
     # --------------------------------------------------------------------- ws
     @app.websocket("/ws")

@@ -324,6 +324,98 @@ body::before {
 .rise > *:nth-child(7) { animation-delay: 0.28s; }
 .rise > *:nth-child(8) { animation-delay: 0.32s; }
 
+/* === setup wizard ================================================== */
+.wizard {
+  max-width: 720px; margin: 24px auto;
+  background: var(--bg-1); border: 1px solid var(--line);
+  border-radius: 12px; padding: 32px;
+  position: relative; overflow: hidden;
+}
+.wizard::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--blue), var(--accent-2));
+}
+.wizard h2 {
+  font: 600 22px/1.1 'Inter'; margin: 0 0 4px;
+  letter-spacing: -0.02em;
+}
+.wizard h2 .sub {
+  display: block; font: 400 11px/1 'Inter';
+  color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.18em;
+  margin-top: 6px;
+}
+.steps {
+  display: flex; gap: 4px; margin: 24px 0 28px;
+  border-bottom: 1px solid var(--line); padding-bottom: 16px;
+}
+.steps .step {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  font: 500 10px/1 'Inter'; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.14em;
+}
+.steps .step .num {
+  width: 24px; height: 24px; border-radius: 50%;
+  border: 1px solid var(--line-2); display: grid; place-items: center;
+  font: 600 11px/1 'JetBrains Mono'; color: var(--fg-dim);
+  background: var(--bg-2);
+}
+.steps .step.active .num { border-color: var(--accent); color: var(--accent); background: rgba(198,242,78,0.08); }
+.steps .step.done .num   { border-color: var(--green); color: var(--green); background: rgba(74,222,128,0.08); }
+.steps .step.active      { color: var(--accent); }
+.steps .step.done        { color: var(--green); }
+.wizard-step { display: none; }
+.wizard-step.active { display: block; animation: rise 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+.field { margin: 14px 0; }
+.field label {
+  display: block; font: 500 11px/1 'Inter'; color: var(--fg-dim);
+  text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 6px;
+}
+.field .hint { font: 400 10px/1.4 'JetBrains Mono'; color: var(--fg-dimmer); margin-top: 4px; }
+.field input, .field select, .field textarea {
+  width: 100%; background: var(--bg-2); border: 1px solid var(--line-2); color: var(--fg);
+  font: 500 13px/1.4 'JetBrains Mono'; padding: 10px 12px; border-radius: 6px;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  outline: none; border-color: var(--accent);
+}
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.actions { display: flex; justify-content: space-between; margin-top: 24px; gap: 12px; }
+.btn {
+  background: var(--bg-2); border: 1px solid var(--line-2); color: var(--fg);
+  font: 600 12px/1 'Inter'; text-transform: uppercase; letter-spacing: 0.14em;
+  padding: 11px 20px; border-radius: 6px; cursor: pointer; transition: all .15s;
+}
+.btn:hover { background: var(--bg-3); border-color: var(--accent); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.btn.primary:hover { background: #d4ff5c; }
+.btn.danger  { background: transparent; border-color: var(--red); color: var(--red); }
+.btn.danger:hover  { background: var(--red); color: var(--bg); }
+.banner {
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  border-radius: 6px; font: 400 12px/1.4 'Inter'; margin: 12px 0;
+}
+.banner.info  { background: rgba(125,211,252,0.08);  border: 1px solid rgba(125,211,252,0.3);  color: var(--blue); }
+.banner.warn  { background: rgba(251,191,36,0.08);   border: 1px solid rgba(251,191,36,0.3);   color: var(--accent-2); }
+.banner.error { background: rgba(248,113,113,0.08);  border: 1px solid rgba(248,113,113,0.3);  color: var(--red); }
+.banner.ok    { background: rgba(74,222,128,0.08);   border: 1px solid rgba(74,222,128,0.3);   color: var(--green); }
+.kv-input { display: flex; gap: 8px; align-items: center; }
+.kv-input input { flex: 1; }
+.kv-input button { flex: 0; padding: 8px 12px; }
+.address-box {
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px;
+  padding: 14px; font: 500 13px/1.4 'JetBrains Mono'; color: var(--accent);
+  word-break: break-all; margin: 8px 0;
+}
+.complete-card {
+  background: rgba(74,222,128,0.06); border: 1px solid rgba(74,222,128,0.3);
+  border-radius: 8px; padding: 24px; text-align: center; margin: 16px 0;
+}
+.complete-card .check {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: var(--green); color: var(--bg);
+  display: grid; place-items: center; font-size: 24px; margin: 0 auto 12px;
+}
+
 </style>
 </head>
 <body>
@@ -338,10 +430,12 @@ body::before {
     </div>
   </div>
   <nav class="topnav">
+    <button id="nav-setup"  onclick="showPane('setup')">Setup</button>
     <button id="nav-live"   class="active" onclick="showPane('live')">Live</button>
     <button id="nav-config" onclick="showPane('config')">Config</button>
     <button id="nav-logs"   onclick="showPane('logs')">Logs</button>
     <button id="nav-replay" onclick="showPane('replay')">Replay</button>
+    <span class="live" id="setup-badge" style="display:none; border-color:var(--accent-2); color:var(--accent-2);"><span class="pulse" style="background:var(--accent-2); box-shadow:0 0 0 0 var(--accent-2);"></span><span>setup required</span></span>
     <span class="live"><span class="pulse"></span><span id="updated">live</span></span>
   </nav>
 </header>
@@ -383,6 +477,136 @@ body::before {
 
   <!-- ===== CANVAS ===== -->
   <main class="canvas rise">
+
+    <!-- Setup wizard (default for first-time users) -->
+    <div id="pane-setup" style="display:none;">
+      <div class="wizard">
+        <h2>BNB Agent Setup <span class="sub">Get from zero to running in under two minutes</span></h2>
+
+        <div class="steps">
+          <div class="step active" id="stp-1"><div class="num">1</div><div>Network</div></div>
+          <div class="step"        id="stp-2"><div class="num">2</div><div>Wallet</div></div>
+          <div class="step"        id="stp-3"><div class="num">3</div><div>Sign Policy</div></div>
+          <div class="step"        id="stp-4"><div class="num">4</div><div>Ready</div></div>
+        </div>
+
+        <!-- Step 1: Network -->
+        <div class="wizard-step active" id="step-1">
+          <h3 style="font:600 16px/1.2 'Inter'; margin: 0 0 4px;">Choose your network</h3>
+          <p style="font:400 12px/1.5 'Inter'; color:var(--fg-dim); margin: 0 0 18px;">
+            Testnet is free and risk-free. Mainnet uses real BNB. You can switch later
+            by re-running this wizard.
+          </p>
+          <div class="field">
+            <label>Mode</label>
+            <select id="wiz-mode">
+              <option value="testnet">BSC Testnet (chain 97) — recommended for first run</option>
+              <option value="mainnet">BSC Mainnet (chain 56) — uses real funds</option>
+              <option value="replay">Replay mode (no live network)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>RPC URLs (one per line)</label>
+            <textarea id="wiz-rpcs" rows="3" style="resize:vertical;"></textarea>
+            <div class="hint">Default testnet: bsc-testnet public RPCs. Mainnet: bsc-dataseed.</div>
+          </div>
+          <div class="field">
+            <label>CoinMarketCap API key <span style="color:var(--fg-dimmer);">(optional)</span></label>
+            <input id="wiz-cmc-key" type="password" placeholder="leave empty to use x402 micro-payments" />
+            <div class="hint">x402 works without a key (USDC micro-payments per request). Pro API key gives you a free tier.</div>
+          </div>
+          <div class="actions">
+            <div></div>
+            <button class="btn primary" onclick="wizardNext(1)">Continue →</button>
+          </div>
+        </div>
+
+        <!-- Step 2: Wallet -->
+        <div class="wizard-step" id="step-2">
+          <h3 style="font:600 16px/1.2 'Inter'; margin: 0 0 4px;">Create or import a wallet</h3>
+          <p style="font:400 12px/1.5 'Inter'; color:var(--fg-dim); margin: 0 0 18px;">
+            The wallet is encrypted with AES-256-GCM at <code style="color:var(--accent);">~/.twak/wallet.json</code>
+            using a password you choose. The key never leaves this host.
+          </p>
+          <div class="field">
+            <label>Choose origin</label>
+            <select id="wiz-wallet-mode" onchange="toggleWalletMode()">
+              <option value="generate">Generate a new wallet</option>
+              <option value="import">Import existing private key</option>
+            </select>
+          </div>
+          <div class="field" id="wiz-wallet-import-block" style="display:none;">
+            <label>Private key (0x…)</label>
+            <input id="wiz-pk" type="password" placeholder="0x…" />
+            <div class="hint">Paste your 32-byte hex private key. Encrypted to disk immediately; never logged or sent over the wire.</div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label>Encryption password <span style="color:var(--red);">*</span></label>
+              <input id="wiz-pwd" type="password" placeholder="≥ 8 characters" />
+            </div>
+            <div class="field">
+              <label>Confirm</label>
+              <input id="wiz-pwd2" type="password" placeholder="retype" />
+            </div>
+          </div>
+          <div id="wiz-wallet-result"></div>
+          <div class="actions">
+            <button class="btn" onclick="wizardBack(2)">← Back</button>
+            <button class="btn primary" id="wiz-wallet-btn" onclick="wizardCreateWallet()">Create Wallet</button>
+          </div>
+        </div>
+
+        <!-- Step 3: Sign Policy -->
+        <div class="wizard-step" id="step-3">
+          <h3 style="font:600 16px/1.2 'Inter'; margin: 0 0 4px;">Sign the User Policy</h3>
+          <p style="font:400 12px/1.5 'Inter'; color:var(--fg-dim); margin: 0 0 18px;">
+            The policy is the <strong style="color:var(--fg);">only</strong> thing you sign.
+            Every trade the agent makes is checked against this signed policy before
+            it goes on-chain.
+          </p>
+          <div class="banner info">
+            <span>◆</span>
+            <div>
+              The wallet you just created will sign <code style="color:var(--accent);">config/policy.yaml</code>
+              with EIP-191. You can re-sign any time to bump the policy version.
+            </div>
+          </div>
+          <div class="field">
+            <label>Evaluator address <span style="color:var(--fg-dimmer);">(advanced)</span></label>
+            <input id="wiz-eval" type="text" placeholder="leave blank to use the same address as the agent" />
+            <div class="hint">In single-user setups, leave blank. In multi-sig setups, set this to your cold-wallet evaluator.</div>
+          </div>
+          <div class="field">
+            <label>Wallet password <span style="color:var(--red);">*</span></label>
+            <input id="wiz-pwd-sign" type="password" placeholder="the password you set in step 2" />
+          </div>
+          <div id="wiz-sign-result"></div>
+          <div class="actions">
+            <button class="btn" onclick="wizardBack(3)">← Back</button>
+            <button class="btn primary" onclick="wizardSign()">Sign Policy</button>
+          </div>
+        </div>
+
+        <!-- Step 4: Done -->
+        <div class="wizard-step" id="step-4">
+          <div class="complete-card">
+            <div class="check">✓</div>
+            <h3 style="font:600 18px/1.2 'Inter'; margin:0 0 4px; color:var(--green);">Setup Complete</h3>
+            <p style="font:400 12px/1.4 'Inter'; color:var(--fg-dim); margin:0;">
+              Your agent is configured and the policy is signed. Restart the agent
+              to load the new wallet.
+            </p>
+          </div>
+          <div id="wiz-final-summary"></div>
+          <div class="actions">
+            <button class="btn danger" onclick="wizardReset()">Reset Everything</button>
+            <button class="btn primary" onclick="showPane('live'); refresh()">Open Live Dashboard →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
 
     <!-- Live pane (default) -->
     <div id="pane-live">
@@ -795,12 +1019,200 @@ async function refresh() {
 
 /* === pane switching ============================================== */
 function showPane(p) {
-  for (const id of ['live','config','logs','replay']) {
+  for (const id of ['setup','live','config','logs','replay']) {
     $(`pane-${id}`).style.display = (id === p) ? '' : 'none';
     const b = $('nav-' + id); if (b) b.classList.toggle('active', id === p);
   }
   if (p === 'logs') startLogStream();
   else stopLogStream();
+  if (p === 'setup') wizardLoad();
+}
+
+/* === setup wizard ================================================ */
+const WIZ = {
+  step: 1,
+  rpcs: {
+    testnet: [
+      'https://data-seed-prebsc-1-s1.binance.org:8545',
+      'https://data-seed-prebsc-2-s1.binance.org:8545',
+      'https://bsc-testnet-rpc.publicnode.com',
+    ],
+    mainnet: [
+      'https://bsc-dataseed.binance.org',
+      'https://bsc-dataseed1.defibit.io',
+      'https://bsc-dataseed1.ninicoin.io',
+    ],
+    replay: [],
+  },
+};
+
+async function wizardLoad() {
+  const s = await jget('/api/setup');
+  // pre-fill form with existing values
+  $('wiz-mode').value = s.mode || 'testnet';
+  $('wiz-rpcs').value = (s.rpcs || []).join('\n');
+  // if setup is already complete, jump to step 4
+  if (s.is_complete) {
+    renderFinalSummary(s);
+    gotoStep(4);
+  } else {
+    // jump to first incomplete step
+    if (!s.wallet_address) gotoStep(1);
+    else if (!s.evaluator_address || !s.policy_signed) gotoStep(2);
+    else gotoStep(1);
+  }
+  // populate step-3 evaluator field
+  $('wiz-eval').value = s.evaluator_address || '';
+}
+
+function gotoStep(n) {
+  WIZ.step = n;
+  for (let i = 1; i <= 4; i++) {
+    $(`step-${i}`).classList.toggle('active', i === n);
+    const stp = $(`stp-${i}`);
+    stp.classList.toggle('active', i === n);
+    stp.classList.toggle('done', i < n);
+  }
+}
+
+function bannerHtml(kind, text) {
+  return `<div class="banner ${kind}"><span>${kind === 'error' ? '✕' : kind === 'ok' ? '✓' : kind === 'warn' ? '⚠' : '◆'}</span><div>${text}</div></div>`;
+}
+
+function addressBox(addr, label) {
+  return `
+    <div class="kv"><span class="k">${label}</span><span class="v accent mono">${addr || '—'}</span></div>
+    <div class="address-box mono">${addr || '—'}</div>
+  `;
+}
+
+async function wizardNext(from) {
+  // validate + persist step 1 (network) before advancing
+  if (from === 1) {
+    const mode = $('wiz-mode').value;
+    const rpcs = $('wiz-rpcs').value.split('\n').map(s => s.trim()).filter(Boolean);
+    const cmc  = $('wiz-cmc-key').value;
+    if (mode !== 'replay' && rpcs.length === 0) {
+      $('wiz-rpcs').style.borderColor = 'var(--red)';
+      return;
+    }
+    $('wiz-rpcs').style.borderColor = '';
+    const r = await jpost('/api/setup/config', { mode, chain_id: mode === 'mainnet' ? 56 : 97, rpcs, cmc_api_key: cmc });
+    if (!r.ok) {
+      alert('config error: ' + r.error);
+      return;
+    }
+    gotoStep(2);
+  }
+}
+
+function wizardBack(to) {
+  gotoStep(to);
+}
+
+function toggleWalletMode() {
+  const m = $('wiz-wallet-mode').value;
+  $('wiz-wallet-import-block').style.display = (m === 'import') ? '' : 'none';
+  $('wiz-wallet-btn').textContent = (m === 'import') ? 'Import Wallet' : 'Create Wallet';
+}
+
+async function wizardCreateWallet() {
+  const mode  = $('wiz-wallet-mode').value;
+  const pwd   = $('wiz-pwd').value;
+  const pwd2  = $('wiz-pwd2').value;
+  const pk    = $('wiz-pk').value;
+  if (pwd.length < 8) {
+    $('wiz-wallet-result').innerHTML = bannerHtml('error', 'Password must be at least 8 characters.');
+    return;
+  }
+  if (pwd !== pwd2) {
+    $('wiz-wallet-result').innerHTML = bannerHtml('error', 'Passwords do not match.');
+    return;
+  }
+  if (mode === 'import' && !pk.match(/^0x[0-9a-fA-F]{64}$/)) {
+    $('wiz-wallet-result').innerHTML = bannerHtml('error', 'Private key must be 0x + 64 hex characters.');
+    return;
+  }
+  const endpoint = mode === 'import' ? '/api/setup/wallet/import' : '/api/setup/wallet';
+  const body = mode === 'import' ? { private_key: pk, password: pwd } : { password: pwd };
+  $('wiz-wallet-result').innerHTML = bannerHtml('info', 'encrypting…');
+  const r = await jpost(endpoint, body);
+  if (!r.ok) {
+    $('wiz-wallet-result').innerHTML = bannerHtml('error', r.error || 'wallet creation failed');
+    return;
+  }
+  $('wiz-wallet-result').innerHTML =
+    bannerHtml('ok', `Wallet ready at <code class="mono">${r.path}</code>.`) +
+    addressBox(r.address, 'Agent address (this EOA signs every tx)');
+  // advance to step 3 after a beat
+  setTimeout(() => gotoStep(3), 800);
+}
+
+async function wizardSign() {
+  const pwd  = $('wiz-pwd-sign').value;
+  const eval_ = $('wiz-eval').value.trim();
+  if (!pwd) {
+    $('wiz-sign-result').innerHTML = bannerHtml('error', 'Password is required to unlock the wallet.');
+    return;
+  }
+  // If the user supplied a custom evaluator, write it into policy.yaml first
+  if (eval_ && eval_.match(/^0x[0-9a-fA-F]{40}$/)) {
+    // best-effort: do this via a tiny inline editor; we don't have an
+    // endpoint for it, so for v1.1 the evaluator is the same as agent
+    $('wiz-sign-result').innerHTML = bannerHtml('warn', 'Multi-sig evaluator (advanced) is set in config/policy.yaml directly. For now, evaluator = agent.');
+  }
+  $('wiz-sign-result').innerHTML = bannerHtml('info', 'unlocking wallet + signing policy…');
+  const r = await jpost('/api/setup/sign', { password: pwd });
+  if (!r.ok) {
+    $('wiz-sign-result').innerHTML = bannerHtml('error', r.error || 'signing failed');
+    return;
+  }
+  $('wiz-sign-result').innerHTML =
+    bannerHtml('ok', `Policy v${r.version} signed.`) +
+    addressBox(r.signature, 'EIP-191 signature');
+  // advance to done after a beat
+  setTimeout(async () => {
+    const s = await jget('/api/setup');
+    renderFinalSummary(s);
+    gotoStep(4);
+    checkSetupBadge();
+  }, 1000);
+}
+
+function renderFinalSummary(s) {
+  $('wiz-final-summary').innerHTML = `
+    <div class="panel" style="margin-top:12px;">
+      <h4>Final state</h4>
+      <div class="kv"><span class="k">Mode</span><span class="v">${s.mode}</span></div>
+      <div class="kv"><span class="k">Chain</span><span class="v">${s.chain_id === 56 ? 'BSC mainnet' : 'BSC testnet'}</span></div>
+      <div class="kv"><span class="k">Agent address</span><span class="v mono accent">${s.wallet_address || '—'}</span></div>
+      <div class="kv"><span class="k">Evaluator</span><span class="v mono">${s.evaluator_address || '—'}</span></div>
+      <div class="kv"><span class="k">Policy</span><span class="v mono">v${s.policy_version || '—'}</span></div>
+      <div class="kv"><span class="k">Keystore</span><span class="v mono">${s.keystore_path || '—'}</span></div>
+      <div class="kv"><span class="k">CMC</span><span class="v">${s.cmc_api_key_set ? 'Pro API key set' : 'x402 micro-payments'}</span></div>
+    </div>
+  `;
+}
+
+async function wizardReset() {
+  if (!confirm('Wipe wallet, policy, and config? This cannot be undone.')) return;
+  await jpost('/api/setup/reset', {});
+  $('wiz-wallet-result').innerHTML = '';
+  $('wiz-sign-result').innerHTML = '';
+  $('wiz-eval').value = '';
+  $('wiz-pk').value = '';
+  $('wiz-pwd').value = '';
+  $('wiz-pwd2').value = '';
+  $('wiz-pwd-sign').value = '';
+  gotoStep(1);
+  checkSetupBadge();
+}
+
+/* show "setup required" badge if not complete */
+async function checkSetupBadge() {
+  const s = await jget('/api/setup/checklist');
+  const badge = $('setup-badge');
+  if (badge) badge.style.display = s.complete ? 'none' : '';
 }
 
 /* === kill switch ================================================== */
@@ -863,8 +1275,19 @@ function stopLogStream() {
 }
 
 /* === boot ========================================================= */
-refresh();
-setInterval(refresh, 1500);
+(async function boot() {
+  await checkSetupBadge();
+  const s = await jget('/api/setup/checklist');
+  // First-time users land in Setup; existing operators land in Live.
+  if (!s.complete) {
+    showPane('setup');
+  } else {
+    showPane('live');
+  }
+  refresh();
+  setInterval(refresh, 1500);
+  setInterval(checkSetupBadge, 5000);
+})();
 window.addEventListener('beforeunload', stopLogStream);
 </script>
 </body>
