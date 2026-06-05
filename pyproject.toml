@@ -26,7 +26,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+    "pytest-mock>=3.12",
+]
 twak = ["@trustwallet/cli"]  # npm-managed, see package.json
 
 [project.scripts]

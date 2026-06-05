@@ -103,11 +103,18 @@ class SleeveACarry:
         if venue == self.venue and set(basket) == set(self.basket) and self.rows:
             return  # no change
 
-        # Close existing carry
-        for sym, row in list(self.rows.items()):
-            self.perps.close_short(venue=row.venue, market=sym)
+        # Close existing carry — both legs atomically via _close_pair so
+        # we never leave an orphan spot leg during the 1-2 minute rebalance
+        # window. Audit finding: rebalance was closing the perp short
+        # directly, leaving the spot leg running unhedged. The strategy is
+        # delta-neutral by construction; an open spot without its short is
+        # exactly the directional exposure we are designed to avoid.
+        for sym in list(self.rows.keys()):
+            # Use the mark for the exit; reason="rebalance" so it shows up
+            # clearly in the trades table.
+            mark = float(self.perps.mark(self.rows[sym].venue, sym))
+            self._close_pair(sym, exit_price=Decimal(str(mark)), reason="rebalance")
 
-        self.rows.clear()
         self.venue = venue
         self.basket = basket
         self.last_rebalance = int(time.time())

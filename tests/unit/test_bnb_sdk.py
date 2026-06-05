@@ -65,6 +65,25 @@ class TestPerps:
         f = p.current_funding("aster", "BTC")
         assert -0.05 < f < 0.05
 
+    def test_funding_within_realistic_8h_band(self):
+        """Lock the calibration: real BSC venues (Aster / KiloEx / ApolloX /
+        MUX) settle 8h at 0.01%–0.05%, widened slightly for tail events.
+        If you change the band, you're making a business decision, not a
+        test tweak — update the docstring in bnb_sdk._ensure as well."""
+        p = Perps(mode="testnet")
+        # Sample 50 fresh (venue, market) pairs.
+        venues = ["aster", "killex", "apollox", "mux"]
+        markets = [f"SYM{i}" for i in range(50)]
+        for v in venues:
+            for m in markets:
+                f = p.current_funding(v, m)
+                # 8h band: -0.05% to +0.15% (centi-percent to ~0.15%)
+                assert -0.0005 <= f <= 0.0015, (
+                    f"funding out of band: venue={v} market={m} f={f}. "
+                    f"Real BSC venues settle 8h at 0.01%-0.05%; widen the band "
+                    f"only after reading the venue's actual settlement history."
+                )
+
     def test_open_close_short(self):
         p = Perps(mode="testnet")
         tx_open = p.open_short("aster", "BTC", size_usd=100, leverage=1, collateral_usdc=100)

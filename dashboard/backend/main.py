@@ -601,13 +601,24 @@ def build_app() -> FastAPI:
         if tm is None:
             return JSONResponse({"error": "TokenModule not loaded"}, status_code=503)
         network = body.get("network", "testnet")
-        if network == "mainnet" and not body.get("confirm_mainnet", False):
-            return JSONResponse({"error": "mainnet requires confirm_mainnet=true"},
-                                status_code=400)
+        symbol = (body.get("symbol") or "").strip()
+        if network == "mainnet":
+            if not body.get("confirm_mainnet", False):
+                return JSONResponse({"error": "mainnet requires confirm_mainnet=true"},
+                                    status_code=400)
+            # Server-side re-check of the symbol match. The dashboard
+            # prompts the user to type the symbol; we verify here too in
+            # case the client was bypassed (curl, MCP, malicious script).
+            typed = (body.get("confirm_symbol") or "").strip()
+            if not typed or typed.upper() != symbol.upper():
+                return JSONResponse(
+                    {"error": f"mainnet requires confirm_symbol matching '{symbol}' (case-insensitive)"},
+                    status_code=400,
+                )
         try:
             result = await tm.create_token(
                 name=body.get("name", ""),
-                symbol=body.get("symbol", ""),
+                symbol=symbol,
                 supply=int(body.get("supply", 0)),
                 decimals=int(body.get("decimals", 18)),
                 network=network,

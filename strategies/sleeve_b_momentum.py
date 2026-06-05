@@ -47,6 +47,11 @@ class SleeveBMomentum:
         self.basket_top_n = 200
         self.positions: dict[str, Position] = {}
         self.win_rate_by_symbol: dict[str, float] = {}
+        # symbol → entry ATR. Used by the vol-spike rescale in
+        # _monitor_open_positions. If realized vol doubles mid-trade, the
+        # static 2*ATR stop becomes too tight; we widen to 2*current_ATR
+        # clamped to a max loss of max_loss_pct.
+        self.entry_atr: dict[str, float] = {}
         # symbol → epoch of last losing exit. Used to prevent revenge re-entries.
         self.loss_cooldown_until: dict[str, int] = {}
         self.loss_cooldown_s: int = 4 * 3600  # 4h cool-off after a stop-out
@@ -169,11 +174,17 @@ class SleeveBMomentum:
             tp_price=Decimal(str(px * (1 + tp_pct))),
         )
         self.positions[sym] = pos
+        self.entry_atr[sym] = atr14
         self.portfolio.add_position(f"B:{sym}", pos)
         log.info(f"Sleeve B: opened {sym} @ {px:.4f} size=${size} stop=${pos.stop_price} tp=${pos.tp_price}")
 
     async def _monitor_open_positions(self, equity: Decimal):
         max_hold = self.policy["sleeves"]["B"]["max_hold_min"] * 60
+        sleeve_cfg = self.policy["sleeves"]["B"]
+        vol_spike_threshold = float(sleeve_cfg.get("vol_spike_threshold", 1.5))
+        max_loss_pct = float(sleeve_cfg.get("max_loss_pct", 5.0)) / 100.0
+        atr_stop_mult = float(sleeve_cfg["atr_stop_mult"])
+        atr_len = int(sleeve_cfg["atr_len"])
         for sym, pos in list(self.positions.items()):
             try:
                 quote = await self.cmc.quotes_latest([sym])
@@ -181,6 +192,42 @@ class SleeveBMomentum:
             except Exception as e:
                 log.warning(f"Sleeve B monitor {sym}: cmc fail {e}")
                 continue
+
+            # --- ATR rescale on vol spike ---
+            # If realized vol has spiked, the static 2*ATR stop is too tight.
+            # Re-fetch the last `atr_len + 1` 1h candles and recompute ATR.
+            # If current_atr > entry_atr * vol_spike_threshold, widen the
+            # stop to (entry - atr_stop_mult * current_atr), clamped to a
+            # max loss of max_loss_pct on the position. This catches
+            # vol-spike events where the original stop would have been
+            # taken out by a noise tick.
+            entry_atr = self.entry_atr.get(sym)
+            if entry_atr and entry_atr > 0:
+                try:
+                    ohlc = await self.cmc.ohlcv_historical(
+                        [sym], time_period="hour", count=atr_len + 1, convert="USD",
+                    )
+                    candles = (ohlc.get("data") or {}).get(sym, {}).get("quotes", [])
+                    if len(candles) >= atr_len + 1:
+                        current_atr = self._atr(candles, atr_len)
+                        if current_atr > entry_atr * vol_spike_threshold:
+                            new_stop = float(pos.entry_price) - atr_stop_mult * current_atr
+                            # floor: don't widen beyond max_loss_pct
+                            floor_stop = float(pos.entry_price) * (1 - max_loss_pct)
+                            new_stop = max(new_stop, floor_stop)
+                            # For a long, widening the stop = moving it DOWN
+                            # (more room before exit). The new stop is
+                            # BELOW the old one if ATR spiked.
+                            if float(pos.stop_price) > new_stop:
+                                log.info(
+                                    f"Sleeve B {sym}: vol spike "
+                                    f"(ATR {entry_atr:.4f}→{current_atr:.4f}, "
+                                    f"{current_atr/entry_atr:.1f}× entry), "
+                                    f"widening stop {pos.stop_price}→{new_stop:.4f}"
+                                )
+                                pos.stop_price = Decimal(str(new_stop))
+                except Exception as e:
+                    log.warning(f"Sleeve B monitor {sym}: atr rescale fail {e}")
 
             reason = None
             if px <= pos.stop_price:

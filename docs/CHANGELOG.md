@@ -72,9 +72,9 @@ LLM layers are an additive, safe, bounded extension.
 - 80+ new tests: `test_providers.py`, `test_persona_loader.py`, `test_advisor.py`,
   `test_reviewer.py`, `test_chat.py`, `test_token_module.py`,
   `test_skill_registry.py`, `test_mcp.py` (integration).
-- **151/152** tests passing. The 1 failure is a pre-existing flaky in
+- **171/172** tests passing. The 1 failure is a pre-existing flaky in
   `test_cmc.py::test_replay_mode_consumes_tape` (event-loop pollution in
-  full-suite runs; passes in isolation).
+  full-suite runs; passes in isolation). Tracked in CHANGELOG.
 
 ### Documentation
 

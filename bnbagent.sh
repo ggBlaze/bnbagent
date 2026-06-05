@@ -25,6 +25,7 @@ export PYTHONPATH="$ROOT:${PYTHONPATH:-}"
 
 say()  { printf "\033[1;36m[bnbagent]\033[0m %s\n" "$*"; }
 ok()   { printf "\033[1;32m[bnbagent]\033[0m %s\n" "$*"; }
+err()  { printf "\033[1;31m[bnbagent]\033[0m %s\n" "$*" >&2; }
 
 DASHBOARD_PORT="${BNBAGENT_DASHBOARD_PORT:-8000}"
 EQUITY="${BNBAGENT_EQUITY:-100}"
@@ -32,10 +33,29 @@ EQUITY="${BNBAGENT_EQUITY:-100}"
 case "${1:-}" in
   --replay)
     say "running 7-day synthetic replay (no live network)…"
-    exec python -m backtest.replay \
+    set +e
+    python -m backtest.replay \
         --tape data/synthetic_week.json \
         --report data/reports/replay.html \
         --equity "$EQUITY"
+    rc=$?
+    set -e
+    # The harness writes a JSON sidecar next to replay.html. Read it
+    # and exit non-zero on any breach so this script is CI-friendly.
+    metrics_json="${BNBAGENT_REPLAY_METRICS:-data/reports/replay.json}"
+    if [[ -f "$metrics_json" ]]; then
+      sharpe=$(python -c "import json,sys; print(json.load(open('$metrics_json')).get('sharpe', 0.0))")
+      max_dd=$(python -c "import json,sys; print(json.load(open('$metrics_json')).get('max_drawdown_pct', 0.0))")
+      breaches=$(python -c "import json,sys; print(json.load(open('$metrics_json')).get('breaches', 0))")
+      ok "replay: sharpe=$sharpe maxDD=$max_dd% breaches=$breaches"
+      python -c "
+import json, sys
+m = json.load(open('$metrics_json'))
+breach = (m.get('sharpe', 0.0) < 0.0) or (m.get('max_drawdown_pct', 0.0) > 8.0) or (m.get('breaches', 0) > 0)
+sys.exit(1 if breach else 0)
+" || { err "replay breached policy gates"; exit 1; }
+    fi
+    exit $rc
     ;;
   --repl)
     say "opening Python REPL with components pre-loaded (p is the boot dict)…"

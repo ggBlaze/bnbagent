@@ -5,6 +5,13 @@ The MCP (Model Context Protocol) server exposes the BNB Agent as
 Goose, Cursor, and other agentic UIs can drive the BNB Agent as if it
 were a function library.
 
+> **Opt-in service.** `bash bnbagent` does **not** start the MCP server.
+> The default run is the agent + dashboard, self-contained. To expose
+> the agent to other agents, start the MCP server as a separate process
+> via `scripts/mcp_serve.sh` (stdio) or `scripts/mcp_serve_sse.sh` (SSE).
+> This separation is intentional — a stray MCP client can't accidentally
+> poke at a self-contained agent run.
+
 ## Tools exposed
 
 | Tool | What it does |

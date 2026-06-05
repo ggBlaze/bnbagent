@@ -1538,18 +1538,23 @@ async function deployToken() {
     confirmMainnet = confirm(
       `DEPLOY ON BSC MAINNET\n\n` +
       `This spends real BNB and is IRREVERSIBLE.\n\n` +
-      `Type the token name in the next prompt to confirm.`
+      `Type the token symbol in the next prompt to confirm.`
     );
     if (!confirmMainnet) return;
-    const typed = prompt(`Type the token name "${name}" to confirm mainnet deploy:`);
-    if (typed !== name) {
-      alert('Confirmation text did not match — aborting.');
+    // Confirm by typing the SYMBOL (case-insensitive), not the name.
+    // The symbol is what goes on-chain forever; unicode/mixed-case in
+    // the name ("Mooncoin" vs "mooncoin") would let a near-mistake
+    // through. The symbol is the canonical identifier.
+    const typed = prompt(`Type the token symbol "${symbol}" to confirm mainnet deploy:`);
+    if (!typed || typed.trim().toUpperCase() !== symbol.toUpperCase()) {
+      alert(`Confirmation text did not match symbol "${symbol}" — aborting.`);
       return;
     }
   }
   const r = await jpost('/api/tokens/deploy', {
     name, symbol, supply, decimals, network, protocol,
     confirm_mainnet: confirmMainnet,
+    confirm_symbol: confirmMainnet ? typed : null,
   });
   const out = $('tok-result');
   if (!r.ok) {

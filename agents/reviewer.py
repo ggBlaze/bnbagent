@@ -132,6 +132,25 @@ class TradeReviewer:
 
     # --- heuristic -------------------------------------------------------
 
+    # Recent-trades window. 10 trades, exponentially weighted so the most
+    # recent trade has weight 1 and the 10th-back has weight 0.5^9 ≈ 0.002.
+    # This catches slow drawdowns the old 4/5 window missed.
+    RECENT_WINDOW = 10
+    WEIGHTED_LOSS_VETO_THRESHOLD = 0.45  # policy-overridable; see _heuristic_veto
+
+    def _weighted_loss_intensity(self, recent: list[dict], n: int | None = None) -> float:
+        """Exponential decay: last trade gets 0.5, decays by half going back.
+        Returns the weighted fraction of losing trades in [0, 1]."""
+        n = n or self.RECENT_WINDOW
+        if not recent:
+            return 0.0
+        last = recent[-n:]
+        # 0.5 ** (n-1-i): i=last → 0.5**0 = 1, i=first → 0.5**(n-1)
+        weights = [0.5 ** (len(last) - 1 - i) for i in range(len(last))]
+        total = sum(weights) or 1.0
+        weights = [w / total for w in weights]
+        return sum(w for w, t in zip(weights, last) if float(t.get("pnl_pct", 0)) < 0)
+
     def _heuristic_veto(self, sleeve_state: dict) -> tuple[bool, str]:
         """Returns (allow, reason). True = no veto."""
         wr = float(sleeve_state.get("win_rate_ewma", 0.55))
@@ -143,12 +162,22 @@ class TradeReviewer:
         max_dd = float(sleeve_state.get("policy_max_dd_pct", 100))
         if max_dd > 0 and sleeve_dd > 0.5 * max_dd:
             return False, f"heuristic: sleeve_dd {sleeve_dd:.1f}% > 50% of policy cap"
+        # Weighted loss intensity over the last N trades. Threshold can be
+        # overridden via policy["global_risk"]["reviewer_loss_intensity_threshold"].
         recent = sleeve_state.get("recent_trades") or []
-        if len(recent) >= 5:
-            last5 = recent[-5:]
-            losses = sum(1 for t in last5 if float(t.get("pnl_pct", 0)) < 0)
-            if losses >= 4:
-                return False, f"heuristic: {losses}/5 recent trades on this symbol lost"
+        if len(recent) >= 3:    # need a few data points to be meaningful
+            threshold = float(
+                (sleeve_state.get("policy_overrides") or {}).get(
+                    "reviewer_loss_intensity_threshold",
+                    self.WEIGHTED_LOSS_VETO_THRESHOLD,
+                )
+            )
+            intensity = self._weighted_loss_intensity(recent)
+            if intensity > threshold:
+                return False, (
+                    f"heuristic: weighted loss intensity {intensity:.2f} > "
+                    f"{threshold:.2f} (last {len(recent[-self.RECENT_WINDOW:])} trades)"
+                )
         return True, "ok"
 
     def _heuristic_decision(self, sleeve_state: dict, *, source: str) -> ReviewVerdict:

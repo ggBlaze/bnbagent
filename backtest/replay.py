@@ -42,19 +42,33 @@ log = logging.getLogger(__name__)
 
 # --- synthetic tape generator (used when no real CMC history is available) ---
 
-def make_synthetic_week(seed: int = 42) -> list[dict]:
-    """Produce 1 week of 5-min candles for the basket. Realistic-ish GBM with funding bias."""
+def make_synthetic_week(seed: int = 42, regime: str = "bull") -> list[dict]:
+    """Produce 1 week of 5-min candles for the basket. Realistic-ish GBM with funding bias.
+
+    Args:
+      seed: RNG seed for reproducibility.
+      regime: "bull" (default, slight positive drift, funding slightly positive),
+              "bear" (slight negative drift, funding slightly negative on average),
+              "chop" (zero drift, fat tails via higher sigma).
+    """
     rng = random.Random(seed)
     symbols = ["BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "AVAX", "LINK",
                "DOT", "MATIC", "SHIB", "LTC", "BCH", "NEAR", "ATOM", "UNI", "APT", "CAKE", "WBNB", "USDC"]
     base = {s: 100 + rng.random() * 1000 for s in symbols}
     minutes = 7 * 24 * 12     # 5-min bars over 7 days = 2016
+    if regime == "bull":
+        mu_low, mu_high, sigma, fund_low, fund_high = -0.0001, 0.0002, 0.005, -0.0005, 0.0015
+    elif regime == "bear":
+        mu_low, mu_high, sigma, fund_low, fund_high = -0.0003, -0.0001, 0.006, -0.0015, 0.0002
+    elif regime == "chop":
+        mu_low, mu_high, sigma, fund_low, fund_high = -0.00005, 0.00005, 0.012, -0.0008, 0.0008
+    else:
+        raise ValueError(f"unknown regime: {regime!r}; use 'bull' | 'bear' | 'chop'")
     tape = []
     for i in range(minutes):
         ts = int(time.time()) - (minutes - i) * 300
         for sym in symbols:
-            mu = rng.uniform(-0.0001, 0.0002)   # positive drift on average
-            sigma = 0.005
+            mu = rng.uniform(mu_low, mu_high)
             ret = rng.gauss(mu, sigma)
             close = base[sym] * (1 + ret)
             high = max(base[sym], close) * (1 + abs(rng.gauss(0, sigma/2)))
@@ -69,7 +83,9 @@ def make_synthetic_week(seed: int = 42) -> list[dict]:
                 "volume": rng.uniform(1e5, 1e7),
             })
             base[sym] = close
-    # funding snapshots every 8h
+    # funding snapshots every 8h — calibrated to realistic BSC venue
+    # rates (Aster / KiloEx / ApolloX / MUX settle 8h at 0.01%–0.05%,
+    # widened slightly for tail events). See connectors/bnb_sdk.py.
     fundings = []
     for i in range(0, minutes, 96):
         for sym in symbols:
@@ -77,9 +93,9 @@ def make_synthetic_week(seed: int = 42) -> list[dict]:
                 "ts": int(time.time()) - (minutes - i) * 300,
                 "symbol": sym,
                 "venue": rng.choice(["aster", "killex", "apollox", "mux"]),
-                "funding": rng.uniform(-0.01, 0.012),
+                "funding": rng.uniform(fund_low, fund_high),
             })
-    return {"candles": tape, "fundings": fundings}
+    return {"candles": tape, "fundings": fundings, "regime": regime, "seed": seed}
 
 
 # --- replay engine ---
@@ -233,6 +249,12 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
     # metrics
     eq_curve = equity_curve_from_trades(float(equity), list(portfolio.closed_trades))
     metrics = report(eq_curve, list(portfolio.closed_trades), starting_equity=float(equity))
+    # Surface the breach count + the kill-switch flag in the JSON so the
+    # bnbagent.sh launcher can decide exit code. Without this, --replay
+    # always returns 0 from a successful Python invocation even if the
+    # agent blew through its risk gates.
+    metrics["breaches"] = len(breaches)
+    metrics["kill_switch_engaged"] = bool(getattr(portfolio, "kill_switch", False))
 
     # write report
     Path(report_path).parent.mkdir(parents=True, exist_ok=True)

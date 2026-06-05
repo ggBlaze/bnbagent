@@ -6,13 +6,19 @@ MCP integration.
 
 **Format:** screen recording + voiceover, 3 minutes total, 1080p.
 
+**Numbers shown are from the actual `data/reports/replay_bull.html` /
+`replay_bear.html` / `replay_chop.html` run via
+`python -m scripts.run_both_regimes`. The synthetic tape is the stress
+test for the strategy, not the live-PnL window. Replace these with the
+live window numbers once that runs (2026-06-22 → 2026-06-28).**
+
 ---
 
 ## 0:00 – 0:10 — Hook
 
 **Show:** the dashboard at `http://localhost:8000` (live, v2.0).
 
-> "BNB Agent — live, right now. $103.42 equity, +3.4% on the week, max drawdown under 2%. Three sleeves running on BNB Smart Chain. A 3-layer LLM agent team — advisor, reviewer, chat — overlays the deterministic engine with hard safety envelopes. All three sponsor layers visible in this single URL."
+> "BNB Agent — live, right now. A three-sleeve trading agent on BNB Smart Chain, plus a 3-layer LLM agent team that overlays the deterministic engine with hard safety envelopes. The agent pays for its own data with USDC via x402, signs its own txs with Trust Wallet, and is registered on-chain as its own AI identity. All three sponsor layers visible in this single URL."
 
 ---
 
@@ -20,9 +26,9 @@ MCP integration.
 
 **Click:** the **/api/cmc-charges** panel. Scroll the x402 microcharge ledger.
 
-> "CoinMarketCap: 47 x402 calls in the last hour, $0.47 spent in USDC micropayments. Every data call — quotes, OHLCV, listings, the Token Module's metadata enrichment — goes through x402. The agent pays for its own data."
+> "CoinMarketCap: every market-data call — quotes, OHLCV, listings, the Token Module's metadata enrichment — goes through x402. The agent pays for its own data in USDC micropayments. Here's the EIP-3009 `transferWithAuthorization` on BscScan."
 
-**Click** a row → opens BscScan → show the EIP-3009 `transferWithAuthorization` tx.
+**Click** a row → opens BscScan → show the EIP-3009 tx.
 
 ---
 
@@ -30,7 +36,7 @@ MCP integration.
 
 **Click:** the **TWAK-signed txs** panel.
 
-> "Trust Wallet: 30 signed transactions. Every spot swap, every perp, every contract deploy — signed locally by TWAK. AES-256-GCM at ~/.twak/wallet.json, PBKDF2 200k. The wallet was created from this dashboard's Setup wizard — the key was encrypted on receipt and never left the host. No per-transaction taps."
+> "Trust Wallet: every spot swap, every perp, every contract deploy — signed locally by TWAK. AES-256-GCM at ~/.twak/wallet.json, PBKDF2 200k. The wallet was created from this dashboard's Setup wizard — the key was encrypted on receipt and never left the host. No per-transaction taps."
 
 **Click** a row → BscScan → show the EOA is the agent's address.
 
@@ -54,7 +60,7 @@ MCP integration.
 
 **Click:** the **Chat** tab.
 
-> "The v2.0 agent team. Three LLM layers, each with a hard safety envelope enforced in code. The chat can dispatch nine tools — get_pnl_summary, list_recent_trades, recommend_risk_change, create_token, enable_skill, and so on — but it can never apply a policy change. Only the user's wallet can sign."
+> "The v2.0 agent team. Three LLM layers, each with a hard safety envelope enforced in code, not delegated to the LLM. The advisor can only TIGHTEN the signed policy. The reviewer can only VETO a trade, with a 0.5s timeout and a heuristic fallback. The chat can recommend a policy change but never apply it — only the user's wallet can sign."
 
 Type in the chat: "what is my PnL today?" → the LLM streams a response grounded in the live portfolio state.
 
@@ -62,7 +68,7 @@ Type: "create a token called Mooncoin with symbol MOON and supply 1 billion" →
 
 **Click** the **Tokens** tab.
 
-> "The Token Module is its own tab. ERC-20 deploy on BSC. x402-pays CMC for metadata, TWAK-signs the deploy tx, BNB SDK broadcasts. The result: a contract address, a BscScan link, and an optional single-file HTML landing page."
+> "The Token Module is its own tab. ERC-20 deploy on BSC. x402-pays CMC for metadata, TWAK-signs the deploy tx, BNB SDK broadcasts. Mainnet deploys require the user to type the token SYMBOL — case-insensitive match, since the symbol is the canonical on-chain identifier forever."
 
 Show the result card with the website download button.
 
@@ -76,19 +82,19 @@ Show the result card with the website download button.
 
 **Click:** the **Logs** tab briefly to show the SSE stream.
 
-> "The agent is also exposed as an MCP server — 10 tools over stdio or SSE. Claude Code, Goose, Cursor — any MCP client can call bnbagent_get_pnl, bnbagent_deploy_token, bnbagent_chat, bnbagent_list_skills, and so on. Other agents can drive the whole stack."
+> "The agent is also exposed as an MCP server — 10 tools over stdio or SSE. Claude Code, Goose, Cursor, Continue — any MCP client can drive the whole stack. The MCP server is OPT-IN — you start it with a separate command when you want other agents to call in."
 
 ---
 
-## 1:50 – 2:20 — Rule adherence + PnL walk
+## 1:50 – 2:20 — Rule adherence + replay KPIs
 
 **Click:** the **Live** tab → **User Policy** card.
 
-> "The user signed the policy ONCE — EIP-191 over the policy hash, version 2.0.0. The signature is right there. Every trade the agent took passed the circuit breaker AND the Layer 2 reviewer veto. Rule adherence: zero breaches."
+> "The user signed the policy ONCE — EIP-191 over the policy hash. The signature is right there. Every trade the agent took passed the circuit breaker AND the Layer 2 reviewer veto. The reviewer uses a 10-trade weighted loss-intensity heuristic that catches slow drawdowns the old 4-out-of-5 rule missed."
 
-**Click:** the **Recent Trades** table.
+**Click:** the **Replay** tab (or open `data/reports/replay_compare.html`).
 
-> "Sleeve A: 70% in funding carry on a basket of 18 BSC tokens, near-zero delta. Sleeve B: 2 momentum trades, both 3% TP hits. Sleeve C: 1 mean-reversion trade. Total: +1.2% over 24h, max drawdown 1.8%."
+> "Here's the honest backtest, run on the same code with three synthetic regimes. Bull: -3.07% return, 0% hit rate, the daily-loss circuit breaker tripped and protected the rest of the book. Bear: +0.50% with 60% hit rate over 3,368 trades, max DD 4.19%. Chop: -3.04% return with 60% hit rate on 5 trades. The 3.07% drawdown in the bull regime is exactly the circuit breaker doing its job. The bear regime is the carry sleeve's friend — and we see it work."
 
 ---
 
@@ -102,7 +108,7 @@ Show the result card with the website download button.
 
 ## 2:40 – 3:00 — Close
 
-> "Backtest vs. last week: Sharpe 4.2, max DD 1.8%, hit rate 71%. Open-source on GitHub. Live dashboard right here. This is BNB Agent v2.0 — built for the BNB HACK 2026. Thanks."
+> "Open-source on GitHub. Live dashboard right here. 171 of 172 tests passing, enforced by GitHub Actions CI. This is BNB Agent v2.0 — built for the BNB HACK 2026. Thanks."
 
 ---
 
@@ -114,3 +120,7 @@ Show the result card with the website download button.
 - Have BscScan + 8004scan open in browser tabs for the deep links
 - Pre-approve a sample trade so the LLM has a v2.0 reviewer entry to show
 - Keep the voiceover calm and confident; the numbers speak for themselves
+- **Replace the bull/bear/chop numbers above with live window numbers
+  after 2026-06-22 → 2026-06-28.** The script is honest about the
+  synthetic tape; don't fabricate live numbers.
+

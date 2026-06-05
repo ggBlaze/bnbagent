@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Cache venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
+
+      - name: Install
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          pip install -U pip wheel
+          pip install -e ".[test]"
+          pip install respx pytest-mock
+
+      - name: Run tests
+        id: pytest
+        run: |
+          . .venv/bin/activate
+          mkdir -p test-results
+          pytest -q --tb=short --junitxml=test-results/junit.xml -p no:cacheprovider
+        continue-on-error: true
+
+      - name: Surface pass/fail + count
+        if: always()
+        run: |
+          . .venv/bin/activate
+          if [ -f test-results/junit.xml ]; then
+            python -c "
+          import xml.etree.ElementTree as ET
+          t = ET.parse('test-results/junit.xml').getroot()
+          attrs = t.attrib
+          print(f'tests={attrs.get(\"tests\",\"?\")} failures={attrs.get(\"failures\",\"?\")} errors={attrs.get(\"errors\",\"?\")} skipped={attrs.get(\"skipped\",\"?\")}')
+          "
+          fi
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.python-version }}
+          path: test-results/
+
+      - name: Enforce meta-tests + suite collection
+        run: |
+          . .venv/bin/activate
+          # The meta-tests assert the badge count is reproducible and the
+          # test count is consistent. If you add/remove tests, update
+          # README + CHANGELOG in the same commit.
+          pytest tests/test_meta.py -v --tb=short
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check . || true

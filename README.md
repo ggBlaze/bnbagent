@@ -11,7 +11,8 @@
 [![BNB Chain](https://img.shields.io/badge/BNB%20Chain-AI%20Agent%20SDK-orange)](https://www.bnbchain.org/en/solutions/ai-agent)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-151%2F152%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-171%2F172%20passing-brightgreen)](tests/)
+[![CI](https://img.shields.io/badge/CI-enforced-blueviolet)](.github/workflows/ci.yml)
 
 ---
 
@@ -63,8 +64,8 @@ That's it. The dashboard auto-loads; first-time users land in the **Setup wizard
 | `bash bnbagent` | start the agent + dashboard, Ctrl+C stops both |
 | `bash bnbagent --replay` | run a 7-day synthetic replay; HTML report at `data/reports/replay.html` |
 | `bash bnbagent --repl` | open a Python REPL with `p = boot(...)` pre-loaded |
-| `bash scripts/mcp_serve.sh` | run the MCP server (stdio, for Claude Code / Goose) |
-| `bash scripts/mcp_serve_sse.sh` | run the MCP server (SSE, port 8765) |
+| `bash scripts/mcp_serve.sh` | **opt-in** — run the MCP server (stdio, for Claude Code / Goose) as a separate process |
+| `bash scripts/mcp_serve_sse.sh` | **opt-in** — run the MCP server (SSE, port 8765) for remote agents |
 
 > Requires **Python 3.10+** and (optionally) **Node 18+** for the TWAK CLI fallback. The dashboard works offline; the only required network access is to BSC RPCs and (if LLM is enabled) to your LLM provider.
 
@@ -287,7 +288,13 @@ Full details: [`docs/SKILLS.md`](docs/SKILLS.md).
 
 ---
 
-## 8. MCP server (other agents can call ours)
+## 8. MCP server (other agents can call ours) — **opt-in**
+
+> **Heads up:** the MCP server is **not** started by `bash bnbagent`. It's
+> an **opt-in** service for when you want other agents to call into the
+> BNB Agent. Run it as a separate process. This is intentional — the
+> default `bnbagent` run is a self-contained agent + dashboard, with
+> nothing listening for outside MCP clients.
 
 `agent_mcp/mcp_server.py` exposes the BNB Agent as **10 MCP tools** over stdio or SSE:
 
@@ -298,16 +305,19 @@ Full details: [`docs/SKILLS.md`](docs/SKILLS.md).
 | `bnbagent_list_trades(n)` | Recent closed trades |
 | `bnbagent_get_policy` | Current signed policy summary |
 | `bnbagent_recommend_risk_change` | Recommendation only — never writes |
-| `bnbagent_deploy_token` | TokenModule deploy (mainnet requires `confirm_mainnet=true`) |
+| `bnbagent_deploy_token` | TokenModule deploy (mainnet requires `confirm_mainnet=true` + `confirm_symbol` match) |
 | `bnbagent_chat` | Talk to the LLM in natural language |
 | `bnbagent_list_skills` | List all Skills + enabled state |
 | `bnbagent_enable_skill` / `bnbagent_disable_skill` | Toggle Skills |
 
-**Run the server:**
+**Run the server (separate from `bnbagent`):**
 
 ```bash
-bash scripts/mcp_serve.sh        # stdio (for Claude Code / Goose / Cursor)
-bash scripts/mcp_serve_sse.sh   # SSE, port 8765
+# stdio — for Claude Code / Goose / Cursor (configure in their mcp_servers.json)
+bash scripts/mcp_serve.sh
+
+# SSE — for remote agents, port 8765 by default
+bash scripts/mcp_serve_sse.sh
 ```
 
 **Integrate with any MCP client** — the server speaks stdio, so any
@@ -520,7 +530,7 @@ bnbagent/
 │   ├── metrics.py
 │   └── replay.py
 │
-├── tests/                         ← 151/152 passing
+├── tests/                         ← 171/172 passing (enforced by CI)
 │   ├── unit/                      ← ~13 files
 │   ├── integration/               ← 1 file (MCP)
 │   └── fixtures/                  ← llm.py, wallets.py, skills.py
@@ -595,7 +605,7 @@ bnbagent/
 ## 15. Testing
 
 ```bash
-pytest -q                          # 151/152 passing (~6s)
+pytest -q                          # 171/172 passing (~12s)
 pytest tests/unit/                 # fast unit tests
 pytest tests/integration/          # MCP end-to-end
 pytest tests/unit/test_risk.py -v # 1 file

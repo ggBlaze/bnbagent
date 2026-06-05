@@ -33,6 +33,13 @@ sleeves:
     max_hold_min: 240
     kelly_fraction: 0.25
     max_position_pct: 10.0
+    # Vol-spike protection: if realized vol > entry_vol * vol_spike_threshold,
+    # the stop is widened to entry - atr_stop_mult * current_atr, clamped to
+    # a max loss of max_loss_pct on the position. Catches tail-vol events
+    # where the static ATR stop is now too tight and would cause an exit
+    # only on a noise tick.
+    vol_spike_threshold: 1.5
+    max_loss_pct: 5.0
   C:
     enabled: true
     zscore_threshold: 2.5

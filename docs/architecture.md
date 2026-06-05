@@ -141,7 +141,7 @@ Agent            CMC Agent Hub            TWAK              BSC RPC          Por
 
 ## Why this is production-ready
 
-- 15,000+ lines of typed Python, fully unit-tested (151/152)
+- 15,000+ lines of typed Python, fully unit-tested (171/172)
 - All configs externalized to YAML
 - Structured JSON logging
 - Single-page dashboard with 7 panes: Setup / Live / **Chat** / **Tokens** / Config / Logs / Replay

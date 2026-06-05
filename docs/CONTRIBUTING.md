@@ -14,7 +14,7 @@ export PYTHONPATH=$PWD
 Run the tests:
 
 ```bash
-pytest -q                        # 151/152 passing
+pytest -q                        # 171/172 passing
 pytest tests/unit/ -v            # verbose unit
 pytest tests/integration/ -v     # MCP end-to-end
 ```
