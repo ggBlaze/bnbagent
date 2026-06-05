@@ -1,7 +1,8 @@
 {
   "name": "bnbagent",
   "version": "1.0.0",
-  "description": "BNB Agent — Trust Wallet Agent Kit (TWAK) integration",
+  "description": "BNB Agent — Trust Wallet Agent Kit (TWAK) integration (by Blaze)",
+  "author": "Blaze",
   "license": "MIT",
   "private": true,
   "scripts": {

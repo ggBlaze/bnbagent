@@ -5,8 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bnbagent"
 version = "1.0.0"
-description = "BNB Agent — Autonomous three-sleeve BSC trading agent for the BNB HACK hackathon"
-authors = [{name = "BNB Agent Team"}]
+description = "BNB Agent — Autonomous three-sleeve BSC trading agent for the BNB HACK hackathon (by Blaze)"
+authors = [{name = "Blaze"}]
 license = {text = "MIT"}
 requires-python = ">=3.10"
 

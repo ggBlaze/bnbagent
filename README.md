@@ -1,6 +1,8 @@
 # 🤖 BNB Agent
 
 > **Autonomous three-sleeve BSC trading agent — built to win the [BNB HACK](https://coinmarketcap.com/api/hackathon/) hackathon.**
+>
+> **By Blaze · MIT License**
 
 [![CoinMarketCap](https://img.shields.io/badge/CoinMarketCap-Agent%20Hub-yellow)](https://coinmarketcap.com/api/agent-hub/)
 [![Trust Wallet](https://img.shields.io/badge/Trust%20Wallet-TWAK-purple)](https://developer.trustwallet.com/)
