@@ -1,0 +1,78 @@
+# BNB Agent — main runtime configuration
+# All values overridable via environment variables (.env).
+
+mode: testnet                              # testnet | mainnet | replay
+
+# --- BSC chain ---
+chain_id: 97                                # 97 = BSC testnet, 56 = mainnet
+rpcs:
+  - https://data-seed-prebsc-1-s1.binance.org:8545
+  - https://data-seed-prebsc-2-s1.binance.org:8545
+  - https://bsc-testnet-rpc.publicnode.com
+gas:
+  max_gwei: 5
+  swap_gas: 250000
+  approve_gas: 100000
+
+# --- Token registry (BSC-20 addresses) ---
+# These are the contracts the agent will trade. Verify on Day 1 against the chain explorer.
+tokens:
+  WBNB:
+    symbol: WBNB
+    bsc_address: "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd"
+    decimals: 18
+  USDC:
+    symbol: USDC
+    bsc_address: "0x64544969ed7EBf2f134FDD6205C5C8D4a9C1aA2E"
+    decimals: 18
+  CAKE:
+    symbol: CAKE
+    bsc_address: "0x9C21123d94b93361B05AbFF9Da46F0b9d4E58d2D"
+    decimals: 18
+  BTCB:
+    symbol: BTCB
+    bsc_address: "0x6ce8dA28E2d8642661d6F3cA5D1c5fD3a5b3F3d1"
+    decimals: 18
+  ETH:
+    symbol: ETH
+    bsc_address: "0xd66c6B4F0be8fD444D7bca09D1dFd1BeA6A3b3a1"
+    decimals: 18
+  # (additional tokens loaded from allowlist.yaml)
+
+# --- DEX routers (PancakeSwap v3) ---
+dex:
+  pcs_v3_router:   "0x9A489505a6B3cd73B4D6C8E6B3E8a3e7B9C8d2e1"
+  pcs_v3_quoter:   "0x9deaAf3f4C1eA1F0A7f2C0B9d8c7e6F5A4b3c2d1"
+  pcs_v3_factory:  "0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865"
+  default_pool_fee: 2500                    # 0.25%
+  pool_fees: [100, 500, 2500, 10000]
+
+# --- Perps venues (research on Day 1; do not commit) ---
+perps:
+  candidates: [aster, killex, apollox, mux]
+  min_oi_usd: 100000                        # venue must have >$100k OI to be selected
+  default_leverage: 1                       # spot-neutral carry
+  min_funding_pct: 0.005                    # 0.005% per 8h = ~0.5% APR floor
+
+# --- CMC Agent Hub ---
+cmc:
+  x402_base: https://api.coinmarketcap.com/agent-hub
+  api_base:  https://pro-api.coinmarketcap.com
+  api_key: ""                                # leave empty for x402-only mode
+  basket_symbols: [BTC, ETH, SOL, XRP, DOGE, ADA, AVAX, LINK, DOT, MATIC,
+                   SHIB, LTC, BCH, NEAR, ATOM, UNI, APT, CAKE, WBNB, USDC]
+  dex_universe_symbols: [WBNB, CAKE, BTCB, ETH, SOL, XRP, DOGE, ADA,
+                          AVAX, LINK, DOT, MATIC, SHIB, LTC, BCH, NEAR,
+                          ATOM, UNI, APT]
+
+# --- Sleeve tick intervals (seconds) ---
+ticks:
+  A: 30
+  B: 300
+  C: 300
+
+# --- Logging ---
+log:
+  level: INFO
+  json: true
+  file: logs/agent.log

@@ -1,0 +1,37 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+.env
+.env.local
+*.log
+.parquet/
+data/parquet/*
+data/recordings/*
+data/jobs-*.json
+data/window-*-summary.json
+data/reports/
+!data/parquet/.gitkeep
+!data/recordings/.gitkeep
+!data/reports/.gitkeep
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.DS_Store
+node_modules/
+dist/
+build/
+logs/
+
+# Agent identity (contains wallet + ERC-8004 token)
+.bnbagent/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

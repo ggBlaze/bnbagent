@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  ipfs:
+    image: ipfs/kubo:latest
+    ports: ["5001:5001", "4001:4001", "8080:8080"]
+    volumes: ["ipfs_data:/data/ipfs"]
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bnbagent
+      POSTGRES_USER: bnbagent
+      POSTGRES_PASSWORD: bnbagent
+    ports: ["5432:5432"]
+    volumes: ["pg_data:/var/lib/postgresql/data"]
+
+  agent:
+    build: ./infra/docker
+    depends_on: [ipfs, postgres]
+    env_file: .env
+    volumes: ["./:/app"]
+    working_dir: /app
+    command: ["python", "-m", "core.main"]
+    restart: unless-stopped
+
+  dashboard:
+    build: ./infra/docker
+    depends_on: [agent]
+    env_file: .env
+    ports: ["${BNBAGENT_DASHBOARD_PORT:-8000}:8000"]
+    volumes: ["./:/app"]
+    working_dir: /app
+    command: ["python", "-m", "uvicorn", "dashboard.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+
+volumes:
+  ipfs_data:
+  pg_data:

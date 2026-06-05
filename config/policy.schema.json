@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bnbagent://policy.schema.json",
+  "title": "BNB Agent User Policy",
+  "type": "object",
+  "required": [
+    "version",
+    "issued_at",
+    "evaluator_address",
+    "global_risk",
+    "sleeve_allocations",
+    "sleeves",
+    "allowlist",
+    "signature"
+  ],
+  "properties": {
+    "version":            { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "issued_at":          { "type": "integer", "minimum": 0 },
+    "expires_at":         { "type": "integer", "minimum": 0 },
+    "evaluator_address":  { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$" },
+    "agent_address":      { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$" },
+    "global_risk": {
+      "type": "object",
+      "required": [
+        "daily_loss_circuit_breaker_pct",
+        "per_trade_risk_pct",
+        "max_gross_leverage",
+        "max_single_position_pct"
+      ],
+      "properties": {
+        "daily_loss_circuit_breaker_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+        "per_trade_risk_pct":             { "type": "number", "minimum": 0, "maximum": 100 },
+        "max_gross_leverage":             { "type": "number", "minimum": 1, "maximum": 10 },
+        "max_single_position_pct":        { "type": "number", "minimum": 0, "maximum": 100 },
+        "max_daily_trades":               { "type": "integer", "minimum": 0 },
+        "max_drawdown_pct":               { "type": "number", "minimum": 0, "maximum": 100 },
+        "cooldown_after_breach_min":      { "type": "integer", "minimum": 0 }
+      }
+    },
+    "sleeve_allocations": {
+      "type": "object",
+      "properties": {
+        "A": { "type": "number", "minimum": 0, "maximum": 1 },
+        "B": { "type": "number", "minimum": 0, "maximum": 1 },
+        "C": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "sleeves": {
+      "type": "object",
+      "properties": {
+        "A": { "$ref": "#/definitions/sleeveA" },
+        "B": { "$ref": "#/definitions/sleeveB" },
+        "C": { "$ref": "#/definitions/sleeveC" }
+      }
+    },
+    "allowlist": {
+      "type": "object",
+      "properties": {
+        "cmc_rank_max":   { "type": "integer", "minimum": 1, "maximum": 500 },
+        "bsc_tokens":     { "type": "array", "items": { "type": "string" } },
+        "perps_venues":   { "type": "array", "items": { "enum": ["aster", "killex", "apollox", "mux"] } },
+        "dex_routers":    { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "fees": {
+      "type": "object",
+      "properties": {
+        "x402_max_usdc_per_day": { "type": "string" },
+        "max_gas_price_gwei":    { "type": "number" }
+      }
+    },
+    "signature": { "type": "string", "pattern": "^0x[a-fA-F0-9]{130}$" }
+  },
+  "definitions": {
+    "sleeveA": {
+      "type": "object",
+      "properties": {
+        "enabled":            { "type": "boolean" },
+        "venue_selection":    { "enum": ["highest_abs_funding_7d"] },
+        "rebalance_hours":    { "type": "integer", "minimum": 1, "maximum": 168 },
+        "fund_floor_pct":     { "type": "number" },
+        "basis_trigger_pct":  { "type": "number" },
+        "max_position_pct":   { "type": "number", "maximum": 100 }
+      }
+    },
+    "sleeveB": {
+      "type": "object",
+      "properties": {
+        "enabled":              { "type": "boolean" },
+        "volume_spike_mult":    { "type": "number" },
+        "breakout_lookback_h":  { "type": "integer" },
+        "atr_len":              { "type": "integer" },
+        "atr_stop_mult":        { "type": "number" },
+        "tp_pct":               { "type": "number" },
+        "max_hold_min":         { "type": "integer" },
+        "kelly_fraction":       { "type": "number", "enum": [0.125, 0.25, 0.5, 1.0] },
+        "max_position_pct":     { "type": "number", "maximum": 100 }
+      }
+    },
+    "sleeveC": {
+      "type": "object",
+      "properties": {
+        "enabled":              { "type": "boolean" },
+        "zscore_threshold":     { "type": "number" },
+        "stop_pct":             { "type": "number" },
+        "target_pct":           { "type": "number" },
+        "lookback_h":           { "type": "integer" },
+        "kelly_fraction":       { "type": "number", "enum": [0.125, 0.25, 0.5, 1.0] },
+        "max_position_pct":     { "type": "number", "maximum": 100 }
+      }
+    }
+  }
+}

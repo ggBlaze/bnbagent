@@ -1,0 +1,16 @@
+{
+  "name": "bnbagent",
+  "version": "1.0.0",
+  "description": "BNB Agent — Trust Wallet Agent Kit (TWAK) integration",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "twak:init": "twak init",
+    "twak:auth": "twak auth status",
+    "twak:sign-msg": "twak sign message",
+    "twak:send-tx": "twak tx send"
+  },
+  "dependencies": {
+    "@trustwallet/cli": "^0.1.0"
+  }
+}

@@ -1,0 +1,26 @@
+[Unit]
+Description=BNB Agent — autonomous BSC trading agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bnbagent
+WorkingDirectory=/opt/bnbagent
+EnvironmentFile=/opt/bnbagent/.env
+ExecStart=/usr/bin/python3 -m core.main --equity 100 --log-level INFO
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bnbagent
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/bnbagent/logs /opt/bnbagent/data
+
+[Install]
+WantedBy=multi-user.target

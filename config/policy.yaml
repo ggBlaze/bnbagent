@@ -1,0 +1,77 @@
+version: 1.0.0
+issued_at: 1717593600
+expires_at: 1718284800
+evaluator_address: '0x60460236Ee5D883E8870b1a5a7F19b7320207494'
+agent_address: '0x5C0115a4d88287e9A6F1B3F70b4e9A4F5eE2a3Bc'
+global_risk:
+  daily_loss_circuit_breaker_pct: 3.0
+  per_trade_risk_pct: 1.0
+  max_gross_leverage: 2.0
+  max_single_position_pct: 15.0
+  max_daily_trades: 100
+  max_drawdown_pct: 8.0
+  cooldown_after_breach_min: 60
+sleeve_allocations:
+  A: 0.7
+  B: 0.2
+  C: 0.1
+sleeves:
+  A:
+    enabled: true
+    venue_selection: highest_abs_funding_7d
+    rebalance_hours: 8
+    fund_floor_pct: 0.005
+    basis_trigger_pct: 0.5
+    max_position_pct: 15.0
+  B:
+    enabled: true
+    volume_spike_mult: 2.0
+    breakout_lookback_h: 4
+    atr_len: 14
+    atr_stop_mult: 2.0
+    tp_pct: 3.0
+    max_hold_min: 240
+    kelly_fraction: 0.25
+    max_position_pct: 10.0
+  C:
+    enabled: true
+    zscore_threshold: 2.5
+    stop_pct: 2.0
+    target_pct: 1.0
+    lookback_h: 1
+    kelly_fraction: 0.25
+    max_position_pct: 5.0
+allowlist:
+  cmc_rank_max: 50
+  bsc_tokens:
+  - WBNB
+  - USDC
+  - CAKE
+  - BTCB
+  - ETH
+  - SOL
+  - XRP
+  - DOGE
+  - ADA
+  - AVAX
+  - LINK
+  - DOT
+  - MATIC
+  - SHIB
+  - LTC
+  - BCH
+  - NEAR
+  - ATOM
+  - UNI
+  - APT
+  perps_venues:
+  - aster
+  - killex
+  - apollox
+  - mux
+  dex_routers:
+  - '0x13f4EA83D0bd40E75C8222255bc855a974568Dd4'
+fees:
+  x402_max_usdc_per_day: '10.00'
+  max_gas_price_gwei: 5
+signature: '0x59451808607b0901fcdf9a9cad524a5fb6a4c42f229fdbe70941dc8d774e88cc483cfac63e6199cac9e5c15f488af3acd56ec22d0ac45cab06d3b6386b14e09b1b'

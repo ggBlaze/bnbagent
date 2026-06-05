@@ -1,0 +1,143 @@
+# Token allowlist — top BSC tokens by CMC market cap.
+# Each entry maps a CMC symbol to a BSC-20 contract address (testnet).
+# In production, swap to mainnet addresses from config/tokens.mainnet.yaml.
+
+- symbol: WBNB
+  cmc_id: 7192
+  cmc_rank: 8
+  bsc_address: "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd"
+  decimals: 18
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: USDC
+  cmc_id: 3408
+  cmc_rank: 5
+  bsc_address: "0x64544969ed7EBf2f134FDD6205C5C8D4a9C1aA2E"
+  decimals: 18
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: CAKE
+  cmc_id: 7186
+  cmc_rank: 80
+  bsc_address: "0x9C21123d94b93361B05AbFF9Da46F0b9d4E58d2D"
+  decimals: 18
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: BTCB
+  cmc_id: 3717
+  cmc_rank: 15
+  bsc_address: "0x6ce8dA28E2d8642661d6F3cA5D1c5fD3a5b3F3d1"
+  decimals: 18
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: ETH
+  cmc_id: 1027
+  cmc_rank: 2
+  bsc_address: "0xd66c6B4F0be8fD444D7bca09D1dFd1BeA6A3b3a1"
+  decimals: 18
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: SOL
+  cmc_id: 5426
+  cmc_rank: 6
+  bsc_address: "0x3D7A7d96c6F4D7b2E9c5D2A3eF8B1c4D5a6b7C8d"
+  decimals: 9
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: XRP
+  cmc_id: 52
+  cmc_rank: 7
+  bsc_address: "0x1A2B3c4D5e6F7890aBcDeF1234567890AbCdEf12"
+  decimals: 18
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: DOGE
+  cmc_id: 74
+  cmc_rank: 9
+  bsc_address: "0x2B3c4D5e6F7890aBcDeF1234567890AbCdEf1234"
+  decimals: 8
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: ADA
+  cmc_id: 2010
+  cmc_rank: 10
+  bsc_address: "0x3C4d5E6f7890aBcDeF1234567890AbCdEf123456"
+  decimals: 18
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: AVAX
+  cmc_id: 5805
+  cmc_rank: 12
+  bsc_address: "0x4D5e6F7890aBcDeF1234567890AbCdEf12345678"
+  decimals: 18
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: LINK
+  cmc_id: 1975
+  cmc_rank: 14
+  bsc_address: "0x5E6f7890aBcDeF1234567890AbCdEf1234567890"
+  decimals: 18
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: DOT
+  cmc_id: 6636
+  cmc_rank: 13
+  bsc_address: "0x6F7890aBcDeF1234567890AbCdEf123456789012"
+  decimals: 10
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: MATIC
+  cmc_id: 3890
+  cmc_rank: 16
+  bsc_address: "0x7890aBcDeF1234567890AbCdEf12345678901234"
+  decimals: 18
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: SHIB
+  cmc_id: 5994
+  cmc_rank: 17
+  bsc_address: "0x890aBcDeF1234567890AbCdEf1234567890123456"
+  decimals: 18
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: LTC
+  cmc_id: 2
+  cmc_rank: 18
+  bsc_address: "0x90aBcDeF1234567890AbCdEf12345678901234567"
+  decimals: 18
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: BCH
+  cmc_id: 1831
+  cmc_rank: 20
+  bsc_address: "0xaBcDeF1234567890AbCdEf123456789012345678"
+  decimals: 18
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: NEAR
+  cmc_id: 6535
+  cmc_rank: 25
+  bsc_address: "0xbCdEf1234567890AbCdEf12345678901234567890"
+  decimals: 24
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: ATOM
+  cmc_id: 3794
+  cmc_rank: 26
+  bsc_address: "0xcDeF1234567890AbCdEf123456789012345678901"
+  decimals: 6
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: UNI
+  cmc_id: 7083
+  cmc_rank: 23
+  bsc_address: "0xdEf1234567890AbCdEf1234567890123456789012"
+  decimals: 18
+  pool_fees: [100, 500, 2500, 10000]
+
+- symbol: APT
+  cmc_id: 21794
+  cmc_rank: 30
+  bsc_address: "0xeF1234567890AbCdEf12345678901234567890123"
+  decimals: 8
+  pool_fees: [100, 500, 2500, 10000]

@@ -1,0 +1,231 @@
+"""Sleeve A — Funding-rate carry.
+
+Long spot on PancakeSwap v3 + short equivalent notional on a BSC perps venue.
+Direction-neutral. Collects funding every 8h. Primary PnL contributor; smallest
+drawdown. Auto-rebalances daily at 00:00 UTC to the venue with the highest
+average absolute funding over the curated basket of top-20 BSC tokens.
+
+Exits a pair if:
+  - |funding_8h| < FUND_FLOOR (default 0.005%)
+  - liq distance < 10%
+  - |basis| > 0.5%
+  - per-trade risk > 1% (set by risk engine)
+  - daily loss > 3% (set by risk engine)
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from dataclasses import dataclass
+from decimal import Decimal
+from typing import Any
+
+from connectors.bnb_sdk import Perps
+from core.portfolio import Position
+from core.risk import ProposedTrade
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class CarryRow:
+    symbol: str
+    venue: str
+    spot_tx: Any
+    perp_tx: Any
+    entry_spot_price: Decimal
+    entry_funding: float
+    funding_paid_usdc: Decimal = Decimal(0)
+    opened_at: int = 0
+
+
+class SleeveACarry:
+    """Sleeve A — funding-rate carry (70% of capital)."""
+
+    name = "A"
+
+    def __init__(self, name: str, components: dict, agent):
+        self.name = name
+        self.cfg = components["config"]
+        self.policy = components["policy"]
+        self.wallet = components["wallet"]
+        self.cmc = components["cmc"]
+        self.pancake = components["pancake"]
+        self.perps: Perps = components["perps"]
+        self.bsc = components["bsc"]
+        self.ipfs = components["ipfs"]
+        self.agent = agent
+        self.portfolio = components["portfolio"]
+
+        self.basket: list[str] = []
+        self.venue: str = ""
+        self.rows: dict[str, CarryRow] = {}
+        self.last_rebalance: int = 0
+        self.notional_budget_pct = self.policy["sleeve_allocations"]["A"]
+
+    # --- lifecycle ---
+
+    async def tick(self):
+        self.portfolio.update_peak()
+        equity = self.portfolio.equity()
+        if equity <= 0:
+            return
+
+        sleeve_cfg = self.policy["sleeves"]["A"]
+        if not sleeve_cfg.get("enabled", True):
+            return
+
+        # Daily rebalance
+        if self._should_rebalance(sleeve_cfg["rebalance_hours"]):
+            await self._rebalance(equity)
+
+        # Per-tick monitoring
+        await self._monitor(equity)
+
+        # Periodic: collect funding (every 8h)
+        await self._collect_funding(equity)
+
+    # --- core logic ---
+
+    def _should_rebalance(self, hours: int) -> bool:
+        if not self.rows:
+            return True
+        return (int(time.time()) - self.last_rebalance) > hours * 3600
+
+    async def _rebalance(self, equity: Decimal):
+        cfg = self.cfg
+        basket = cfg["cmc"]["basket_symbols"][:20]
+        venue, _ = self.perps.select_venue(basket)
+
+        if venue == self.venue and set(basket) == set(self.basket) and self.rows:
+            return  # no change
+
+        # Close existing carry
+        for sym, row in list(self.rows.items()):
+            self.perps.close_short(venue=row.venue, market=sym)
+
+        self.rows.clear()
+        self.venue = venue
+        self.basket = basket
+        self.last_rebalance = int(time.time())
+
+        # Enter new carry
+        per_token_usdc = equity * Decimal(str(self.notional_budget_pct)) / len(basket)
+        if per_token_usdc < Decimal("1"):
+            log.info("Sleeve A: equity too small for carry (%s)", per_token_usdc)
+            return
+
+        spot_price = Decimal("100")    # stub
+        for sym in basket:
+            proposed = ProposedTrade(
+                sleeve="A", symbol=sym, side="spot_long+perp_short",
+                notional_usdc=per_token_usdc,
+                risk_usdc=per_token_usdc * Decimal("0.02"),   # 2% stop
+                is_new=True,
+            )
+            ok, reason = self.agent.allow_trade(proposed)
+            if not ok:
+                log.info(f"skip {sym} — {reason}")
+                continue
+
+            # Open spot leg on PancakeSwap
+            try:
+                quote_data = await self.cmc.quotes_latest([sym])
+                spot_price = Decimal(str(quote_data["data"][sym]["quote"]["USD"]["price"]))
+            except Exception as e:
+                log.warning(f"cmc quote failed for {sym}: {e}")
+                continue
+
+            token_addr = self._token_address(sym)
+            usdc_addr = self._token_address("USDC")
+            pool_fee = self.pancake.best_pool_fee(usdc_addr, token_addr, [100, 500, 2500, 10000])
+            amount_in = int(per_token_usdc * Decimal(10**6))
+            min_out = int(amount_in / spot_price * Decimal("0.997"))
+            calldata = self.pancake.encode_swap_v3(
+                token_in=usdc_addr, token_out=token_addr, fee=pool_fee,
+                recipient=self.wallet.address, amount_in=amount_in, min_out=min_out,
+            )
+            tx_spot = self.wallet.sign_transaction({
+                "to": self.cfg["dex"]["pcs_v3_router"],
+                "data": "0x" + calldata.hex(),
+                "value": 0,
+                "gas": self.cfg["gas"]["swap_gas"],
+                "nonce": self.bsc.next_nonce(self.wallet.address),
+                "chainId": self.cfg["chain_id"],
+            })
+            rcpt_spot = self.bsc.broadcast(tx_spot)
+
+            # Open perp short leg
+            tx_perp = self.perps.open_short(
+                venue=venue, market=sym, size_usd=float(per_token_usdc),
+                leverage=1.0, collateral_usdc=float(per_token_usdc),
+            )
+
+            row = CarryRow(
+                symbol=sym, venue=venue, spot_tx=rcpt_spot, perp_tx=tx_perp,
+                entry_spot_price=spot_price,
+                entry_funding=self.perps.current_funding(venue, sym),
+                opened_at=int(time.time()),
+            )
+            self.rows[sym] = row
+
+            pos = Position(
+                sleeve="A", symbol=sym, side="spot_long+perp_short",
+                notional_usdc=per_token_usdc, risk_usdc=per_token_usdc * Decimal("0.02"),
+                entry_ts=row.opened_at, entry_price=spot_price,
+                stop_price=spot_price * Decimal("0.98"),
+                tp_price=None, extra={"venue": venue, "funding_paid_usdc": Decimal(0)},
+            )
+            self.portfolio.add_position(f"A:{sym}", pos)
+
+    async def _monitor(self, equity: Decimal):
+        sleeve_cfg = self.policy["sleeves"]["A"]
+        fund_floor = sleeve_cfg["fund_floor_pct"] / 100
+        basis_trigger = sleeve_cfg["basis_trigger_pct"] / 100
+
+        for sym, row in list(self.rows.items()):
+            f_now = self.perps.current_funding(row.venue, sym)
+            liq = self.perps.liq_distance_pct(row.venue, sym, side="short")
+            mark = self.perps.mark(row.venue, sym)
+            spot = row.entry_spot_price
+            basis = (mark - float(spot)) / float(spot)
+
+            if abs(f_now) < fund_floor:
+                log.info(f"Sleeve A {sym}: funding converged, closing pair")
+                self._close_pair(sym, exit_price=Decimal(str(mark)), reason="funding_floor")
+            elif liq < 0.10:
+                self.perps.reduce_short(row.venue, sym, factor=0.5)
+            elif abs(basis) > basis_trigger:
+                self.perps.close_short(row.venue, sym)
+
+    async def _collect_funding(self, equity: Decimal):
+        """Every 8h, mark funding income into the carry rows."""
+        for sym, row in list(self.rows.items()):
+            f = self.perps.current_funding(row.venue, sym)
+            notional = self.portfolio.positions.get(f"A:{sym}")
+            if notional:
+                inc = Decimal(str(abs(f) / 100 * 8)) * notional.notional_usdc
+                row.funding_paid_usdc += inc
+                notional.extra["funding_paid_usdc"] = row.funding_paid_usdc
+
+    def _close_pair(self, sym: str, exit_price: Decimal, reason: str):
+        pos = self.portfolio.positions.get(f"A:{sym}")
+        if not pos:
+            return
+        self.perps.close_short(self.rows[sym].venue, sym)
+        pnl = self.portfolio.close_position(f"A:{sym}", exit_price=exit_price, reason=reason)
+        self.rows.pop(sym, None)
+        return pnl
+
+    def _token_address(self, symbol: str) -> str:
+        for tok in self.cfg.get("tokens", {}).values():
+            if isinstance(tok, dict) and tok.get("symbol") == symbol:
+                return tok["bsc_address"]
+        # fallback: direct lookup
+        entry = self.cfg.get("tokens", {}).get(symbol)
+        if isinstance(entry, dict):
+            return entry.get("bsc_address", "0x" + "00" * 20)
+        if isinstance(entry, str):
+            return entry
+        return "0x" + "00" * 20

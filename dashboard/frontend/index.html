@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BNB Agent — Live Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+  <style>
+    :root {
+      --bg: #0b0e14; --bg-2: #131722; --bg-3: #1a2030;
+      --fg: #e6edf3; --fg-dim: #8b96a8; --fg-dimmer: #4a5468;
+      --green: #3fb950; --red: #f85149; --yellow: #d29922; --blue: #58a6ff;
+      --purple: #bc8cff; --orange: #ffa657;
+      --border: #2d333b;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+                 font-family: 'SF Mono', 'JetBrains Mono', Menlo, monospace; }
+    body { padding: 24px; max-width: 1400px; margin: 0 auto; }
+    h1 { margin: 0 0 4px 0; font-size: 28px; font-weight: 800;
+         background: linear-gradient(120deg, var(--yellow), var(--orange), var(--purple));
+         -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    h2 { font-size: 14px; color: var(--fg-dim); margin: 0 0 4px 0;
+         text-transform: uppercase; letter-spacing: 1px; }
+    .row { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    .card { background: var(--bg-2); border: 1px solid var(--border);
+            border-radius: 12px; padding: 16px; }
+    .card.span-3 { grid-column: span 3; }
+    .card.span-4 { grid-column: span 4; }
+    .card.span-6 { grid-column: span 6; }
+    .card.span-8 { grid-column: span 8; }
+    .card.span-12 { grid-column: span 12; }
+    .stat { display: flex; flex-direction: column; gap: 4px; }
+    .stat .label { color: var(--fg-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+    .stat .value { font-size: 24px; font-weight: 700; }
+    .stat .value.green { color: var(--green); }
+    .stat .value.red { color: var(--red); }
+    .stat .value.yellow { color: var(--yellow); }
+    .stat .value.blue { color: var(--blue); }
+    .stat .value.purple { color: var(--purple); }
+    .stat .value.orange { color: var(--orange); }
+    .sponsor-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+                     background: var(--bg-3); border: 1px solid var(--border); border-radius: 999px;
+                     font-size: 11px; color: var(--fg-dim); margin-right: 6px; }
+    .sponsor-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--fg-dim); font-weight: 500; text-transform: uppercase; letter-spacing: 1px; font-size: 10px; }
+    tr:hover { background: var(--bg-3); }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10px; }
+    .pill.green { background: rgba(63,185,80,.15); color: var(--green); }
+    .pill.red { background: rgba(248,81,73,.15); color: var(--red); }
+    .pill.yellow { background: rgba(210,153,34,.15); color: var(--yellow); }
+    .pill.blue { background: rgba(88,166,255,.15); color: var(--blue); }
+    .pill.gray { background: var(--bg-3); color: var(--fg-dim); }
+    #equity-chart { width: 100%; height: 200px; }
+    .ts { color: var(--fg-dimmer); font-size: 10px; }
+    pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+          padding: 8px; font-size: 10px; overflow-x: auto; margin: 0; }
+    .sleeve-bar { height: 8px; background: var(--bg-3); border-radius: 4px; overflow: hidden;
+                  display: flex; margin-top: 4px; }
+    .sleeve-bar .seg { height: 100%; }
+    .sleeve-bar .seg.A { background: var(--blue); }
+    .sleeve-bar .seg.B { background: var(--purple); }
+    .sleeve-bar .seg.C { background: var(--orange); }
+  </style>
+</head>
+<body>
+  <header style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:24px;">
+    <div>
+      <h1>🤖 BNB Agent</h1>
+      <h2>Autonomous three-sleeve BSC trading agent · BNB HACK 2026</h2>
+      <div style="margin-top:8px;">
+        <span class="sponsor-badge"><span class="dot"></span>CoinMarketCap (x402)</span>
+        <span class="sponsor-badge"><span class="dot"></span>Trust Wallet (TWAK)</span>
+        <span class="sponsor-badge"><span class="dot"></span>BNB AI Agent SDK</span>
+      </div>
+    </div>
+    <div style="text-align:right;">
+      <div class="ts" id="updated">—</div>
+      <div class="ts">v1.0.0 · testnet</div>
+    </div>
+  </header>
+
+  <!-- Top row: live stats -->
+  <div class="row" style="margin-bottom:16px;">
+    <div class="card span-3 stat">
+      <div class="label">Equity</div>
+      <div class="value" id="equity">—</div>
+    </div>
+    <div class="card span-3 stat">
+      <div class="label">Day PnL</div>
+      <div class="value" id="day-pnl">—</div>
+    </div>
+    <div class="card span-3 stat">
+      <div class="label">Max Drawdown</div>
+      <div class="value yellow" id="max-dd">—</div>
+    </div>
+    <div class="card span-3 stat">
+      <div class="label">Open Positions</div>
+      <div class="value blue" id="open-pos">—</div>
+    </div>
+  </div>
+
+  <!-- Equity chart + sleeve exposure -->
+  <div class="row" style="margin-bottom:16px;">
+    <div class="card span-8">
+      <h2>Equity Curve</h2>
+      <canvas id="equity-chart"></canvas>
+    </div>
+    <div class="card span-4">
+      <h2>Sleeve Exposure</h2>
+      <div id="sleeve-exposure">—</div>
+      <h2 style="margin-top:16px;">Sleeve Activity</h2>
+      <div id="sleeve-activity">—</div>
+    </div>
+  </div>
+
+  <!-- Sponsor evidence: CMC x402 + TWAK txs -->
+  <div class="row" style="margin-bottom:16px;">
+    <div class="card span-6">
+      <h2>🟡 CoinMarketCap — x402 Microcharges <span class="pill green" id="cmc-spend-pill">$0.00 spent</span></h2>
+      <table id="cmc-charges">
+        <thead><tr><th>Time</th><th>Endpoint</th><th>Cost</th><th>Header</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="card span-6">
+      <h2>🟣 Trust Wallet — Signed Transactions</h2>
+      <table id="twak-txs">
+        <thead><tr><th>Time</th><th>Sleeve</th><th>Symbol</th><th>BscScan</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- On-chain: identity + jobs -->
+  <div class="row" style="margin-bottom:16px;">
+    <div class="card span-4">
+      <h2>🟠 BNB SDK — ERC-8004 Identity</h2>
+      <div id="identity">—</div>
+    </div>
+    <div class="card span-4">
+      <h2>🟠 BNB SDK — ERC-8183 Jobs</h2>
+      <div id="jobs">—</div>
+    </div>
+    <div class="card span-4">
+      <h2>🔵 User Policy (signed)</h2>
+      <div id="policy">—</div>
+    </div>
+  </div>
+
+  <!-- Recent trades -->
+  <div class="row">
+    <div class="card span-12">
+      <h2>Recent Closed Trades</h2>
+      <table id="trades">
+        <thead><tr><th>Time</th><th>Sleeve</th><th>Symbol</th><th>Side</th><th>Notional</th><th>Entry</th><th>Exit</th><th>PnL</th><th>Reason</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const fmt = (n, d=2) => Number(n).toLocaleString(undefined, {minimumFractionDigits:d, maximumFractionDigits:d});
+    const usd = (n) => '$' + fmt(n);
+    const pct = (n) => (n>=0?'+':'') + fmt(n,2) + '%';
+    const ts = (epoch) => { try { return new Date(epoch*1000).toISOString().slice(11,19); } catch { return '—'; } };
+    const shortHash = (h) => h ? h.slice(0,10) + '…' + h.slice(-6) : '—';
+
+    async function fetchJSON(path) {
+      try { const r = await fetch(path); return await r.json(); } catch { return {}; }
+    }
+
+    function renderEquity(series) {
+      const c = document.getElementById('equity-chart');
+      const ctx = c.getContext('2d');
+      const W = c.width = c.clientWidth;
+      const H = c.height = 200;
+      ctx.fillStyle = '#131722'; ctx.fillRect(0,0,W,H);
+      if (!series || series.length < 2) return;
+      const ys = series.map(s => s.equity);
+      const ymin = Math.min(...ys), ymax = Math.max(...ys);
+      const range = ymax - ymin || 1;
+      ctx.strokeStyle = '#3fb950'; ctx.lineWidth = 2; ctx.beginPath();
+      series.forEach((p, i) => {
+        const x = (i / (series.length-1)) * W;
+        const y = H - ((p.equity - ymin) / range) * (H - 20) - 10;
+        if (i === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      });
+      ctx.stroke();
+      // fill
+      const grad = ctx.createLinearGradient(0,0,0,H);
+      grad.addColorStop(0, 'rgba(63,185,80,0.3)');
+      grad.addColorStop(1, 'rgba(63,185,80,0)');
+      ctx.fillStyle = grad; ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath(); ctx.fill();
+    }
+
+    async function refresh() {
+      const [stats, series, charges, txs, identity, jobs, policy, trades] = await Promise.all([
+        fetchJSON('/api/stats'),
+        fetchJSON('/api/equity-series'),
+        fetchJSON('/api/cmc-charges'),
+        fetchJSON('/api/txs'),
+        fetchJSON('/api/identity'),
+        fetchJSON('/api/jobs'),
+        fetchJSON('/api/policy'),
+        fetchJSON('/api/trades'),
+      ]);
+
+      // Top stats
+      document.getElementById('equity').textContent = stats.equity != null ? usd(stats.equity) : '—';
+      const dayEl = document.getElementById('day-pnl');
+      dayEl.textContent = stats.day_pnl_pct != null ? pct(stats.day_pnl_pct) : '—';
+      dayEl.className = 'value ' + (stats.day_pnl_pct >= 0 ? 'green' : 'red');
+      document.getElementById('max-dd').textContent = stats.drawdown_pct != null ? pct(stats.drawdown_pct) : '—';
+      document.getElementById('open-pos').textContent = stats.open_positions ?? '—';
+
+      // Equity chart
+      renderEquity(series.series || []);
+
+      // Sleeve exposure
+      const sx = stats.sleeve_exposure || {};
+      const total = Object.values(sx).reduce((a,b)=>a+(+b||0),0) || 1;
+      const pctA = (sx.A||0)/total*100, pctB = (sx.B||0)/total*100, pctC = (sx.C||0)/total*100;
+      document.getElementById('sleeve-exposure').innerHTML = `
+        <div style="display:flex; gap:12px; font-size:12px; margin-bottom:6px;">
+          <div><span style="color:var(--blue)">●</span> A carry: ${usd(sx.A||0)} (${fmt(pctA,1)}%)</div>
+          <div><span style="color:var(--purple)">●</span> B momentum: ${usd(sx.B||0)} (${fmt(pctB,1)}%)</div>
+          <div><span style="color:var(--orange)">●</span> C mean-rev: ${usd(sx.C||0)} (${fmt(pctC,1)}%)</div>
+        </div>
+        <div class="sleeve-bar"><div class="seg A" style="width:${pctA}%"></div><div class="seg B" style="width:${pctB}%"></div><div class="seg C" style="width:${pctC}%"></div></div>
+      `;
+
+      const sleeves = stats.sleeves || {};
+      document.getElementById('sleeve-activity').innerHTML = Object.entries(sleeves).map(([n, s]) =>
+        `<div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;">
+          <span>sleeve ${n}</span>
+          <span class="ts">${s.tick_count} ticks · period ${s.period_s}s · last ${ts(s.last_tick_ts)}</span>
+        </div>`
+      ).join('') || '<div class="ts">no data</div>';
+
+      // CMC charges
+      const cmcBody = document.querySelector('#cmc-charges tbody');
+      cmcBody.innerHTML = (charges || []).slice(-15).reverse().map(c => `
+        <tr>
+          <td>${ts(c.ts)}</td>
+          <td><code>${c.method} ${c.path}</code></td>
+          <td>${c.cost_usdc ? '$' + c.cost_usdc : '—'}</td>
+          <td class="ts">${c.payment_header || '—'}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="4" class="ts">no x402 calls yet</td></tr>';
+      const totalSpent = (charges||[]).reduce((a,c)=>a+parseFloat(c.cost_usdc||0),0);
+      const pill = document.getElementById('cmc-spend-pill');
+      pill.textContent = '$' + fmt(totalSpent,2) + ' spent';
+      pill.className = 'pill ' + (totalSpent < 5 ? 'green' : totalSpent < 8 ? 'yellow' : 'red');
+
+      // TWAK txs
+      const txBody = document.querySelector('#twak-txs tbody');
+      txBody.innerHTML = (txs || []).slice(-15).reverse().map(t => `
+        <tr>
+          <td>${ts(t.ts)}</td>
+          <td><span class="pill blue">${t.sleeve || '—'}</span></td>
+          <td>${t.symbol || '—'}</td>
+          <td><a href="${t.bscscan}" target="_blank">${shortHash(t.tx_hash)}</a></td>
+        </tr>
+      `).join('') || '<tr><td colspan="4" class="ts">no transactions yet</td></tr>';
+
+      // Identity
+      document.getElementById('identity').innerHTML = identity && identity.token_id != null ? `
+        <div style="font-size:12px; line-height:1.6;">
+          <div><span class="ts">Token ID:</span> <strong>${identity.token_id}</strong></div>
+          <div><span class="ts">Agent:</span> <code>${shortHash(identity.agent_address)}</code></div>
+          <div><span class="ts">Evaluator:</span> <code>${shortHash(identity.evaluator)}</code></div>
+          <div><span class="ts">CID:</span> <code>${shortHash(identity.cid)}</code></div>
+          <div><span class="ts">Version:</span> ${identity.version}</div>
+          <div style="margin-top:8px;"><a href="${identity['8004scan_url']}" target="_blank">→ 8004scan</a></div>
+        </div>
+      ` : '<div class="ts">identity not yet registered</div>';
+
+      // Jobs
+      document.getElementById('jobs').innerHTML = (jobs && jobs.length) ? jobs.map(j => `
+        <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px; border-bottom:1px solid var(--border);">
+          <span>Job #${j.id} <span class="ts">sleeve ${j.status === 'Completed' ? 'ALL' : (j.deliverable_spec||'').slice(0,8)}</span></span>
+          <span class="pill ${j.status === 'Completed' ? 'green' : j.status === 'Submitted' ? 'yellow' : j.status === 'Funded' ? 'blue' : 'gray'}">${j.status}</span>
+        </div>
+      `).join('') : '<div class="ts">no jobs opened yet</div>';
+
+      // Policy
+      document.getElementById('policy').innerHTML = policy && policy.version ? `
+        <div style="font-size:12px; line-height:1.6;">
+          <div><span class="ts">Version:</span> <strong>v${policy.version}</strong></div>
+          <div><span class="ts">Daily loss cap:</span> ${policy.global_risk?.daily_loss_circuit_breaker_pct}%</div>
+          <div><span class="ts">Per-trade risk:</span> ${policy.global_risk?.per_trade_risk_pct}%</div>
+          <div><span class="ts">Max leverage:</span> ${policy.global_risk?.max_gross_leverage}x</div>
+          <div><span class="ts">Signature:</span> <code style="font-size:9px;">${shortHash(policy.signature)}</code></div>
+          <pre style="margin-top:8px;">sleeve_allocations: A=${policy.sleeve_allocations?.A} B=${policy.sleeve_allocations?.B} C=${policy.sleeve_allocations?.C}</pre>
+        </div>
+      ` : '<div class="ts">no policy loaded</div>';
+
+      // Trades
+      const trBody = document.querySelector('#trades tbody');
+      trBody.innerHTML = (trades || []).slice(-20).reverse().map(t => `
+        <tr>
+          <td>${ts(t.ts_close)}</td>
+          <td><span class="pill blue">${t.sleeve}</span></td>
+          <td>${t.symbol}</td>
+          <td>${t.side}</td>
+          <td>${usd(t.notional)}</td>
+          <td>${fmt(t.entry, 4)}</td>
+          <td>${fmt(t.exit, 4)}</td>
+          <td style="color:${parseFloat(t.pnl_usdc)>=0?'var(--green)':'var(--red)'}">${parseFloat(t.pnl_usdc)>=0?'+':''}${usd(t.pnl_usdc)}</td>
+          <td><span class="pill gray">${t.reason}</span></td>
+        </tr>
+      `).join('') || '<tr><td colspan="8" class="ts">no trades yet — agent is warming up</td></tr>';
+
+      document.getElementById('updated').textContent = 'updated ' + ts(stats.updated_at || Math.floor(Date.now()/1000)) + ' UTC';
+    }
+
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

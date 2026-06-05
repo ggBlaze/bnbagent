@@ -1,0 +1,34 @@
+# Mainnet token addresses (BSC) — to be enabled in production.
+# These MUST be verified against bscscan.com on Day 1 of mainnet deployment.
+
+- symbol: WBNB
+  cmc_id: 7192
+  bsc_address: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+  decimals: 18
+
+- symbol: USDC
+  cmc_id: 3408
+  bsc_address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"   # native Circle USDC
+  decimals: 6
+
+- symbol: CAKE
+  cmc_id: 7186
+  bsc_address: "0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82"
+  decimals: 18
+
+- symbol: BTCB
+  cmc_id: 3717
+  bsc_address: "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c"
+  decimals: 18
+
+- symbol: ETH
+  cmc_id: 1027
+  bsc_address: "0x2170Ed0880ac9A755fd29B2688956BD959F933F8"
+  decimals: 18
+
+- symbol: XRP
+  cmc_id: 52
+  bsc_address: "0x1D2F0da169ceB4fC316d95Fcdd4121390d5b5e31"
+  decimals: 18
+
+# (additional mainnet addresses to be added during Day 1 verification)

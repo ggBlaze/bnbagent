@@ -1,0 +1,153 @@
+"""Boot sequence — load config, init wallet + connectors, register identity."""
+from __future__ import annotations
+
+import json
+import logging
+import os
+from pathlib import Path
+from decimal import Decimal
+
+import jsonschema
+import yaml
+
+from connectors import CMCClient, BSCClient, PancakeV3, Perps, ERC8004, ERC8183, IPFSClient
+from connectors.twak import TWAKWallet
+from .portfolio import Portfolio
+from policy.policy_verify import verify_policy
+
+log = logging.getLogger(__name__)
+
+
+def load_config(path: str = "config/config.yaml") -> dict:
+    return yaml.safe_load(open(path))
+
+
+def load_policy(path: str = "config/policy.yaml") -> dict:
+    doc = yaml.safe_load(open(path))
+    schema = json.load(open("config/policy.schema.json"))
+    jsonschema.validate(doc, schema)
+    return doc
+
+
+def init_wallet() -> TWAKWallet:
+    w = TWAKWallet.from_env()
+    log.info("wallet ready: %s", w.address)
+    return w
+
+
+def init_cmc(cfg: dict, wallet: TWAKWallet, replay_tape: list | None = None) -> CMCClient:
+    return CMCClient(
+        x402_base=cfg["cmc"]["x402_base"],
+        api_key=cfg["cmc"].get("api_key", ""),
+        mode=cfg.get("mode", "testnet"),
+        wallet=wallet,
+        replay_tape=replay_tape,
+    )
+
+
+def init_bsc(cfg: dict) -> dict:
+    bsc = BSCClient(rpcs=cfg["rpcs"], chain_id=cfg["chain_id"], mode=cfg.get("mode", "testnet"))
+    pancake = PancakeV3(
+        client=bsc, router=cfg["dex"]["pcs_v3_router"],
+        quoter=cfg["dex"]["pcs_v3_quoter"], factory=cfg["dex"]["pcs_v3_factory"],
+    )
+    perps = Perps(mode=cfg.get("mode", "testnet"))
+    erc8004 = ERC8004(client=bsc, registry_address="0x" + "80" + "04" + "0" * 36)
+    erc8183 = ERC8183(client=bsc, escrow_address="0x" + "81" + "83" + "0" * 36)
+    return {"bsc": bsc, "pancake": pancake, "perps": perps, "erc8004": erc8004, "erc8183": erc8183}
+
+
+def init_ipfs(cfg: dict) -> IPFSClient:
+    return IPFSClient(
+        api=os.environ.get("IPFS_API", "/ip4/127.0.0.1/tcp/5001"),
+        mode=cfg.get("mode", "testnet"),
+    )
+
+
+def register_identity(erc8004: ERC8004, ipfs: IPFSClient, wallet: TWAKWallet,
+                     policy: dict, version: str = "1.0.0") -> dict:
+    """Build ERC-8004 metadata, pin to IPFS, register on-chain (or stub)."""
+    if Path("~/.bnbagent/identity.json").expanduser().exists():
+        return json.load(open(Path("~/.bnbagent/identity.json").expanduser()))
+
+    meta = {
+        "name": "BNB Agent",
+        "description": "Autonomous three-sleeve BSC trading agent: funding carry + DEX momentum + mean-reversion.",
+        "image": "ipfs://Qm.../bnbagent.png",
+        "attributes": [
+            {"trait_type": "strategy",  "value": "three-sleeve-ensemble"},
+            {"trait_type": "sleeves",   "value": ["A:funding-carry","B:dex-momentum","C:mean-reversion"]},
+            {"trait_type": "chain",     "value": "bsc-mainnet" if policy.get("agent_address", "").startswith("0x4") else "bsc-testnet"},
+            {"trait_type": "max_gross_leverage","value": policy["global_risk"]["max_gross_leverage"]},
+            {"trait_type": "per_trade_risk","value": f"{policy['global_risk']['per_trade_risk_pct']}%"},
+            {"trait_type": "daily_loss_cap","value": f"{policy['global_risk']['daily_loss_circuit_breaker_pct']}%"},
+            {"trait_type": "version",   "value": version},
+        ],
+        "endpoints": {
+            "metrics": "http://localhost:8000/metrics",
+            "policy":  f"ipfs://placeholder/policy-{version}.yaml",
+        },
+        "trust": {
+            "evaluator": policy["evaluator_address"],
+            "operator":  wallet.address,
+            "schema":    "erc-8004-v0",
+        },
+    }
+    cid = ipfs.add_json(meta)
+    token_id, _ = erc8004.register(agent_uri=f"ipfs://{cid}")
+    identity = {
+        "token_id": token_id,
+        "cid": cid,
+        "agent_address": wallet.address,
+        "evaluator_address": policy["evaluator_address"],
+        "version": version,
+    }
+    Path("~/.bnbagent").expanduser().mkdir(parents=True, exist_ok=True)
+    json.dump(identity, open(Path("~/.bnbagent/identity.json").expanduser(), "w"), indent=2)
+    log.info("ERC-8004 identity registered: tokenId=%s cid=%s", token_id, cid)
+    return identity
+
+
+def boot(starting_equity: Decimal = Decimal("100"),
+         policy_path: str = "config/policy.yaml",
+         config_path: str = "config/config.yaml",
+         replay_tape: list | None = None,
+         verify_signature: bool = False,
+         mode: str | None = None) -> dict:
+    """Returns a dict of initialized components."""
+    cfg = load_config(config_path)
+    if mode is not None:
+        cfg["mode"] = mode
+    policy = load_policy(policy_path)
+
+    if verify_signature:
+        from policy.policy_verify import verify_policy as _verify
+        if not _verify(policy, policy["evaluator_address"]):
+            log.warning("policy signature does not recover to evaluator_address — proceeding in dev mode")
+
+    wallet = init_wallet()
+    policy["agent_address"] = wallet.address
+    cmc = init_cmc(cfg, wallet, replay_tape=replay_tape)
+    bs = init_bsc(cfg)
+    ipfs = init_ipfs(cfg)
+    portfolio = Portfolio(starting_equity=starting_equity)
+
+    identity = register_identity(bs["erc8004"], ipfs, wallet, policy)
+
+    log.info("BNB Agent booted: equity=$%s, address=%s, identity_token=%s",
+             starting_equity, wallet.address, identity["token_id"])
+
+    return {
+        "config": cfg,
+        "policy": policy,
+        "wallet": wallet,
+        "cmc": cmc,
+        "bsc": bs["bsc"],
+        "pancake": bs["pancake"],
+        "perps": bs["perps"],
+        "erc8004": bs["erc8004"],
+        "erc8183": bs["erc8183"],
+        "ipfs": ipfs,
+        "portfolio": portfolio,
+        "identity": identity,
+    }

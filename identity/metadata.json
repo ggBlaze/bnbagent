@@ -1,0 +1,28 @@
+{
+  "name": "BNB Agent",
+  "description": "Autonomous three-sleeve BSC trading agent: funding carry + DEX momentum + mean-reversion. Uses CoinMarketCap Agent Hub (x402), Trust Wallet Agent Kit (TWAK) for self-custody local signing, and the BNB AI Agent SDK for BSC mainnet, PancakeSwap v3, BSC perps, ERC-8004 identity, and ERC-8183 job escrow.",
+  "image": "ipfs://QmPlaceholder/bnbagent.png",
+  "external_url": "https://bnbagent.example/dashboard",
+  "attributes": [
+    {"trait_type": "strategy",            "value": "three-sleeve-ensemble"},
+    {"trait_type": "sleeves",             "value": ["A:funding-carry", "B:dex-momentum", "C:mean-reversion"]},
+    {"trait_type": "chain",               "value": "bsc-mainnet"},
+    {"trait_type": "max_gross_leverage",  "value": 2.0},
+    {"trait_type": "per_trade_risk",      "value": "1.0%"},
+    {"trait_type": "daily_loss_cap",      "value": "3.0%"},
+    {"trait_type": "version",             "value": "1.0.0"},
+    {"trait_type": "policy_uri",          "value": "ipfs://QmPlaceholder/policy-1.0.0.yaml"},
+    {"trait_type": "hackathon",           "value": "BNB-HACK-2026"},
+    {"trait_type": "sponsors",            "value": ["coinmarketcap", "trust-wallet", "bnb-chain"]}
+  ],
+  "endpoints": {
+    "metrics":  "https://bnbagent.example/metrics",
+    "policy":   "ipfs://QmPlaceholder/policy-1.0.0.yaml",
+    "operator": "0x4bA1cE29F7C0aD3eF2a11b9c8A0e6Df3C2B4E5A77"
+  },
+  "trust": {
+    "evaluator": "0x9aF4cE18B7E1c9B1e6e8a4d39c2f7bE1A8d5E0c11",
+    "schema":    "erc-8004-v0",
+    "policy_signed_at": "2026-06-05T00:00:00Z"
+  }
+}

@@ -1,0 +1,48 @@
+# Perps venues — research on Day 1 of build.
+# Each venue exposes:
+#   - funding endpoint: returns {sym: [historical_funding_rates]} (8h interval)
+#   - oi endpoint: returns {sym: open_interest_usd}
+#   - mark endpoint: returns {sym: mark_price}
+#   - withdraw_status: "ok" | "paused"
+
+aster:
+  display: Aster
+  funding_endpoint: https://api.aster.finance/v1/funding
+  oi_endpoint:     https://api.aster.finance/v1/oi
+  mark_endpoint:   https://api.aster.finance/v1/mark
+  status_endpoint: https://api.aster.finance/v1/status
+  graphql:         https://api.aster.finance/graphql
+  docs:            https://docs.aster.finance
+  min_size_usd: 10
+  taker_fee_bps: 5
+  insurance_fund: "0x..."
+
+killex:
+  display: KiloEx
+  funding_endpoint: https://api.kiloex.io/api/v1/funding
+  oi_endpoint:     https://api.kiloex.io/api/v1/oi
+  mark_endpoint:   https://api.kiloex.io/api/v1/mark
+  status_endpoint: https://api.kiloex.io/api/v1/status
+  docs:            https://docs.kiloex.io
+  min_size_usd: 10
+  taker_fee_bps: 6
+
+apollox:
+  display: ApolloX
+  funding_endpoint: https://api.apollox.finance/v1/fapi/v1/fundingRate
+  oi_endpoint:     https://api.apollox.finance/v1/fapi/v1/openInterest
+  mark_endpoint:   https://api.apollox.finance/v1/fapi/v1/premiumIndex
+  status_endpoint: https://api.apollox.finance/v1/fapi/v1/exchangeInfo
+  docs:            https://docs.apollox.finance
+  min_size_usd: 50
+  taker_fee_bps: 4
+
+mux:
+  display: MUX Protocol
+  funding_endpoint: https://api.mux.network/v1/funding
+  oi_endpoint:     https://api.mux.network/v1/oi
+  mark_endpoint:   https://api.mux.network/v1/mark
+  status_endpoint: https://api.mux.network/v1/status
+  docs:            https://docs.mux.network
+  min_size_usd: 10
+  taker_fee_bps: 5
