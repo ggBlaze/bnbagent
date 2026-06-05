@@ -159,12 +159,26 @@ class BSCClient:
 
     def broadcast(self, signed: SignedTx) -> TxReceipt:
         if self.mode in ("testnet", "replay"):
-            # stub: deterministic hash, no network call
+            # stub: deterministic hash, no network call. For contract-create
+            # txs (to=None / data starts with the ERC-20 init code), derive
+            # a deterministic contract address from (sender, nonce) so the
+            # token-launch demo works end-to-end without a live network.
+            contract_addr = None
+            sender = (signed.signed or {}).get("from")
+            nonce = (signed.signed or {}).get("nonce")
+            if sender is not None and nonce is not None:
+                contract_addr = Web3.to_checksum_address(
+                    "0x" + Web3.keccak(
+                        Web3.to_bytes(hexstr=Web3.to_checksum_address(sender))
+                        + Web3.to_bytes(nonce)
+                    ).hex()[-40:]
+                )
             return TxReceipt(
                 tx_hash=signed.tx_hash,
                 block_number=int(time.time()),
                 gas_used=21000,
                 status=1,
+                contract_address=contract_addr,
             )
         w3 = self.w3()
         h = w3.eth.send_raw_transaction(signed.raw_tx)

@@ -1,0 +1,180 @@
+"""Layer 2 — TradeReviewer.
+
+Called per-trade between `allow_trade` (circuit breaker) and `sign_transaction`.
+Can only VETO. Hard guardrails run in code, never delegated to the LLM.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import time
+from collections import deque
+from dataclasses import dataclass, field
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+
+from agents.base import PersonaLoader, llm_complete
+from agents.providers import AgentRouting, LLMRouter
+from core.risk import ProposedTrade
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class ReviewVerdict:
+    allow: bool
+    confidence: float
+    reason: str
+    source: str   # "llm" | "no_reviewer" | "heuristic_veto" | "low_confidence" | "llm_timeout" | "llm_disabled" | "llm_error"
+
+
+class TradeReviewer:
+    """Layer 2 — per-trade veto."""
+
+    CONFIDENCE_THRESHOLD = 0.70
+    LATENCY_BUDGET_S = 0.5
+
+    def __init__(self, *, sleeve: str, components: dict, router: LLMRouter,
+                 persona_name: str | None = None,
+                 decision_log: Path = Path("~/.bnbagent/decisions.jsonl").expanduser()):
+        self.sleeve = sleeve
+        self.components = components
+        self.routing: AgentRouting = router.for_agent(persona_name or f"reviewer_{sleeve.lower()}")
+        # if there's no per-sleeve routing, fall back to the generic "reviewer" agent
+        if not self.routing.enabled:
+            self.routing = router.for_agent("reviewer")
+        self.loader = PersonaLoader(persona_name or "reviewer")
+        self.decision_log = decision_log
+        self.recent_buf: deque[dict] = deque(maxlen=200)
+
+    # --- main entry ------------------------------------------------------
+
+    async def review(self, proposed: ProposedTrade, sleeve_state: dict,
+                     market_snapshot: dict | None = None) -> ReviewVerdict:
+        market_snapshot = market_snapshot or {}
+        if not self.routing.enabled:
+            return ReviewVerdict(allow=True, confidence=1.0, reason="llm_disabled",
+                                 source="no_reviewer")
+        persona = self.loader.load()
+        try:
+            verdict = await asyncio.wait_for(
+                self._llm_review(persona.system, proposed, sleeve_state, market_snapshot),
+                timeout=self.LATENCY_BUDGET_S,
+            )
+        except asyncio.TimeoutError:
+            log.warning("reviewer[%s] LLM timeout — falling back to heuristic", self.sleeve)
+            return self._heuristic_decision(sleeve_state, source="llm_timeout")
+        except Exception as e:
+            log.warning("reviewer[%s] LLM error: %s", self.sleeve, e)
+            return self._heuristic_decision(sleeve_state, source="llm_error")
+
+        # Post-LLM hard guardrails (never delegated)
+        if not verdict.allow or verdict.confidence < self.CONFIDENCE_THRESHOLD:
+            self._log(proposed, sleeve_state, verdict)
+            return ReviewVerdict(allow=False,
+                                 confidence=verdict.confidence,
+                                 reason=f"{verdict.reason} (conf={verdict.confidence:.2f})",
+                                 source=verdict.source if not verdict.allow else "low_confidence")
+        # extra heuristic overlay
+        ok, reason = self._heuristic_veto(sleeve_state)
+        if not ok:
+            v = ReviewVerdict(allow=False, confidence=verdict.confidence,
+                              reason=reason, source="heuristic_veto")
+            self._log(proposed, sleeve_state, v)
+            return v
+        v = ReviewVerdict(allow=True, confidence=verdict.confidence,
+                          reason=verdict.reason, source=verdict.source)
+        self._log(proposed, sleeve_state, v)
+        return v
+
+    # --- LLM call --------------------------------------------------------
+
+    async def _llm_review(self, system: str, proposed: ProposedTrade, sleeve_state: dict,
+                          market: dict) -> ReviewVerdict:
+        user = self._render_user_prompt(proposed, sleeve_state, market)
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        raw = await llm_complete(self.routing, messages, response_format={"type": "json_object"})
+        if not raw:
+            return self._heuristic_decision(sleeve_state, source="llm_disabled")
+        try:
+            data = json.loads(raw)
+            return ReviewVerdict(
+                allow=bool(data.get("allow", True)),
+                confidence=float(data.get("confidence", 0.0)),
+                reason=str(data.get("reason", ""))[:120],
+                source="llm",
+            )
+        except Exception as e:
+            log.warning("reviewer[%s] bad JSON: %s", self.sleeve, e)
+            return self._heuristic_decision(sleeve_state, source="llm_error")
+
+    def _render_user_prompt(self, proposed: ProposedTrade, sleeve_state: dict, market: dict) -> str:
+        # Compact JSON. The reviewer persona enforces "veto in doubt".
+        trade_dict = {
+            "symbol":         proposed.symbol,
+            "side":           proposed.side,
+            "notional_usdc":  float(proposed.notional_usdc),
+            "risk_usdc":      float(proposed.risk_usdc),
+            "is_new":         proposed.is_new,
+            "sleeve":         proposed.sleeve,
+        }
+        return (
+            f"You are the reviewer for sleeve {self.sleeve}.\n\n"
+            "PROPOSED TRADE:\n"
+            f"```json\n{json.dumps(trade_dict, indent=2)}\n```\n"
+            f"SLEEVE STATE:\n```json\n{json.dumps(sleeve_state, default=str)[:2500]}\n```\n"
+            f"MARKET SNAPSHOT:\n```json\n{json.dumps(market, default=str)[:1500]}\n```\n\n"
+            "Return ONLY valid JSON:\n"
+            '{"allow": true|false, "confidence": 0.0-1.0, "reason": "<=120 chars"}'
+        )
+
+    # --- heuristic -------------------------------------------------------
+
+    def _heuristic_veto(self, sleeve_state: dict) -> tuple[bool, str]:
+        """Returns (allow, reason). True = no veto."""
+        wr = float(sleeve_state.get("win_rate_ewma", 0.55))
+        if wr < 0.20:
+            return False, f"heuristic: win_rate_ewma={wr:.2f} < 0.20"
+        if sleeve_state.get("loss_cooldown_active"):
+            return False, "heuristic: post-loss cooldown active"
+        sleeve_dd = float(sleeve_state.get("sleeve_dd_pct", 0))
+        max_dd = float(sleeve_state.get("policy_max_dd_pct", 100))
+        if max_dd > 0 and sleeve_dd > 0.5 * max_dd:
+            return False, f"heuristic: sleeve_dd {sleeve_dd:.1f}% > 50% of policy cap"
+        recent = sleeve_state.get("recent_trades") or []
+        if len(recent) >= 5:
+            last5 = recent[-5:]
+            losses = sum(1 for t in last5 if float(t.get("pnl_pct", 0)) < 0)
+            if losses >= 4:
+                return False, f"heuristic: {losses}/5 recent trades on this symbol lost"
+        return True, "ok"
+
+    def _heuristic_decision(self, sleeve_state: dict, *, source: str) -> ReviewVerdict:
+        ok, reason = self._heuristic_veto(sleeve_state)
+        return ReviewVerdict(allow=ok, confidence=0.5 if ok else 0.0,
+                             reason=reason, source=source)
+
+    # --- log -------------------------------------------------------------
+
+    def _log(self, proposed: ProposedTrade, sleeve_state: dict, v: ReviewVerdict) -> None:
+        entry = {
+            "ts": int(time.time()),
+            "sleeve": self.sleeve,
+            "symbol": proposed.symbol,
+            "side":   proposed.side,
+            "allow":  v.allow,
+            "confidence": v.confidence,
+            "source": v.source,
+            "reason": v.reason,
+        }
+        self.recent_buf.append(entry)
+        try:
+            with self.decision_log.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, default=str) + "\n")
+        except Exception:
+            pass
+
+    def recent(self, n: int = 50) -> list[dict]:
+        return list(self.recent_buf)[-n:][::-1]

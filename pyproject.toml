@@ -38,6 +38,7 @@ bnbagent-dashboard = "dashboard.backend.main:run"
 packages = [
     "core", "connectors", "strategies", "policy",
     "identity", "jobs", "backtest", "dashboard",
+    "agents", "agent_mcp", "skills",
 ]
 
 [tool.pytest.ini_options]

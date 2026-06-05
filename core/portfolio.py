@@ -140,11 +140,23 @@ class Portfolio:
         self.update_peak()
         return pnl
 
-    def sleeve_exposure(self, sleeve: str) -> Decimal:
+    def sleeve_exposure(self, sleeve: str | None = None) -> Decimal:
+        if sleeve is None:
+            return sum(
+                (p.notional_usdc for p in self.positions.values()),
+                Decimal(0),
+            )
         return sum(
             (p.notional_usdc for p in self.positions.values() if p.sleeve == sleeve),
             Decimal(0),
         )
+
+    def sleeve_exposures(self) -> dict[str, Decimal]:
+        """Return {sleeve: total_notional} for every sleeve with at least one position."""
+        out: dict[str, Decimal] = {}
+        for p in self.positions.values():
+            out[p.sleeve] = out.get(p.sleeve, Decimal(0)) + p.notional_usdc
+        return out
 
     def gross_exposure(self) -> Decimal:
         return sum((p.notional_usdc for p in self.positions.values()), Decimal(0))

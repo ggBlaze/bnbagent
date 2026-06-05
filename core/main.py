@@ -2,6 +2,10 @@
 
 Spawns the 3 sleeve loops, starts the agent heartbeat, and runs the
 dashboard bus. Replaces the BNB HACK "build once, run for a week" flow.
+
+Also wires the 3-LLM agent team (advisor, reviewer, chat) when LLM
+providers are configured. Graceful degradation: if no provider is set,
+the agent still runs as a deterministic bot.
 """
 from __future__ import annotations
 
@@ -19,6 +23,10 @@ from pathlib import Path
 from . import logger as agent_logger
 from .boot import boot
 from .tick import Agent
+from agents.providers import LLMRouter, load_providers_config
+from agents.advisor import StrategyAdvisor
+from agents.reviewer import TradeReviewer
+from agents.chat import ChatAgent
 from strategies.sleeve_a_carry import SleeveACarry
 from strategies.sleeve_b_momentum import SleeveBMomentum
 from strategies.sleeve_c_meanrev import SleeveCMeanRev
@@ -27,6 +35,24 @@ log = logging.getLogger(__name__)
 
 
 DASHBOARD_STATE: dict = {}
+
+
+def _init_llm_components(components: dict):
+    """Instantiate the LLM router + advisor + reviewers + chat agent.
+
+    All are no-ops (or skipped) when the LLM is not configured.
+    """
+    router = LLMRouter()
+    log.info("LLM status: %s", {k: v.get("enabled") for k, v in router.status()["agents"].items()})
+
+    advisor = StrategyAdvisor(components=components, router=router, persona_name="advisor")
+    reviewers = {
+        "A": TradeReviewer(sleeve="A", components=components, router=router, persona_name="reviewer"),
+        "B": TradeReviewer(sleeve="B", components=components, router=router, persona_name="reviewer"),
+        "C": TradeReviewer(sleeve="C", components=components, router=router, persona_name="reviewer"),
+    }
+    chat = ChatAgent(components=components, router=router, persona_name="chat")
+    return {"llm_router": router, "advisor": advisor, "reviewers": reviewers, "chat_agent": chat}
 
 
 async def run(args):
@@ -42,16 +68,38 @@ async def run(args):
     portfolio = components["portfolio"]
     policy = components["policy"]
     cfg = components["config"]
+
+    # LLM agent team — graceful no-op if no provider configured
+    llm_components = _init_llm_components(components)
+    components.update(llm_components)
+    # Skill registry (created in Phase 4) and TokenModule (Phase 3) hook in
+    # here if their modules are present
+    try:
+        from skills.registry import SkillRegistry
+        components["skill_registry"] = SkillRegistry()
+        components["skill_registry"].discover()
+        log.info("Skills registry: %s", [s["name"] for s in components["skill_registry"].list()])
+    except Exception as e:
+        log.info("Skills registry not loaded: %s", e)
+    try:
+        from agents.token_module import TokenModule
+        components["token_module"] = TokenModule(components=components)
+        log.info("TokenModule loaded")
+    except Exception as e:
+        log.info("TokenModule not loaded: %s", e)
+
     DASHBOARD_STATE.update({
         "config": cfg, "policy": policy,
         "components": {k: v for k, v in components.items()
-                        if k in ("cmc", "bsc", "pancake", "perps", "erc8004", "erc8183", "ipfs", "identity")},
+                        if k in ("cmc", "bsc", "pancake", "perps", "erc8004", "erc8183", "ipfs",
+                                 "identity", "llm_router", "advisor", "reviewers", "chat_agent",
+                                 "skill_registry", "token_module")},
         "positions_view": [],
         "trades_view": [],
         "cmc_charges_view": [],
     })
 
-    agent = Agent(policy, portfolio, dashboard_state=DASHBOARD_STATE)
+    agent = Agent(policy, portfolio, dashboard_state=DASHBOARD_STATE, reviewers=llm_components["reviewers"])
 
     # Instantiate sleeves
     a = SleeveACarry(name="A", components=components, agent=agent)
@@ -62,8 +110,14 @@ async def run(args):
     agent.register("B", cfg["ticks"]["B"], b.tick)
     agent.register("C", cfg["ticks"]["C"], c.tick)
 
-    log.info("starting agent: %d sleeves", len(agent.sleeves))
+    # Layer 1: strategy advisor — 5-min loop
+    if llm_components["advisor"].routing.enabled or True:  # always register; no-op if disabled
+        agent.register("advisor", 300, llm_components["advisor"].tick)
+        log.info("advisor loop registered (enabled=%s)", llm_components["advisor"].routing.enabled)
+
+    log.info("starting agent: %d sleeves + advisor", len(agent.sleeves))
     await agent.start()
+    # Re-applied code below is unchanged; preserve rest of run().
 
     # graceful shutdown
     stop_evt = asyncio.Event()

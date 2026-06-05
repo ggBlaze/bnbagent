@@ -109,6 +109,24 @@ class SleeveCMeanRev:
             log.info(f"Sleeve C skip {sym}: {reason}")
             return
 
+        # Layer 2: LLM reviewer veto (best-effort)
+        sleeve_state = {
+            "recent_trades": list(self._recent_trades_for(sym)),
+            "win_rate_ewma": self.win_rate_by_symbol.get(sym, 0.70),
+            "sleeve_dd_pct": 0.0,
+            "policy_max_dd_pct": float(self.policy.get("global_risk", {}).get("max_drawdown_pct", 100)),
+            "loss_cooldown_active": self.loss_cooldown_until.get(sym, 0) > int(time.time()),
+        }
+        market_snapshot = {"symbol": sym, "px": float(ref_price), "sigma": float(sigma)}
+        try:
+            ok2, reason2, _src = await self.agent.review_trade(proposed, sleeve_state, market_snapshot)
+        except Exception as e:
+            log.warning(f"Sleeve C reviewer call failed: {e} — proceeding")
+            ok2 = True
+        if not ok2:
+            log.info(f"Sleeve C reviewer veto {sym}: {reason2}")
+            return
+
         token_addr = self._token_address(sym)
         usdc_addr = self._token_address("USDC")
         pool_fee = self.pancake.best_pool_fee(usdc_addr, token_addr, [100, 500, 2500, 10000])
@@ -171,3 +189,17 @@ class SleeveCMeanRev:
 
     def _token_address(self, symbol: str) -> str:
         return token_address(self.cfg, symbol)
+
+    def _recent_trades_for(self, sym: str, n: int = 20) -> list[dict]:
+        try:
+            all_trades = list(self.portfolio.closed_trades)
+        except Exception:
+            return []
+        out = []
+        for t in reversed(all_trades):
+            if t.get("symbol") == sym:
+                out.append({"pnl_pct": float(t.get("pnl_usdc", 0)) / max(1, float(t.get("notional", 1))) * 100,
+                            "reason": t.get("reason")})
+                if len(out) >= n:
+                    break
+        return list(reversed(out))

@@ -41,6 +41,13 @@ pip install -q -e ".[test]" 2>&1 | tail -5 || {
   warn "pip install failed (likely offline); continuing with existing packages"
 }
 
+# Optional: MCP SDK for the external-agent server (agent_mcp/)
+if /tmp/venv/bin/pip show mcp >/dev/null 2>&1 || python -c "import mcp" 2>/dev/null; then
+  ok "MCP SDK present"
+else
+  warn "MCP SDK not installed (run 'pip install mcp' to enable the MCP server)"
+fi
+
 # --- 2. Node deps (TWAK) -----------------------------------------------------
 if command -v npm >/dev/null 2>&1; then
   if [[ ! -d node_modules ]]; then

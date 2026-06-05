@@ -124,6 +124,25 @@ class SleeveBMomentum:
             log.info(f"Sleeve B skip {sym}: {reason}")
             return
 
+        # Layer 2: LLM reviewer veto (best-effort, never blocks; falls back to heuristic)
+        sleeve_state = {
+            "recent_trades": list(self._recent_trades_for(sym)),
+            "win_rate_ewma": self.win_rate_by_symbol.get(sym, 0.55),
+            "sleeve_dd_pct": 0.0,
+            "policy_max_dd_pct": float(self.policy.get("global_risk", {}).get("max_drawdown_pct", 100)),
+            "loss_cooldown_active": self.loss_cooldown_until.get(sym, 0) > int(time.time()),
+        }
+        market_snapshot = {"symbol": sym, "px": float(px), "atr14": atr14,
+                           "vol_5m": 0, "vol_ma": 0}
+        try:
+            ok2, reason2, _src = await self.agent.review_trade(proposed, sleeve_state, market_snapshot)
+        except Exception as e:
+            log.warning(f"Sleeve B reviewer call failed: {e} — proceeding")
+            ok2 = True
+        if not ok2:
+            log.info(f"Sleeve B reviewer veto {sym}: {reason2}")
+            return
+
         token_addr = self._token_address(sym)
         usdc_addr = self._token_address("USDC")
         pool_fee = self.pancake.best_pool_fee(usdc_addr, token_addr, [100, 500, 2500, 10000])
@@ -185,6 +204,21 @@ class SleeveBMomentum:
         # Cooldown after a stop-out to prevent revenge entries.
         if pnl < 0 and reason in ("atr_stop", "stop_hit", "time_stop"):
             self.loss_cooldown_until[sym] = int(time.time()) + self.loss_cooldown_s
+
+    def _recent_trades_for(self, sym: str, n: int = 20) -> list[dict]:
+        """Return the last N closed trades on this symbol from the portfolio."""
+        try:
+            all_trades = list(self.portfolio.closed_trades)
+        except Exception:
+            return []
+        out = []
+        for t in reversed(all_trades):
+            if t.get("symbol") == sym:
+                out.append({"pnl_pct": float(t.get("pnl_usdc", 0)) / max(1, float(t.get("notional", 1))) * 100,
+                            "reason": t.get("reason")})
+                if len(out) >= n:
+                    break
+        return list(reversed(out))
 
     def _atr(self, candles: list[dict], period: int) -> float:
         if len(candles) < period + 1:

@@ -25,6 +25,22 @@ Endpoints
   POST /api/setup/sign         sign the current policy with the wallet's password
   GET  /api/setup/checklist    returns { complete: bool, missing: [...] }
   POST /api/setup/reset        wipe all operator state
+  POST /api/chat               non-streamed chat
+  POST /api/chat/tool          dispatch a tool call (used by dashboard)
+  GET  /api/chat/tools         list available tools
+  GET  /api/agent/advisor      last N advisor decisions
+  GET  /api/agent/reviewer     last N reviewer decisions
+  GET  /api/agent/personas     list persona names
+  GET  /api/agent/personas/{n} get raw persona .md
+  POST /api/agent/personas/{n} save persona body
+  POST /api/agent/personas/{n}/reset  reset to pro default
+  GET  /api/llm/status         which providers are configured
+  GET  /api/tokens/config      TokenModule config
+  POST /api/tokens/config      update TokenModule config
+  POST /api/tokens/deploy      deploy a token (confirm_mainnet required for mainnet)
+  GET  /api/skills             list all skills + enabled state
+  POST /api/skills/{n}/enable  enable
+  POST /api/skills/{n}/disable disable
   WS   /ws                     real-time stats push (1Hz)
   GET  /                       single-file frontend
 """
@@ -57,6 +73,7 @@ from core.setup import (
     import_wallet, sign_current_policy, reset as reset_setup,
     export_env_for_process,
 )
+from agents.base import list_persona_names, read_persona_raw, PersonaLoader
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +454,202 @@ def build_app() -> FastAPI:
     frontend_dir = Path(__file__).parent.parent / "frontend"
     if frontend_dir.exists():
         app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
+
+    # ----------------------------------------------------------- chat + agent
+    def _chat_agent():
+        s = _state()
+        return s.get("components", {}).get("chat_agent")
+
+    def _advisor():
+        s = _state()
+        return s.get("components", {}).get("advisor")
+
+    def _reviewers():
+        s = _state()
+        return s.get("components", {}).get("reviewers", {})
+
+    @app.post("/api/chat")
+    async def chat_post(body: dict):
+        ca = _chat_agent()
+        if ca is None:
+            return JSONResponse({"error": "chat agent not loaded"}, status_code=503)
+        msg = body.get("message", "").strip()
+        history = body.get("history", []) or []
+        if not msg:
+            return JSONResponse({"error": "message required"}, status_code=400)
+        chunks: list[str] = []
+        async for ev in ca.chat(msg, history):
+            if ev.type == "delta":
+                chunks.append(ev.text)
+        return JSONResponse({"reply": "".join(chunks)})
+
+    @app.post("/api/chat/tool")
+    async def chat_tool(body: dict):
+        ca = _chat_agent()
+        if ca is None:
+            return JSONResponse({"error": "chat agent not loaded"}, status_code=503)
+        name = body.get("name", "")
+        args = body.get("args", {}) or {}
+        result = await ca.dispatch_tool(name, args)
+        return JSONResponse({"ok": True, "result": result})
+
+    @app.get("/api/chat/tools")
+    async def chat_tools():
+        ca = _chat_agent()
+        if ca is None:
+            return JSONResponse({"error": "chat agent not loaded"}, status_code=503)
+        return JSONResponse({"enabled": ca.enabled, "tools": ca.tool_specs(),
+                            "provider": ca.routing.provider_name, "model": ca.routing.model,
+                            "reason": ca.routing.reason})
+
+    @app.get("/api/agent/advisor")
+    async def agent_advisor(limit: int = 20):
+        adv = _advisor()
+        if adv is None:
+            return JSONResponse({"decisions": []})
+        return JSONResponse({"decisions": adv.recent(limit)})
+
+    @app.get("/api/agent/reviewer")
+    async def agent_reviewer(limit: int = 50, sleeve: str | None = None):
+        revs = _reviewers()
+        out = []
+        if sleeve:
+            r = revs.get(sleeve)
+            if r:
+                out = r.recent(limit)
+        else:
+            for r in revs.values():
+                out.extend(r.recent(limit))
+        return JSONResponse({"decisions": out[-limit:]})
+
+    @app.get("/api/agent/personas")
+    async def agent_personas():
+        return JSONResponse({"names": list_persona_names()})
+
+    @app.get("/api/agent/personas/{name}")
+    async def agent_persona_get(name: str):
+        loader = PersonaLoader(name)
+        try:
+            p = loader.load()
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({
+            "name": p.name, "system": p.system, "version": p.version,
+            "sha256": p.sha256, "pro_default_sha256": p.pro_default_sha256,
+            "diverged": p.diverged, "path": str(p.path),
+        })
+
+    @app.post("/api/agent/personas/{name}")
+    async def agent_persona_save(name: str, body: dict):
+        loader = PersonaLoader(name)
+        body_text = body.get("body", "")
+        version = str(body.get("version", "1.0.0"))
+        try:
+            p = loader.save_user(body_text, version=version)
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"ok": True, "sha256": p.sha256, "diverged": p.diverged})
+
+    @app.post("/api/agent/personas/{name}/reset")
+    async def agent_persona_reset(name: str):
+        loader = PersonaLoader(name)
+        try:
+            p = loader.reset_to_pro()
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"ok": True, "sha256": p.sha256, "diverged": p.diverged})
+
+    @app.get("/api/llm/status")
+    async def llm_status():
+        s = _state()
+        router = s.get("components", {}).get("llm_router")
+        if router is None:
+            return JSONResponse({"providers": {}, "agents": {}})
+        return JSONResponse(router.status())
+
+    @app.post("/api/llm/config")
+    async def llm_config(body: dict):
+        # Minimal: write agents/providers.yaml with the new per-agent routing.
+        from pathlib import Path
+        import yaml as _yaml
+        cfg_path = Path("agents/providers.yaml")
+        try:
+            doc = _yaml.safe_load(cfg_path.read_text()) or {}
+        except Exception:
+            doc = {}
+        doc.setdefault("agents", {})
+        for agent_name, agent_cfg in body.items():
+            if not isinstance(agent_cfg, dict):
+                continue
+            doc["agents"][agent_name] = agent_cfg
+        cfg_path.write_text(_yaml.safe_dump(doc, sort_keys=False))
+        return JSONResponse({"ok": True, "note": "restart the agent to apply"})
+
+    # ---------------------------------------------------------- tokens (stub)
+    @app.get("/api/tokens/config")
+    async def tokens_config_get():
+        s = _state()
+        tm = s.get("components", {}).get("token_module")
+        if tm is None:
+            return JSONResponse({"error": "TokenModule not loaded"}, status_code=503)
+        return JSONResponse(tm.config)
+
+    @app.post("/api/tokens/deploy")
+    async def tokens_deploy(body: dict):
+        s = _state()
+        tm = s.get("components", {}).get("token_module")
+        if tm is None:
+            return JSONResponse({"error": "TokenModule not loaded"}, status_code=503)
+        network = body.get("network", "testnet")
+        if network == "mainnet" and not body.get("confirm_mainnet", False):
+            return JSONResponse({"error": "mainnet requires confirm_mainnet=true"},
+                                status_code=400)
+        try:
+            result = await tm.create_token(
+                name=body.get("name", ""),
+                symbol=body.get("symbol", ""),
+                supply=int(body.get("supply", 0)),
+                decimals=int(body.get("decimals", 18)),
+                network=network,
+                protocol=body.get("protocol"),
+            )
+            from dataclasses import asdict
+            return JSONResponse({"ok": True, "result": asdict(result)})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    # --------------------------------------------------------------- skills
+    @app.get("/api/skills")
+    async def skills_list():
+        s = _state()
+        reg = s.get("components", {}).get("skill_registry")
+        if reg is None:
+            return JSONResponse({"skills": [], "note": "skill registry not loaded"})
+        return JSONResponse({"skills": reg.list()})
+
+    @app.post("/api/skills/{name}/enable")
+    async def skills_enable(name: str):
+        s = _state()
+        reg = s.get("components", {}).get("skill_registry")
+        if reg is None:
+            return JSONResponse({"error": "skill registry not loaded"}, status_code=503)
+        try:
+            r = reg.enable(name)
+            return JSONResponse({"ok": True, "result": r})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    @app.post("/api/skills/{name}/disable")
+    async def skills_disable(name: str):
+        s = _state()
+        reg = s.get("components", {}).get("skill_registry")
+        if reg is None:
+            return JSONResponse({"error": "skill registry not loaded"}, status_code=503)
+        try:
+            r = reg.disable(name)
+            return JSONResponse({"ok": True, "result": r})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
     return app
 

@@ -54,11 +54,13 @@ class TickLoop:
 class Agent:
     """Top-level orchestrator. Owns the portfolio, policy, sleeve loops, and dashboard bus."""
 
-    def __init__(self, policy: dict, portfolio: Portfolio, dashboard_state: dict | None = None):
+    def __init__(self, policy: dict, portfolio: Portfolio, dashboard_state: dict | None = None,
+                 reviewers: dict | None = None):
         self.policy = policy
         self.portfolio = portfolio
         self.sleeves: dict[str, TickLoop] = {}
         self.dashboard_state = dashboard_state or {}
+        self.reviewers: dict = reviewers or {}
         self._shutdown = asyncio.Event()
 
     def register(self, name: str, period_s: int, fn):
@@ -132,3 +134,21 @@ class Agent:
             "allow": ok, "reason": reason,
         })
         return ok, reason
+
+    # --- Layer 2: per-trade reviewer hook (optional, set via main.py) ----
+
+    async def review_trade(self, proposed: ProposedTrade, sleeve_state: dict,
+                           market_snapshot: dict | None = None) -> tuple[bool, str, str]:
+        """Returns (allow, reason, source). Called between allow_trade and sign_transaction.
+
+        If no reviewer is registered for the proposed sleeve, returns (True, "ok", "no_reviewer").
+        """
+        reviewer = (self.reviewers or {}).get(proposed.sleeve)
+        if reviewer is None:
+            return True, "ok", "no_reviewer"
+        try:
+            v = await reviewer.review(proposed, sleeve_state, market_snapshot or {})
+        except Exception as e:
+            log.warning("review_trade: reviewer[%s] failed: %s — proceeding", proposed.sleeve, e)
+            return True, f"reviewer_error: {e}", "llm_error"
+        return v.allow, v.reason, v.source

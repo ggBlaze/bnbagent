@@ -131,6 +131,23 @@ class SleeveACarry:
                 log.info(f"skip {sym} — {reason}")
                 continue
 
+            # Layer 2: LLM reviewer veto (best-effort)
+            sleeve_state = {
+                "recent_trades": [],
+                "win_rate_ewma": 0.55,
+                "sleeve_dd_pct": 0.0,
+                "policy_max_dd_pct": float(self.policy.get("global_risk", {}).get("max_drawdown_pct", 100)),
+                "loss_cooldown_active": False,
+            }
+            try:
+                ok2, reason2, _src = await self.agent.review_trade(proposed, sleeve_state, {"symbol": sym})
+            except Exception as e:
+                log.warning(f"Sleeve A reviewer call failed: {e} — proceeding")
+                ok2 = True
+            if not ok2:
+                log.info(f"Sleeve A reviewer veto {sym}: {reason2}")
+                continue
+
             # Open spot leg on PancakeSwap
             try:
                 quote_data = await self.cmc.quotes_latest([sym])

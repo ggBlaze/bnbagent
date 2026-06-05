@@ -432,6 +432,8 @@ body::before {
   <nav class="topnav">
     <button id="nav-setup"  onclick="showPane('setup')">Setup</button>
     <button id="nav-live"   class="active" onclick="showPane('live')">Live</button>
+    <button id="nav-chat"   onclick="showPane('chat')">Chat</button>
+    <button id="nav-tokens" onclick="showPane('tokens')">Tokens</button>
     <button id="nav-config" onclick="showPane('config')">Config</button>
     <button id="nav-logs"   onclick="showPane('logs')">Logs</button>
     <button id="nav-replay" onclick="showPane('replay')">Replay</button>
@@ -754,6 +756,85 @@ body::before {
       </section>
     </div>
 
+    <!-- Chat pane (Layer 3) -->
+    <div id="pane-chat" style="display:none;">
+      <div id="chat-banner" class="banner info" style="display:none;"></div>
+      <section class="panel" style="max-width:none;">
+        <h4>Chat with the agent <span class="meta" id="chat-meta">—</span></h4>
+        <div id="chat-log" style="height:420px; overflow-y:auto; background:var(--bg-2); border:1px solid var(--line); border-radius:6px; padding:14px; font:400 13px/1.6 'Inter';">
+          <div class="dim" style="color:var(--fg-dim);">Ask anything — e.g. "what's my PnL today?", "create a token called Mooncoin with symbol MOON", "enable the telegram skill". The agent can read live state and run tools, but cannot change your signed policy without you re-signing in Setup.</div>
+        </div>
+        <form id="chat-form" style="display:flex; gap:8px; margin-top:12px;">
+          <input id="chat-input" class="input" type="text" placeholder="Ask the agent…" autocomplete="off" style="flex:1;" />
+          <button type="submit" class="btn primary">Send</button>
+        </form>
+        <div style="margin-top:10px; display:flex; gap:12px; font:400 11px/1.4 'Inter'; color:var(--fg-dim);">
+          <a href="#" id="chat-view-persona" style="color:var(--blue); text-decoration:none;">view persona</a>
+          <a href="#" id="chat-reset-persona" style="color:var(--accent); text-decoration:none;">reset persona to pro</a>
+          <span class="mono" id="chat-persona-status"></span>
+        </div>
+        <details style="margin-top:14px;">
+          <summary style="font:500 11px/1.4 'Inter'; color:var(--fg-dim); cursor:pointer;">Recent agent decisions</summary>
+          <div id="chat-decisions" style="margin-top:10px;"></div>
+        </details>
+      </section>
+    </div>
+
+    <!-- Tokens pane (TokenModule) -->
+    <div id="pane-tokens" style="display:none;">
+      <section class="panel" style="max-width:none;">
+        <h4>Token Module <span class="meta" id="tok-meta">—</span></h4>
+        <p style="font:400 12px/1.5 'Inter'; color:var(--fg-dim); margin: 0 0 18px;">
+          Deploy ERC-20 tokens on BSC. All three sponsor layers participate:
+          <strong style="color:var(--accent);">TWAK</strong> signs the deploy tx,
+          <strong style="color:var(--accent-2);">x402</strong> pays CMC for token
+          metadata, <strong style="color:var(--blue);">BNB SDK</strong> broadcasts
+          the contract creation.
+        </p>
+        <div class="field-row">
+          <div class="field">
+            <label>Network</label>
+            <select id="tok-network">
+              <option value="testnet">BSC Testnet (free, recommended)</option>
+              <option value="mainnet">BSC Mainnet (real BNB, irreversible)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Protocol</label>
+            <select id="tok-protocol">
+              <option value="erc20_minimal">ERC-20 minimal (5KB bytecode)</option>
+              <option value="bep20">BEP-20 (alias)</option>
+              <option value="openzeppelin">OpenZeppelin (audited, heavier)</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Total supply</label>
+            <input id="tok-supply" type="number" min="1" value="1000000000" />
+          </div>
+          <div class="field">
+            <label>Decimals</label>
+            <input id="tok-decimals" type="number" min="0" max="18" value="18" />
+          </div>
+        </div>
+        <div class="field">
+          <label style="display:flex; align-items:center; gap:8px;">
+            <input id="tok-create-website" type="checkbox" style="width:auto;" />
+            Generate a landing-page website (single-file HTML) on deploy
+          </label>
+          <textarea id="tok-website-theme" rows="3" placeholder="Describe the website style — e.g. futuristic dark DeFi landing page with hero, features, roadmap">Futuristic dark DeFi landing page with hero, features, roadmap, socials. Single-file HTML/JS, no external deps, inline CSS. Mobile-first.</textarea>
+        </div>
+        <div class="actions" style="margin-top:16px;">
+          <div style="font:400 11px/1.4 'Inter'; color:var(--fg-dim);">
+            Mainnet deploys require a confirmation dialog.
+          </div>
+          <button class="btn primary" onclick="deployToken()">Deploy now</button>
+        </div>
+        <div id="tok-result" style="margin-top:16px;"></div>
+      </section>
+    </div>
+
   </main>
 
   <!-- ===== RIGHT RAIL: control + logs ===== -->
@@ -1019,13 +1100,14 @@ async function refresh() {
 
 /* === pane switching ============================================== */
 function showPane(p) {
-  for (const id of ['setup','live','config','logs','replay']) {
+  for (const id of ['setup','live','chat','tokens','config','logs','replay']) {
     $(`pane-${id}`).style.display = (id === p) ? '' : 'none';
     const b = $('nav-' + id); if (b) b.classList.toggle('active', id === p);
   }
   if (p === 'logs') startLogStream();
   else stopLogStream();
   if (p === 'setup') wizardLoad();
+  if (p === 'chat') loadChatPersona();
 }
 
 /* === setup wizard ================================================ */
@@ -1287,7 +1369,216 @@ function stopLogStream() {
   refresh();
   setInterval(refresh, 1500);
   setInterval(checkSetupBadge, 5000);
+  setInterval(loadChatDecisions, 8000);
 })();
+
+/* ============================================================
+   Chat pane (Layer 3) — text in, text out, no LLM logic on the client
+   ============================================================ */
+const chat = {
+  history: [],
+  busy: false,
+};
+
+const chatLog = () => $('chat-log');
+function appendChat(role, text) {
+  const log = chatLog();
+  const el = document.createElement('div');
+  el.style.cssText = 'margin: 8px 0; padding: 6px 0;';
+  const who = document.createElement('div');
+  who.style.cssText = "font:600 10px 'JetBrains Mono', monospace; color:var(--fg-dimmer); text-transform:uppercase; letter-spacing:0.14em; margin-bottom:2px;";
+  who.textContent = role === 'user' ? 'you' : 'agent';
+  const body = document.createElement('div');
+  body.style.cssText = 'white-space:pre-wrap; word-break:break-word;';
+  body.textContent = text;
+  el.appendChild(who); el.appendChild(body);
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+  return body;
+}
+
+document.getElementById('chat-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = $('chat-input');
+  const msg = input.value.trim();
+  if (!msg || chat.busy) return;
+  input.value = '';
+  appendChat('user', msg);
+  chat.history.push({role: 'user', content: msg});
+  if (chat.history.length > 20) chat.history = chat.history.slice(-20);
+
+  chat.busy = true;
+  const placeholder = appendChat('agent', '…');
+  try {
+    const r = await jpost('/api/chat', { message: msg, history: chat.history.slice(0, -1) });
+    if (r.error) {
+      placeholder.textContent = '[error] ' + r.error;
+    } else {
+      placeholder.textContent = r.reply || '(no reply)';
+      chat.history.push({role: 'assistant', content: r.reply || ''});
+      // simple tool detection: if reply contains a "create_token" or
+      // "deploy" action item, render a button
+      maybeRenderTokenAction(placeholder, r.reply);
+    }
+  } catch (err) {
+    placeholder.textContent = '[network error] ' + err.message;
+  } finally {
+    chat.busy = false;
+  }
+});
+
+function maybeRenderTokenAction(el, text) {
+  if (!text) return;
+  // crude trigger: only when the reply mentions token / deploy / create
+  if (!/create (a )?token|deploy.*token/i.test(text)) return;
+  const btn = document.createElement('button');
+  btn.className = 'btn';
+  btn.style.marginTop = '8px';
+  btn.textContent = 'Open Tokens pane →';
+  btn.onclick = () => showPane('tokens');
+  el.appendChild(document.createElement('br'));
+  el.appendChild(btn);
+}
+
+async function loadChatDecisions() {
+  const [adv, rev] = await Promise.all([
+    jget('/api/agent/advisor?limit=5'),
+    jget('/api/agent/reviewer?limit=5'),
+  ]);
+  const box = $('chat-decisions');
+  if (!box) return;
+  let html = '<div style="font:500 10px \'Inter\'; color:var(--fg-dim); text-transform:uppercase; letter-spacing:0.14em; margin-bottom:4px;">Advisor (Layer 1)</div>';
+  if (adv.decisions && adv.decisions.length) {
+    html += '<table class="ledger" style="margin-bottom:12px;"><thead><tr><th>ts</th><th>applied</th><th>vetoed</th><th>reason</th></tr></thead><tbody>';
+    for (const d of adv.decisions) {
+      html += `<tr><td class="dim">${ts(d.ts)}</td><td>${(d.actions_applied||[]).length}</td><td>${(d.actions_vetoed||[]).length}</td><td>${(d.context_summary?.equity ?? '—')}</td></tr>`;
+    }
+    html += '</tbody></table>';
+  } else {
+    html += '<div class="dim" style="color:var(--fg-dim); margin-bottom:8px;">no advisor decisions yet</div>';
+  }
+  html += '<div style="font:500 10px \'Inter\'; color:var(--fg-dim); text-transform:uppercase; letter-spacing:0.14em; margin-bottom:4px;">Reviewer (Layer 2)</div>';
+  if (rev.decisions && rev.decisions.length) {
+    html += '<table class="ledger"><thead><tr><th>ts</th><th>sleeve</th><th>symbol</th><th>source</th><th>reason</th></tr></thead><tbody>';
+    for (const d of rev.decisions) {
+      html += `<tr><td class="dim">${ts(d.ts)}</td><td>${d.sleeve||'—'}</td><td>${d.symbol||'—'}</td><td><span class="pill ${d.allow?'green':'red'}">${d.source}</span></td><td>${(d.reason||'').slice(0,40)}</td></tr>`;
+    }
+    html += '</tbody></table>';
+  } else {
+    html += '<div class="dim" style="color:var(--fg-dim);">no reviewer decisions yet</div>';
+  }
+  box.innerHTML = html;
+}
+
+async function loadChatPersona() {
+  // Surface the LLM status banner
+  const s = await jget('/api/llm/status');
+  const banner = $('chat-banner');
+  const meta = $('chat-meta');
+  if (!s || !s.agents) return;
+  const chatAgent = s.agents.chat;
+  if (chatAgent && chatAgent.enabled) {
+    banner.style.display = '';
+    banner.className = 'banner ok';
+    banner.textContent = `chat: ${chatAgent.provider} / ${chatAgent.model}`;
+  } else {
+    banner.style.display = '';
+    banner.className = 'banner warn';
+    banner.textContent = 'chat: LLM not configured — add a key in .env (e.g. OPENROUTER_API_KEY) and restart the agent.';
+  }
+  if (meta) {
+    const a = s.agents.advisor, r = s.agents.reviewer;
+    meta.textContent = `advisor=${a?.enabled?'on':'off'} · reviewer=${r?.enabled?'on':'off'}`;
+  }
+  // Persona status
+  const r = await jget('/api/agent/personas/chat');
+  const status = $('chat-persona-status');
+  if (r && r.diverged) {
+    status.textContent = '(diverged from pro)';
+    status.style.color = 'var(--accent-2)';
+  } else {
+    status.textContent = '(pro default)';
+    status.style.color = 'var(--green)';
+  }
+}
+
+$('chat-view-persona').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const r = await jget('/api/agent/personas/chat');
+  if (!r || r.error) { alert('persona not loaded: ' + (r?.error || '?')); return; }
+  const newBody = prompt('Edit chat persona (.md body — frontmatter preserved):', r.system);
+  if (newBody === null) return;
+  await jpost('/api/agent/personas/chat', { body: newBody, version: r.version });
+  loadChatPersona();
+});
+$('chat-reset-persona').addEventListener('click', async (e) => {
+  e.preventDefault();
+  if (!confirm('Reset chat persona to pro default?')) return;
+  await jpost('/api/agent/personas/chat/reset', {});
+  loadChatPersona();
+});
+
+/* ============================================================
+   Tokens pane (TokenModule)
+   ============================================================ */
+async function deployToken() {
+  const network = $('tok-network').value;
+  const protocol = $('tok-protocol').value;
+  const supply = parseInt($('tok-supply').value || '0', 10);
+  const decimals = parseInt($('tok-decimals').value || '18', 10);
+  const name = prompt(`Name your token (e.g. "Mooncoin"):`) || '';
+  const symbol = (prompt(`Symbol (3-5 uppercase chars, e.g. "MOON"):`) || '').toUpperCase();
+
+  if (!name || !symbol || !supply) {
+    alert('name, symbol, and supply are required');
+    return;
+  }
+  let confirmMainnet = false;
+  if (network === 'mainnet') {
+    confirmMainnet = confirm(
+      `DEPLOY ON BSC MAINNET\n\n` +
+      `This spends real BNB and is IRREVERSIBLE.\n\n` +
+      `Type the token name in the next prompt to confirm.`
+    );
+    if (!confirmMainnet) return;
+    const typed = prompt(`Type the token name "${name}" to confirm mainnet deploy:`);
+    if (typed !== name) {
+      alert('Confirmation text did not match — aborting.');
+      return;
+    }
+  }
+  const r = await jpost('/api/tokens/deploy', {
+    name, symbol, supply, decimals, network, protocol,
+    confirm_mainnet: confirmMainnet,
+  });
+  const out = $('tok-result');
+  if (!r.ok) {
+    out.innerHTML = `<div class="banner error">deploy failed: ${r.error || JSON.stringify(r)}</div>`;
+    return;
+  }
+  const x = r.result || {};
+  const explorer = x.explorer_url || '#';
+  let websiteBtn = '';
+  if (x.website_html) {
+    const blob = new Blob([x.website_html], {type: 'text/html'});
+    const url = URL.createObjectURL(blob);
+    websiteBtn = `<a class="btn" href="${url}" download="${symbol || 'token'}.html" style="margin-left:8px;">Download website.html</a>`;
+  }
+  out.innerHTML = `
+    <div class="banner ok">✓ Deployed</div>
+    <div class="kv"><span class="k">Contract</span><span class="v mono accent">${x.contract_address || '—'}</span></div>
+    <div class="kv"><span class="k">Tx</span><span class="v mono">${(x.tx_hash||'').slice(0,20)}…</span></div>
+    <div class="kv"><span class="k">Deployer</span><span class="v mono">${(x.deployer||'').slice(0,12)}…</span></div>
+    <div class="kv"><span class="k">Supply</span><span class="v">${x.total_supply || 0}</span></div>
+    <div class="kv"><span class="k">Decimals</span><span class="v">${x.decimals}</span></div>
+    <div class="kv"><span class="k">Network</span><span class="v">${x.network}</span></div>
+    <div class="kv"><span class="k">IPFS metadata</span><span class="v mono">${(x.ipfs_metadata_cid || '—').slice(0,16)}…</span></div>
+    <div style="margin-top:12px;">
+      <a class="btn primary" href="${explorer}" target="_blank">View on BscScan ↗</a>
+      ${websiteBtn}
+    </div>
+  `;
+}
 window.addEventListener('beforeunload', stopLogStream);
 </script>
 </body>

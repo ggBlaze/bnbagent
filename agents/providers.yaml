@@ -1,0 +1,34 @@
+# BNB Agent — LLM provider routing
+# Provider-agnostic. Pick a default, override per-agent.
+# Env vars use $VAR or ${VAR} substitution at load time.
+
+default: openrouter
+
+providers:
+  anthropic:  { base: https://api.anthropic.com,        key: $ANTHROPIC_API_KEY,  default_model: claude-3-5-haiku-latest }
+  openai:     { base: https://api.openai.com,           key: $OPENAI_API_KEY,     default_model: gpt-4o-mini }
+  openrouter: { base: https://openrouter.ai/api,       key: $OPENROUTER_API_KEY, default_model: anthropic/claude-3.5-haiku }
+  oai_compat: { base: $OAI_BASE,                       key: $OAI_KEY,            default_model: $OAI_MODEL }
+  local:      { base: $LOCAL_LLM_BASE,                 key: "",         default_model: local }
+
+agents:
+  advisor:
+    provider: openrouter
+    model: anthropic/claude-3.5-haiku
+    max_tokens: 512
+    temperature: 0.1
+  reviewer:
+    provider: openrouter
+    model: anthropic/claude-3.5-haiku
+    max_tokens: 256
+    temperature: 0.0
+  chat:
+    provider: openrouter
+    model: anthropic/claude-3.5-sonnet
+    max_tokens: 2048
+    temperature: 0.4
+  token_module:
+    provider: openrouter
+    model: anthropic/claude-3.5-haiku
+    max_tokens: 8000
+    temperature: 0.7
