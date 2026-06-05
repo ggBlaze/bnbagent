@@ -58,10 +58,13 @@ The server mounts a Starlette app with two routes:
 
 Configurable via `BNBAGENT_MCP_HOST` / `BNBAGENT_MCP_PORT`.
 
-## Integration with Claude Desktop
+## Integration with MCP clients
 
-Add to `~/.config/claude-desktop/config.json` (Linux) or
-`~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
+The server speaks **stdio**, so any stdio-compatible MCP client can
+drive the BNB Agent as a tool library. There is no opinionated desktop
+app — pick whatever client fits your workflow.
+
+### Claude Code (`~/.claude/mcp_servers.json`)
 
 ```json
 {
@@ -75,17 +78,21 @@ Add to `~/.config/claude-desktop/config.json` (Linux) or
 }
 ```
 
-Restart Claude Desktop. Then `/mcp` to see the 10 bnbagent tools.
+### Goose / Cursor / Continue / other MCP clients
 
-In Claude Code, you can call them like:
+Same shape — a stdio command that runs `scripts/mcp_serve.sh` (or
+directly `python -m agent_mcp.mcp_server --transport stdio`). Check
+your client's docs for the exact config-file location and JSON schema;
+the keys are always `mcpServers.<name>.command` + `args` + `env`.
 
-```
-/mcp bnbagent_list_positions
-/mcp bnbagent_deploy_token name=TestCoin symbol=TST supply=1000000
-```
-
-The agent will sign the deploy with TWAK, broadcast via the BNB SDK,
-and return a `contract_address` you can verify on BscScan.
+Once configured, the 10 `bnbagent_*` tools appear in the client
+(`bnbagent_get_pnl`, `bnbagent_list_positions`,
+`bnbagent_list_trades`, `bnbagent_get_policy`,
+`bnbagent_recommend_risk_change`, `bnbagent_deploy_token`,
+`bnbagent_chat`, `bnbagent_list_skills`, `bnbagent_enable_skill`,
+`bnbagent_disable_skill`). Call them from your client and the agent
+will sign any required transactions with TWAK, broadcast via the BNB
+SDK, and return on-chain-verifiable results.
 
 ## How the server reads agent state
 

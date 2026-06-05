@@ -310,7 +310,10 @@ bash scripts/mcp_serve.sh        # stdio (for Claude Code / Goose / Cursor)
 bash scripts/mcp_serve_sse.sh   # SSE, port 8765
 ```
 
-**Integrate with Claude Desktop** — add to `~/.config/claude-desktop/config.json`:
+**Integrate with any MCP client** — the server speaks stdio, so any
+MCP-compatible client can drive the BNB Agent. Example configs:
+
+**Claude Code** (`~/.claude/mcp_servers.json`):
 
 ```json
 {
@@ -324,7 +327,16 @@ bash scripts/mcp_serve_sse.sh   # SSE, port 8765
 }
 ```
 
-Restart Claude Desktop, then `/mcp` to see the bnbagent tools. The integration test (`tests/integration/test_mcp.py`) spawns the server and calls every tool end-to-end.
+**Goose / Cursor / Continue / any other MCP client** — same shape: a
+stdio command that runs `scripts/mcp_serve.sh` (or directly
+`python -m agent_mcp.mcp_server --transport stdio`). Check your client's
+docs for the exact config-file location and JSON schema; the keys
+are always `mcpServers.<name>.command` + `args` + `env`.
+
+Restart the client, then it will discover the 10 bnbagent tools
+(`bnbagent_get_pnl`, `bnbagent_deploy_token`, `bnbagent_chat`, etc).
+The integration test (`tests/integration/test_mcp.py`) spawns the
+server and calls every tool end-to-end.
 
 Full details: [`docs/MCP.md`](docs/MCP.md).
 
@@ -567,7 +579,7 @@ bnbagent/
 | [`docs/agents.md`](docs/agents.md) | The 3-LLM agent team in depth (advisor / reviewer / chat) |
 | [`docs/TOKEN_MODULE.md`](docs/TOKEN_MODULE.md) | Token deploy + landing-page generation + mainnet guard |
 | [`docs/SKILLS.md`](docs/SKILLS.md) | Skills registry + 6 built-ins + the cmc_global_filter pause rule |
-| [`docs/MCP.md`](docs/MCP.md) | MCP server transport, 10 tools, Claude Desktop integration |
+| [`docs/MCP.md`](docs/MCP.md) | MCP server transport, 10 tools, generic MCP-client integration |
 | [`docs/PERSONAS.md`](docs/PERSONAS.md) | Persona format + reset semantics + diverged flag |
 | [`docs/API.md`](docs/API.md) | Every HTTP endpoint (40+) with request/response examples |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model, signing, key mgmt, MCP exposure, audit trail |
