@@ -104,3 +104,42 @@ The 10% allocation caps downside if a regime change makes mean-reversion fail.
 - **Best Use of BNB AI Agent SDK** — the agent has an ERC-8004 identity NFT and
   each sleeve is an ERC-8183 job with the user as evaluator. All of this is
   visible on-chain and on the dashboard.
+
+---
+
+## v2.0 — what changed in the strategy
+
+The deterministic strategy is unchanged. v2.0 adds **three orthogonal
+layers** on top:
+
+1. **Layer 2 reviewer hook** — every sleeve now calls `await self.agent.review_trade(...)`
+   immediately after the circuit breaker. The reviewer (LLM + heuristic)
+   can veto a trade that passes the policy but would be bad in context
+   (recent losing streak, anomalous market, etc). The hook is best-effort
+   and falls back to heuristic-only if the LLM is slow or disabled.
+2. **Hardened cooldowns + post-loss cool-offs** — the previous
+   "revenge trade" risk is now mitigated by per-symbol cooldowns (4h for
+   Sleeve B, 6h for Sleeve C) after a losing exit.
+3. **Live advisor feedback** — the Layer 1 advisor can disable a
+   sleeve based on its recent performance, and the Layer 3 chat can
+   surface "Sleeve B has been stopped out 3 times in the last 24h, consider
+   reducing size" — operator-driven, never automatic.
+
+The strategy logic itself (signals, sizing, exits) is byte-identical to
+v1.0. The added layers are *pure safety enhancements* — they can stop a
+trade that the policy would otherwise allow, but they cannot approve a
+trade that the policy would block.
+
+## v2.0 — Token Module as a side strategy
+
+A new flow: the operator (or the chat, or the MCP server) can request
+a token deploy. This isn't a "trading strategy" per se, but it's a
+real on-chain action that exercises all three sponsor layers:
+
+- x402-pays CMC for token metadata enrichment
+- TWAK-signs the contract-creation tx
+- BNB SDK broadcasts; the new token lives on BSC
+
+Mainnet deploys require `confirm_mainnet: true` and the user typing
+the token name in a dashboard modal. The deploy produces a real ERC-20
+contract on BSC (or BEP-20 — same bytecode).

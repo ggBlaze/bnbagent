@@ -24,6 +24,20 @@ Behind the scenes:
 After step 3, `/api/setup/checklist` returns `{"complete": true, "missing": []}`
 and the **Setup** tab stops showing the "setup required" badge.
 
+## v2.0 extras in the wizard
+
+- **Wallet format** is the same as TWAK's CLI (`npx twak sign message` works
+  on the same file). Production hardware-wallet support is one CLI command
+  away.
+- **Mainnet confirmation** is enforced at the API level: `POST /api/setup/config`
+  rejects `mode: mainnet` unless the wallet has been signed and the
+  policy has been verified. Switching to mainnet from testnet re-runs
+  the policy verification.
+- **Persona bootstrap** happens on first boot: `agents/_pro_defaults/*.md`
+  are copied to `agents/personas/*.md` if not already present. The
+  Setup wizard step 3 displays the current pro personas and lets the
+  user skip ahead to Live.
+
 ## Security model
 
 - The private key **never leaves the host process**. The dashboard receives
@@ -34,6 +48,9 @@ and the **Setup** tab stops showing the "setup required" badge.
   TLS (Caddy, nginx) and bind it to `127.0.0.1`.
 - The wallet format is the same as Trust Wallet's Agent Kit (TWAK), so the
   CLI fallback path (`npx twak sign message`) works on the same file.
+- The LLM agent team does NOT participate in the Setup wizard. Setup
+  is a human-only flow — wallet creation, password entry, and policy
+  signing are all user actions.
 
 ## Production wallet import
 
@@ -44,7 +61,7 @@ receipt and never logged or echoed back to the browser.
 For hardware-wallet support (Ledger / Trezor), use the TWAK CLI directly:
 
 ```bash
-npx twak init --chain bsc --password-env TWAK_PWD
+npx twak init --chain bsc --ledger --password-env TWAK_PWD
 export TWAK_KEYSTORE=~/.twak/wallet.json
 export TWAK_PWD=...
 python -m policy.policy_sign
@@ -60,5 +77,19 @@ The **Reset Everything** button on the final step wipes:
 - `~/.twak/wallet.json`
 - `~/.bnbagent/setup.json`
 
-Use it before donating the box to a new operator or before re-running the
-wizard with a different chain.
+It does NOT wipe the personas or the LLM-decisions log. Use it before
+donating the box to a new operator or before re-running the wizard with
+a different chain.
+
+## Persona management (advanced)
+
+After completing the wizard, the user can:
+
+- **View the active persona** from the Chat pane → "view persona" modal.
+  Shows the current `.md` body + sha256 + a "diverged from pro" badge.
+- **Edit** the persona body in a textarea and "save" → writes to
+  `agents/personas/<name>.md`. The agent picks it up on the next heartbeat.
+- **Reset to pro** → copies `agents/_pro_defaults/<name>.md` back over the
+  live copy. The diverged badge disappears.
+
+See [`PERSONAS.md`](PERSONAS.md) for details.
