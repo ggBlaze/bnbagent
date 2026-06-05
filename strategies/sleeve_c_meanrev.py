@@ -15,6 +15,7 @@ import numpy as np
 
 from core.portfolio import Position
 from core.risk import ProposedTrade, kelly_size, cap_by_risk
+from core.utils import token_address
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +37,8 @@ class SleeveCMeanRev:
         self.portfolio = components["portfolio"]
         self.positions: dict[str, Position] = {}
         self.win_rate_by_symbol: dict[str, float] = {}
+        self.loss_cooldown_until: dict[str, int] = {}
+        self.loss_cooldown_s: int = 6 * 3600  # 6h cool-off after a stop-out
 
     async def tick(self):
         self.portfolio.update_peak()
@@ -80,6 +83,8 @@ class SleeveCMeanRev:
 
     async def _open_mean_rev(self, sym: str, ref_price: float, sigma: float, equity: Decimal, sleeve_cfg: dict):
         if sym in self.positions:
+            return
+        if self.loss_cooldown_until.get(sym, 0) > int(time.time()):
             return
         p_win = self.win_rate_by_symbol.get(sym, 0.70)
         stop_pct = sleeve_cfg["stop_pct"] / 100
@@ -161,14 +166,8 @@ class SleeveCMeanRev:
         win = 1 if pnl > 0 else 0
         prev = self.win_rate_by_symbol.get(sym, 0.70)
         self.win_rate_by_symbol[sym] = 0.9 * prev + 0.1 * win
+        if pnl < 0 and reason in ("stop_hit", "time_stop"):
+            self.loss_cooldown_until[sym] = int(time.time()) + self.loss_cooldown_s
 
     def _token_address(self, symbol: str) -> str:
-        for tok in self.cfg.get("tokens", {}).values():
-            if isinstance(tok, dict) and tok.get("symbol") == symbol:
-                return tok["bsc_address"]
-        entry = self.cfg.get("tokens", {}).get(symbol)
-        if isinstance(entry, dict):
-            return entry.get("bsc_address", "0x" + "00" * 20)
-        if isinstance(entry, str):
-            return entry
-        return "0x" + "00" * 20
+        return token_address(self.cfg, symbol)

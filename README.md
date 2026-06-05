@@ -1,4 +1,4 @@
-# 🤖 BNB Agent
+# BNB Agent
 
 > **Autonomous three-sleeve BSC trading agent — built to win the [BNB HACK](https://coinmarketcap.com/api/hackathon/) hackathon.**
 >
@@ -27,8 +27,36 @@ BNB Agent is an autonomous trading agent that runs three strategies in parallel 
 - Max gross leverage: **2x**
 - Max single position: **15%**
 - Curated token allowlist (top-50 CMC + vetted BNB-chain DEX list)
+- Per-symbol **post-loss cool-off** (4–6h) to prevent revenge trades
 
 Every trade is gated by a versioned, signed **User Policy** — the user signs **once** at startup.
+
+---
+
+## Quick start — one command
+
+```bash
+# 1. install (idempotent, <90s on a fresh box)
+bash install.sh
+
+# 2. run (agent + live dashboard on http://localhost:8000)
+bash bnbagent
+```
+
+That's it. The dashboard auto-loads in any browser pointed at port 8000.
+It shows live equity, drawdown, sleeve breakdown, **CMC x402 microcharge
+ledger**, **TWAK-signed tx list with BscScan links**, **ERC-8004 identity NFT**,
+**ERC-8183 job escrow**, the **signed User Policy**, a **config editor**,
+and a **kill switch** in the right rail.
+
+For the live PnL-replay rehearsal:
+
+```bash
+bash bnbagent --replay    # 7-day synthetic replay; report → data/reports/replay.html
+```
+
+For production: set `TWAK_KEYSTORE` + `TWAK_PWD` (or `BNBAGENT_PRIVATE_KEY` for
+dev) and re-sign the policy. See [`docs/install.md`](docs/install.md).
 
 ---
 
@@ -54,71 +82,83 @@ Every trade is gated by a versioned, signed **User Policy** — the user signs *
 
 ---
 
-## Quick start
-
-```bash
-# 1. Day-1 sanity check (validates the whole stack in <1 min)
-bash scripts/first_run.sh
-
-# 2. Sign the policy
-export BNBAGENT_PRIVATE_KEY=0x...   # dev only; in prod use TWAK keystore
-bash scripts/sign_policy.sh
-
-# 3. Run a 7-day replay (the rehearsal for the live PnL-replay window)
-bash scripts/replay_week.sh
-
-# 4. Start the agent
-bash scripts/start_agent.sh
-
-# 5. In another shell, start the dashboard
-bash scripts/start_dashboard.sh
-# → http://localhost:8000
-```
-
----
-
 ## Repo layout
 
 ```
 bnbagent/
-├── config/                  # policy.yaml (signed) + config.yaml + allowlist + perps venues
-├── core/                    # agent loop, portfolio, risk engine, tick harness, logger
-├── connectors/              # CMC, x402, TWAK, bnbagent-sdk, IPFS adapters
-├── strategies/              # sleeve A (carry), B (momentum), C (mean-rev)
-├── policy/                  # EIP-191 sign/verify + version bumping
-├── identity/                # ERC-8004 registration
-├── jobs/                    # ERC-8183 open/submit/finalize
-├── dashboard/               # FastAPI backend + Next.js frontend (single HTML file)
-├── backtest/                # fetch history + replay harness + metrics
-├── tests/                   # unit + integration tests
-├── scripts/                 # first_run, sign_policy, register, open_window, replay, finalize
-├── docs/                    # architecture, demo script, submission
-└── infra/                   # docker, systemd
+├── README.md
+├── install.sh                     # one-command installer (creates venv, signs policy, etc)
+├── bnbagent                       # one-command run (agent + dashboard, Ctrl+C to stop)
+├── pyproject.toml                 # Python deps
+├── package.json                   # Node deps (@trustwallet/cli)
+│
+├── config/
+│   ├── config.yaml                # main config
+│   ├── policy.yaml                # signed User Policy (EIP-191)
+│   └── policy.schema.json
+│
+├── core/                          # the agent loop
+│   ├── boot.py                    # load config, init wallet, register identity
+│   ├── main.py                    # entry point — spawns 3 sleeve loops
+│   ├── portfolio.py               # equity, peak, PnL, drawdown
+│   ├── risk.py                    # circuit_breaker_check() (called before every order)
+│   ├── tick.py                    # shared tick harness + heartbeat
+│   ├── control.py                 # dashboard → agent IPC (kill switch, sleeve toggles)
+│   └── utils.py                   # shared helpers
+│
+├── connectors/                    # sponsor adapters
+│   ├── cmc.py                     # CMC Data API + Data MCP client (x402-aware)
+│   ├── x402.py                    # EIP-3009 USDC payment flow
+│   ├── twak.py                    # TWAK wrapper: sign_tx, sign_message
+│   ├── bnb_sdk.py                 # BSC, PancakeV3, Perps, ERC8004, ERC8183
+│   └── ipfs.py                    # local IPFS client
+│
+├── strategies/                    # the 3 sleeves
+│   ├── sleeve_a_carry.py
+│   ├── sleeve_b_momentum.py
+│   └── sleeve_c_meanrev.py
+│
+├── policy/                        # EIP-191 sign/verify
+├── identity/                      # ERC-8004 registration
+├── jobs/                          # ERC-8183 open/submit/finalize
+├── dashboard/                     # FastAPI backend + single-file frontend
+├── backtest/                      # replay harness + metrics
+├── tests/                         # unit + integration tests
+├── scripts/                       # the granular scripts (sign_policy, open_window, etc)
+├── docs/                          # architecture, ops, install, demo, submission, audit
+└── infra/                         # docker, systemd
 ```
 
 ---
 
-## Verification — what proves it works
+## Verification
 
 | Check | Command | Pass criteria |
 |---|---|---|
+| Day-1 sanity (TWAK + x402 + ERC-8004) | `bash scripts/first_run.sh` | all green |
 | Policy signs & verifies | `python -m policy.policy_verify` | prints `VERIFIED` |
-| Risk engine respects all rules | `pytest tests/unit/test_risk.py -v` | all 9 tests pass |
-| x402 payment builds correct header | `pytest tests/unit/test_x402.py -v` | signature recovers to wallet |
-| 7-day replay runs end-to-end | `bash scripts/replay_week.sh` | report generated, sleeves traded |
-| Full pipeline (boot→sign→register→jobs) | `pytest tests/integration/ -v` | identity + 4 jobs in `Funded` state |
-| Live dashboard | `bash scripts/start_dashboard.sh` then open `http://localhost:8000` | all sections render |
+| Risk engine respects all rules | `pytest tests/unit/test_risk.py -v` | all tests pass |
+| 7-day replay | `bash bnbagent --replay` | report generated, sleeves traded |
+| Full pipeline (boot→sign→register→jobs) | `pytest tests/integration/ -v` | identity + jobs in `Funded` state |
+| Live dashboard | `bash bnbagent` → open `http://localhost:8000` | all sections render, charts animate |
+| Kill switch | `POST /api/control {"kill": true}` | next `allow_trade` returns `"kill switch engaged"` |
 
 ---
 
 ## Why we win the contest
 
-1. **Track 1 PnL replay** — delta-neutral funding carry (70% of capital) is the base PnL with near-zero directional exposure. Low drawdown, high Sharpe — exactly what the judging axes reward.
+1. **Track 1 PnL replay** — delta-neutral funding carry (70% of capital) is
+   the base PnL with near-zero directional exposure. Low drawdown, high
+   Sharpe — exactly what the judging axes reward.
 2. **All three $2K special prizes** — every sponsor is visibly used:
    - **CMC**: live x402 microcharge ledger on the dashboard
    - **Trust Wallet**: TWAK-signed tx list with BscScan deep links
    - **BNB SDK**: ERC-8004 identity NFT + ERC-8183 job lifecycle
-3. **Production-ready design** — 11,000+ lines of typed Python, 50+ unit tests, replay harness that runs in 30s, Docker-compose for one-command stack-up, public live dashboard.
+3. **Production-ready design** — 11,000+ lines of typed Python, 50+ unit tests,
+   1-command install + 1-command run, public live dashboard with a kill switch.
+
+See [`docs/audit-2026-06-05.md`](docs/audit-2026-06-05.md) for the trading-logic
+audit and hardening pass that was performed before the live window.
 
 ---
 
@@ -130,7 +170,9 @@ bnbagent/
 - **Live PnL replay window**: 2026-06-22 → 2026-06-28
 - **Winners announced**: week of 2026-07-06
 
-See [`docs/submission.md`](docs/submission.md) for the full submission form fields and [`docs/demo-script.md`](docs/demo-script.md) for the 3-minute demo video script.
+See [`docs/submission.md`](docs/submission.md) for the full submission form
+fields and [`docs/demo-script.md`](docs/demo-script.md) for the 3-minute demo
+video script.
 
 ---
 

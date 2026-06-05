@@ -1,326 +1,871 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>BNB Agent — Live Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
-  <style>
-    :root {
-      --bg: #0b0e14; --bg-2: #131722; --bg-3: #1a2030;
-      --fg: #e6edf3; --fg-dim: #8b96a8; --fg-dimmer: #4a5468;
-      --green: #3fb950; --red: #f85149; --yellow: #d29922; --blue: #58a6ff;
-      --purple: #bc8cff; --orange: #ffa657;
-      --border: #2d333b;
-    }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
-                 font-family: 'SF Mono', 'JetBrains Mono', Menlo, monospace; }
-    body { padding: 24px; max-width: 1400px; margin: 0 auto; }
-    h1 { margin: 0 0 4px 0; font-size: 28px; font-weight: 800;
-         background: linear-gradient(120deg, var(--yellow), var(--orange), var(--purple));
-         -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    h2 { font-size: 14px; color: var(--fg-dim); margin: 0 0 4px 0;
-         text-transform: uppercase; letter-spacing: 1px; }
-    .row { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
-    .card { background: var(--bg-2); border: 1px solid var(--border);
-            border-radius: 12px; padding: 16px; }
-    .card.span-3 { grid-column: span 3; }
-    .card.span-4 { grid-column: span 4; }
-    .card.span-6 { grid-column: span 6; }
-    .card.span-8 { grid-column: span 8; }
-    .card.span-12 { grid-column: span 12; }
-    .stat { display: flex; flex-direction: column; gap: 4px; }
-    .stat .label { color: var(--fg-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
-    .stat .value { font-size: 24px; font-weight: 700; }
-    .stat .value.green { color: var(--green); }
-    .stat .value.red { color: var(--red); }
-    .stat .value.yellow { color: var(--yellow); }
-    .stat .value.blue { color: var(--blue); }
-    .stat .value.purple { color: var(--purple); }
-    .stat .value.orange { color: var(--orange); }
-    .sponsor-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
-                     background: var(--bg-3); border: 1px solid var(--border); border-radius: 999px;
-                     font-size: 11px; color: var(--fg-dim); margin-right: 6px; }
-    .sponsor-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
-    th { color: var(--fg-dim); font-weight: 500; text-transform: uppercase; letter-spacing: 1px; font-size: 10px; }
-    tr:hover { background: var(--bg-3); }
-    a { color: var(--blue); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10px; }
-    .pill.green { background: rgba(63,185,80,.15); color: var(--green); }
-    .pill.red { background: rgba(248,81,73,.15); color: var(--red); }
-    .pill.yellow { background: rgba(210,153,34,.15); color: var(--yellow); }
-    .pill.blue { background: rgba(88,166,255,.15); color: var(--blue); }
-    .pill.gray { background: var(--bg-3); color: var(--fg-dim); }
-    #equity-chart { width: 100%; height: 200px; }
-    .ts { color: var(--fg-dimmer); font-size: 10px; }
-    pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-          padding: 8px; font-size: 10px; overflow-x: auto; margin: 0; }
-    .sleeve-bar { height: 8px; background: var(--bg-3); border-radius: 4px; overflow: hidden;
-                  display: flex; margin-top: 4px; }
-    .sleeve-bar .seg { height: 100%; }
-    .sleeve-bar .seg.A { background: var(--blue); }
-    .sleeve-bar .seg.B { background: var(--purple); }
-    .sleeve-bar .seg.C { background: var(--orange); }
-  </style>
+<meta charset="utf-8">
+<title>BNB Agent — Operations Bridge</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>◆</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* =================================================================
+   BNB Agent — Operations Bridge
+   Dark mission-control surface. Inter for display, JetBrains Mono for
+   numerics. Hairline grid. Animated SVG sparklines. Acid lime accent.
+   ================================================================= */
+:root {
+  --bg:        #07080c;
+  --bg-1:      #0b0d14;
+  --bg-2:      #11141d;
+  --bg-3:      #161a25;
+  --bg-4:      #1c2130;
+  --line:      #1e2330;
+  --line-2:    #262c3b;
+  --fg:        #e7eaf3;
+  --fg-dim:    #8993a8;
+  --fg-dimmer: #4a5163;
+  --accent:    #c6f24e;          /* acid lime — BNB agent accent */
+  --accent-2:  #fbbf24;          /* amber for sleeve C */
+  --blue:      #7dd3fc;          /* electric blue for live */
+  --green:     #4ade80;
+  --red:       #f87171;
+  --pink:      #f472b6;
+  --purple:    #a78bfa;
+  --orange:    #fb923c;
+  --A:         #7dd3fc;          /* sleeve A — blue (carry, calm) */
+  --B:         #c4b5fd;          /* sleeve B — violet (momentum) */
+  --C:         #fb923c;          /* sleeve C — orange (mean-rev) */
+  --shadow:    0 1px 0 rgba(255,255,255,.02) inset, 0 8px 24px rgba(0,0,0,.4);
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+  font-feature-settings: 'cv11','ss01','ss03';
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+}
+body { min-height: 100vh; }
+
+/* faint vertical scanline texture, very low contrast */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: repeating-linear-gradient(0deg,
+    transparent 0px, transparent 2px,
+    rgba(255,255,255,0.012) 2px, rgba(255,255,255,0.012) 3px);
+  pointer-events: none; z-index: 1000;
+}
+.mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-feature-settings: 'zero','ss02'; }
+
+/* === top bar ===================================================== */
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 28px;
+  background: rgba(7,8,12,0.85); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 14px; }
+.brand .mark {
+  width: 30px; height: 30px; border-radius: 6px;
+  background: linear-gradient(135deg, var(--accent) 0%, #84cc16 100%);
+  display: grid; place-items: center; color: #0b0d14; font-weight: 800; font-size: 18px;
+}
+.brand .name { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.brand .name .accent { color: var(--accent); }
+.brand .tag  { font-size: 11px; color: var(--fg-dim); margin-left: 6px;
+               text-transform: uppercase; letter-spacing: 0.14em; }
+.topnav { display: flex; gap: 4px; }
+.topnav a, .topnav button {
+  font: 500 11px/1 'Inter', sans-serif; text-transform: uppercase; letter-spacing: 0.14em;
+  background: transparent; color: var(--fg-dim); border: 1px solid transparent;
+  padding: 7px 12px; border-radius: 4px; cursor: pointer; text-decoration: none;
+  transition: all .15s ease;
+}
+.topnav a:hover, .topnav button:hover { color: var(--fg); background: var(--bg-2); }
+.topnav .live {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line-2); color: var(--fg);
+}
+.live .pulse {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 0 var(--green);
+  animation: pulse 1.6s infinite;
+}
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(74,222,128,0.7); }
+  70%  { box-shadow: 0 0 0 7px rgba(74,222,128,0); }
+  100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+}
+
+/* === layout grid ================================================== */
+.shell {
+  display: grid; grid-template-columns: 280px 1fr 320px;
+  gap: 0;
+  min-height: calc(100vh - 60px);
+}
+.rail { background: var(--bg-1); border-right: 1px solid var(--line); padding: 20px 18px; }
+.rail.right { background: var(--bg-1); border-right: none; border-left: 1px solid var(--line); }
+.canvas { padding: 22px 28px; }
+
+/* === rail sections =============================================== */
+.rail h3 {
+  font: 500 10px/1 'Inter'; color: var(--fg-dim);
+  text-transform: uppercase; letter-spacing: 0.18em;
+  margin: 18px 0 10px; display: flex; align-items: center; gap: 6px;
+}
+.rail h3:first-child { margin-top: 0; }
+.rail h3::before {
+  content: ''; width: 6px; height: 1px; background: var(--accent);
+}
+.kv { display: flex; justify-content: space-between; padding: 6px 0; font-size: 12px; }
+.kv .k { color: var(--fg-dim); }
+.kv .v { font-family: 'JetBrains Mono', monospace; }
+.kv .v.green { color: var(--green); }
+.kv .v.red   { color: var(--red); }
+.kv .v.accent { color: var(--accent); }
+
+.identity-card {
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: 6px; padding: 14px; margin-top: 8px;
+}
+.identity-card .token {
+  font: 700 22px/1 'JetBrains Mono', monospace; color: var(--accent);
+}
+.identity-card .lbl { color: var(--fg-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; }
+.identity-card .row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 11px; }
+.identity-card .row .v { font-family: 'JetBrains Mono', monospace; color: var(--fg); }
+.identity-card a { color: var(--blue); text-decoration: none; font-size: 11px; }
+
+.policy-card {
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: 6px; padding: 14px; margin-top: 8px;
+  position: relative; overflow: hidden;
+}
+.policy-card::before {
+  content: 'SIGNED'; position: absolute; top: 10px; right: 10px;
+  font: 600 9px/1 'JetBrains Mono', monospace; color: var(--green);
+  border: 1px solid rgba(74,222,128,0.4); padding: 3px 6px; border-radius: 3px;
+  background: rgba(74,222,128,0.08);
+}
+.policy-card .sig {
+  font: 300 9px/1.4 'JetBrains Mono', monospace; color: var(--fg-dimmer);
+  word-break: break-all; margin-top: 8px;
+  background: var(--bg-1); padding: 6px 8px; border-radius: 4px; border: 1px solid var(--line);
+}
+
+/* === canvas: hero strip ========================================== */
+.hero {
+  display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr; gap: 1px;
+  background: var(--line); border: 1px solid var(--line); border-radius: 8px;
+  overflow: hidden; margin-bottom: 18px;
+}
+.hero .cell { background: var(--bg-1); padding: 18px 20px; position: relative; }
+.hero .cell .lbl { font: 500 10px/1 'Inter'; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.16em; }
+.hero .cell .val { font: 600 30px/1.1 'JetBrains Mono', monospace; margin-top: 10px; letter-spacing: -0.02em; }
+.hero .cell .sub { font: 400 11px/1 'JetBrains Mono'; color: var(--fg-dim); margin-top: 6px; }
+.hero .cell .val.green  { color: var(--green); }
+.hero .cell .val.red    { color: var(--red); }
+.hero .cell .val.accent { color: var(--accent); }
+.hero .cell .val.blue   { color: var(--blue); }
+.hero .cell.equity .val::before { content: '$'; color: var(--fg-dim); font-size: 18px; margin-right: 4px; }
+.hero .cell.delta .val::before { content: ''; display: block; height: 4px; width: 24px; background: var(--accent); margin-bottom: 12px; }
+
+/* === main grid =================================================== */
+.grid-2 {
+  display: grid; grid-template-columns: 1.6fr 1fr; gap: 18px; margin-bottom: 18px;
+}
+.grid-3 {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; margin-bottom: 18px;
+}
+.panel {
+  background: var(--bg-1); border: 1px solid var(--line);
+  border-radius: 8px; padding: 18px; position: relative;
+}
+.panel h4 {
+  font: 500 11px/1 'Inter'; color: var(--fg-dim);
+  text-transform: uppercase; letter-spacing: 0.18em;
+  margin: 0 0 14px; display: flex; align-items: center; justify-content: space-between;
+}
+.panel h4 .meta { font: 400 10px/1 'JetBrains Mono'; color: var(--fg-dimmer); letter-spacing: 0.05em; text-transform: none; }
+.panel h4 .accent { color: var(--accent); }
+
+/* === equity chart =============================================== */
+.chart-wrap { position: relative; height: 220px; }
+#equity-chart { width: 100%; height: 220px; display: block; }
+.chart-stats { display: flex; gap: 18px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.chart-stats .stat { flex: 1; }
+.chart-stats .stat .lbl { font: 500 9px/1 'Inter'; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.16em; }
+.chart-stats .stat .val { font: 600 16px/1 'JetBrains Mono'; margin-top: 4px; }
+
+/* === sleeve cards =============================================== */
+.sleeve { background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+.sleeve .head { display: flex; justify-content: space-between; align-items: flex-start; }
+.sleeve .name  { font: 600 14px/1 'Inter'; }
+.sleeve .name .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.sleeve.A .name .dot { background: var(--A); }
+.sleeve.B .name .dot { background: var(--B); }
+.sleeve.C .name .dot { background: var(--C); }
+.sleeve .alloc { font: 400 10px/1 'JetBrains Mono'; color: var(--fg-dim); }
+.sleeve .pulse-row { display: flex; align-items: baseline; gap: 6px; margin: 12px 0 8px; }
+.sleeve .pulse-row .v { font: 600 18px/1 'JetBrains Mono'; }
+.sleeve .pulse-row .u { font: 300 11px/1 'JetBrains Mono'; color: var(--fg-dim); }
+.sleeve .meta { display: flex; justify-content: space-between; font: 400 10px/1 'JetBrains Mono'; color: var(--fg-dim); margin-top: 4px; }
+.sleeve.disabled { opacity: 0.4; }
+
+/* === sleeve allocation bar ====================================== */
+.alloc-bar {
+  display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin: 8px 0;
+  background: var(--bg-3);
+}
+.alloc-bar .seg.A { background: var(--A); }
+.alloc-bar .seg.B { background: var(--B); }
+.alloc-bar .seg.C { background: var(--C); }
+
+/* === ledgers (CMC / TWAK / jobs) ================================ */
+.ledger { width: 100%; border-collapse: collapse; font: 400 11px/1.3 'JetBrains Mono'; }
+.ledger th { text-align: left; font: 500 9px/1 'Inter'; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.16em; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.ledger td { padding: 8px; border-bottom: 1px solid var(--line); color: var(--fg); vertical-align: middle; }
+.ledger tr:hover td { background: var(--bg-2); }
+.ledger .num { text-align: right; }
+.ledger .green { color: var(--green); }
+.ledger .red   { color: var(--red); }
+.ledger .dim   { color: var(--fg-dim); }
+.ledger a { color: var(--blue); text-decoration: none; }
+.ledger a:hover { text-decoration: underline; }
+.ledger .pill { font: 600 9px/1 'JetBrains Mono'; padding: 3px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.1em; }
+.ledger .pill.A { background: rgba(125,211,252,0.12); color: var(--A); }
+.ledger .pill.B { background: rgba(196,181,253,0.12); color: var(--B); }
+.ledger .pill.C { background: rgba(251,146,60,0.12);  color: var(--C); }
+.ledger .pill.Open      { background: rgba(74,222,128,0.1); color: var(--green); }
+.ledger .pill.Funded    { background: rgba(125,211,252,0.12); color: var(--blue); }
+.ledger .pill.Submitted { background: rgba(251,191,36,0.12);  color: var(--accent-2); }
+.ledger .pill.Completed { background: rgba(74,222,128,0.12);  color: var(--green); }
+.ledger .pill.Rejected  { background: rgba(248,113,113,0.12); color: var(--red); }
+.ledger td code { font-size: 10px; color: var(--fg-dim); }
+
+.scroll { max-height: 240px; overflow-y: auto; }
+.scroll::-webkit-scrollbar { width: 4px; }
+.scroll::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 2px; }
+
+/* === right rail ================================================= */
+.toggle { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; font-size: 12px; }
+.toggle .label { color: var(--fg); }
+.toggle .switch {
+  position: relative; width: 30px; height: 16px; background: var(--bg-3);
+  border: 1px solid var(--line-2); border-radius: 8px; cursor: pointer; transition: all .15s;
+}
+.toggle .switch::after {
+  content: ''; position: absolute; top: 1px; left: 1px;
+  width: 12px; height: 12px; background: var(--fg-dim); border-radius: 50%; transition: all .15s;
+}
+.toggle.on .switch { background: var(--accent); border-color: var(--accent); }
+.toggle.on .switch::after { left: 15px; background: var(--bg); }
+
+.kill {
+  display: block; width: 100%; margin-top: 12px;
+  background: transparent; border: 1px solid var(--red);
+  color: var(--red); padding: 10px; border-radius: 6px;
+  font: 600 11px/1 'Inter'; text-transform: uppercase; letter-spacing: 0.16em;
+  cursor: pointer; transition: all .15s;
+}
+.kill:hover { background: var(--red); color: var(--bg); }
+.kill.active { background: var(--red); color: var(--bg); }
+
+.input {
+  background: var(--bg-2); border: 1px solid var(--line-2); color: var(--fg);
+  font: 500 12px/1 'JetBrains Mono'; padding: 7px 9px; border-radius: 4px;
+  width: 100%;
+}
+.input:focus { outline: none; border-color: var(--accent); }
+
+.logs { font: 300 10px/1.5 'JetBrains Mono'; color: var(--fg-dim); }
+.logs .line { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
+.logs .line .ts { color: var(--fg-dimmer); }
+.logs .line.warn  { color: var(--accent-2); }
+.logs .line.error { color: var(--red); }
+.logs .line.info  { color: var(--blue); }
+
+.sponsor-strip {
+  display: flex; gap: 8px; padding: 8px 0;
+  border-top: 1px solid var(--line); margin-top: 14px;
+}
+.sponsor {
+  flex: 1; display: flex; align-items: center; gap: 6px;
+  font: 500 10px/1 'Inter'; text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--fg-dim);
+}
+.sponsor .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.sponsor.cmc .dot { background: #f0b90b; }
+.sponsor.twa .dot { background: var(--purple); }
+.sponsor.bnb .dot { background: var(--orange); }
+
+/* === responsive ================================================== */
+@media (max-width: 1280px) {
+  .shell { grid-template-columns: 1fr; }
+  .rail { display: none; }
+  .hero { grid-template-columns: repeat(2, 1fr); }
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+}
+
+/* === entry animation ============================================ */
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.rise > * { animation: rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+.rise > *:nth-child(1) { animation-delay: 0.04s; }
+.rise > *:nth-child(2) { animation-delay: 0.08s; }
+.rise > *:nth-child(3) { animation-delay: 0.12s; }
+.rise > *:nth-child(4) { animation-delay: 0.16s; }
+.rise > *:nth-child(5) { animation-delay: 0.20s; }
+.rise > *:nth-child(6) { animation-delay: 0.24s; }
+.rise > *:nth-child(7) { animation-delay: 0.28s; }
+.rise > *:nth-child(8) { animation-delay: 0.32s; }
+
+</style>
 </head>
 <body>
-  <header style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:24px;">
+
+<!-- ============== TOP BAR ============== -->
+<header class="topbar">
+  <div class="brand">
+    <div class="mark">◆</div>
     <div>
-      <h1>🤖 BNB Agent</h1>
-      <h2>Autonomous three-sleeve BSC trading agent · BNB HACK 2026</h2>
-      <div style="margin-top:8px;">
-        <span class="sponsor-badge"><span class="dot"></span>CoinMarketCap (x402)</span>
-        <span class="sponsor-badge"><span class="dot"></span>Trust Wallet (TWAK)</span>
-        <span class="sponsor-badge"><span class="dot"></span>BNB AI Agent SDK</span>
+      <span class="name">BNB <span class="accent">Agent</span></span>
+      <span class="tag">Operations Bridge · v1.1.0</span>
+    </div>
+  </div>
+  <nav class="topnav">
+    <button id="nav-live"   class="active" onclick="showPane('live')">Live</button>
+    <button id="nav-config" onclick="showPane('config')">Config</button>
+    <button id="nav-logs"   onclick="showPane('logs')">Logs</button>
+    <button id="nav-replay" onclick="showPane('replay')">Replay</button>
+    <span class="live"><span class="pulse"></span><span id="updated">live</span></span>
+  </nav>
+</header>
+
+<!-- ============== SHELL ============== -->
+<div class="shell">
+
+  <!-- ===== LEFT RAIL: identity + policy ===== -->
+  <aside class="rail">
+    <h3>Agent Identity · ERC-8004</h3>
+    <div class="identity-card" id="identity">
+      <div class="lbl">Token ID</div>
+      <div class="token">—</div>
+      <div class="row" style="margin-top:10px;"><span class="lbl">Address</span><span class="v" id="id-agent">—</span></div>
+      <div class="row"><span class="lbl">Evaluator</span><span class="v" id="id-eval">—</span></div>
+      <div class="row"><span class="lbl">IPFS</span><span class="v" id="id-cid">—</span></div>
+      <div class="row"><span class="lbl">Version</span><span class="v" id="id-ver">—</span></div>
+      <div style="margin-top:10px;"><a id="id-link" href="#" target="_blank">→ 8004scan</a></div>
+    </div>
+
+    <h3>User Policy</h3>
+    <div class="policy-card" id="policy">
+      <div class="lbl">Version</div>
+      <div class="token" id="pol-ver">—</div>
+      <div class="row" style="margin-top:10px;"><span class="lbl">Daily loss cap</span><span class="v" id="pol-daily">—</span></div>
+      <div class="row"><span class="lbl">Per-trade risk</span><span class="v" id="pol-trade">—</span></div>
+      <div class="row"><span class="lbl">Max leverage</span><span class="v" id="pol-lev">—</span></div>
+      <div class="row"><span class="lbl">Max position</span><span class="v" id="pol-pos">—</span></div>
+      <div class="row"><span class="lbl">A · B · C alloc</span><span class="v" id="pol-alloc">—</span></div>
+      <div class="sig" id="pol-sig">—</div>
+    </div>
+
+    <div class="sponsor-strip">
+      <div class="sponsor cmc"><span class="dot"></span>CMC x402</div>
+      <div class="sponsor twa"><span class="dot"></span>TWAK</div>
+      <div class="sponsor bnb"><span class="dot"></span>BNB SDK</div>
+    </div>
+  </aside>
+
+  <!-- ===== CANVAS ===== -->
+  <main class="canvas rise">
+
+    <!-- Live pane (default) -->
+    <div id="pane-live">
+
+      <!-- HERO STRIP -->
+      <div class="hero">
+        <div class="cell equity">
+          <div class="lbl">Total Equity</div>
+          <div class="val" id="equity">—</div>
+          <div class="sub" id="equity-sub">starting —</div>
+        </div>
+        <div class="cell delta">
+          <div class="lbl">Today PnL</div>
+          <div class="val" id="day-pnl">—</div>
+          <div class="sub" id="day-pnl-sub">vs day-start</div>
+        </div>
+        <div class="cell">
+          <div class="lbl">Drawdown</div>
+          <div class="val" id="max-dd">—</div>
+          <div class="sub">peak − current</div>
+        </div>
+        <div class="cell">
+          <div class="lbl">Open</div>
+          <div class="val" id="open-pos">—</div>
+          <div class="sub">positions</div>
+        </div>
+        <div class="cell">
+          <div class="lbl">Sharpe <span class="meta" id="sharpe-meta">live</span></div>
+          <div class="val blue" id="sharpe">—</div>
+          <div class="sub" id="sharpe-sub">annualized</div>
+        </div>
+      </div>
+
+      <!-- EQUITY + ALLOCATIONS -->
+      <div class="grid-2">
+        <section class="panel">
+          <h4>Equity Curve <span class="meta" id="equity-meta">— samples</span></h4>
+          <div class="chart-wrap"><canvas id="equity-chart"></canvas></div>
+          <div class="chart-stats">
+            <div class="stat"><div class="lbl">Starting</div><div class="val" id="cs-start">—</div></div>
+            <div class="stat"><div class="lbl">Peak</div><div class="val accent" id="cs-peak">—</div></div>
+            <div class="stat"><div class="lbl">Net PnL</div><div class="val" id="cs-pnl">—</div></div>
+            <div class="stat"><div class="lbl">Trades</div><div class="val" id="cs-trades">—</div></div>
+          </div>
+        </section>
+        <section class="panel">
+          <h4>Sleeve Allocation <span class="meta">policy.yaml</span></h4>
+          <div id="sleeve-cards"></div>
+        </section>
+      </div>
+
+      <!-- LEDGERS -->
+      <div class="grid-2">
+        <section class="panel">
+          <h4>CoinMarketCap · x402 Microcharges <span class="meta" id="cmc-meta">$0.00 today</span></h4>
+          <div class="scroll">
+            <table class="ledger" id="cmc-charges">
+              <thead><tr><th>Time</th><th>Endpoint</th><th class="num">Cost</th><th>Header</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="panel">
+          <h4>Trust Wallet · Signed Transactions <span class="meta" id="tx-meta">last 100</span></h4>
+          <div class="scroll">
+            <table class="ledger" id="twak-txs">
+              <thead><tr><th>Time</th><th>Sleeve</th><th>Symbol</th><th>BscScan</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- ON-CHAIN -->
+      <div class="grid-3">
+        <section class="panel">
+          <h4>ERC-8004 <span class="meta accent">agent identity NFT</span></h4>
+          <div class="kv"><span class="k">Token ID</span><span class="v accent" id="erc8004-tok">—</span></div>
+          <div class="kv"><span class="k">IPFS CID</span><span class="v" id="erc8004-cid">—</span></div>
+          <div class="kv"><span class="k">Schema</span><span class="v">erc-8004-v0</span></div>
+          <div style="margin-top:8px;"><a id="erc8004-link" href="#" target="_blank" style="color:var(--blue);font-size:11px;text-decoration:none;">→ 8004scan ↗</a></div>
+        </section>
+        <section class="panel">
+          <h4>ERC-8183 <span class="meta accent">job escrow</span></h4>
+          <div id="jobs-list"><div class="kv"><span class="k">no jobs opened</span></div></div>
+        </section>
+        <section class="panel">
+          <h4>Recent Trades <span class="meta">closed</span></h4>
+          <div class="scroll" style="max-height:160px;">
+            <table class="ledger" id="trades">
+              <thead><tr><th>Time</th><th>Sleeve</th><th>Symbol</th><th class="num">PnL</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
       </div>
     </div>
-    <div style="text-align:right;">
-      <div class="ts" id="updated">—</div>
-      <div class="ts">v1.0.0 · testnet</div>
-    </div>
-  </header>
 
-  <!-- Top row: live stats -->
-  <div class="row" style="margin-bottom:16px;">
-    <div class="card span-3 stat">
-      <div class="label">Equity</div>
-      <div class="value" id="equity">—</div>
+    <!-- Config pane (hidden) -->
+    <div id="pane-config" style="display:none;">
+      <section class="panel">
+        <h4>Risk & Sleeve Controls <span class="meta">applies on next agent heartbeat</span></h4>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div>
+            <h3 style="font:500 10px 'Inter'; color:var(--fg-dim); text-transform:uppercase; letter-spacing:.16em; margin:0 0 8px;">Sleeves</h3>
+            <div class="toggle A" data-key="sleeves.A.enabled"><span class="label"><span style="color:var(--A);">●</span> A · Funding Carry</span><div class="switch"></div></div>
+            <div class="toggle B" data-key="sleeves.B.enabled"><span class="label"><span style="color:var(--B);">●</span> B · DEX Momentum</span><div class="switch"></div></div>
+            <div class="toggle C" data-key="sleeves.C.enabled"><span class="label"><span style="color:var(--C);">●</span> C · Mean Reversion</span><div class="switch"></div></div>
+          </div>
+          <div>
+            <h3 style="font:500 10px 'Inter'; color:var(--fg-dim); text-transform:uppercase; letter-spacing:.16em; margin:0 0 8px;">Global Risk</h3>
+            <div class="kv"><span class="k">Daily loss cap %</span><input class="input" id="cfg-daily" type="number" step="0.1" style="width:80px;text-align:right;" /></div>
+            <div class="kv"><span class="k">Per-trade risk %</span><input class="input" id="cfg-trade" type="number" step="0.1" style="width:80px;text-align:right;" /></div>
+            <div class="kv"><span class="k">Max leverage ×</span><input class="input" id="cfg-lev" type="number" step="0.1" style="width:80px;text-align:right;" /></div>
+            <div class="kv"><span class="k">Max position %</span><input class="input" id="cfg-pos" type="number" step="0.1" style="width:80px;text-align:right;" /></div>
+            <button onclick="applyConfig()" style="margin-top:10px; background:var(--accent); border:none; color:var(--bg); padding:8px 14px; border-radius:4px; font:600 11px 'Inter'; text-transform:uppercase; letter-spacing:.14em; cursor:pointer;">Apply</button>
+          </div>
+        </div>
+      </section>
     </div>
-    <div class="card span-3 stat">
-      <div class="label">Day PnL</div>
-      <div class="value" id="day-pnl">—</div>
-    </div>
-    <div class="card span-3 stat">
-      <div class="label">Max Drawdown</div>
-      <div class="value yellow" id="max-dd">—</div>
-    </div>
-    <div class="card span-3 stat">
-      <div class="label">Open Positions</div>
-      <div class="value blue" id="open-pos">—</div>
-    </div>
-  </div>
 
-  <!-- Equity chart + sleeve exposure -->
-  <div class="row" style="margin-bottom:16px;">
-    <div class="card span-8">
-      <h2>Equity Curve</h2>
-      <canvas id="equity-chart"></canvas>
+    <!-- Logs pane (hidden) -->
+    <div id="pane-logs" style="display:none;">
+      <section class="panel">
+        <h4>Live Agent Log <span class="meta">streaming · logs/agent.log</span></h4>
+        <div class="logs scroll" id="log-stream" style="max-height:540px; background:var(--bg-1); padding:14px; border:1px solid var(--line); border-radius:6px;">
+          <div class="line dim">awaiting stream…</div>
+        </div>
+      </section>
     </div>
-    <div class="card span-4">
-      <h2>Sleeve Exposure</h2>
-      <div id="sleeve-exposure">—</div>
-      <h2 style="margin-top:16px;">Sleeve Activity</h2>
-      <div id="sleeve-activity">—</div>
-    </div>
-  </div>
 
-  <!-- Sponsor evidence: CMC x402 + TWAK txs -->
-  <div class="row" style="margin-bottom:16px;">
-    <div class="card span-6">
-      <h2>🟡 CoinMarketCap — x402 Microcharges <span class="pill green" id="cmc-spend-pill">$0.00 spent</span></h2>
-      <table id="cmc-charges">
-        <thead><tr><th>Time</th><th>Endpoint</th><th>Cost</th><th>Header</th></tr></thead>
-        <tbody></tbody>
-      </table>
+    <!-- Replay pane (hidden) -->
+    <div id="pane-replay" style="display:none;">
+      <section class="panel">
+        <h4>7-Day Replay <span class="meta">python -m backtest.replay</span></h4>
+        <p style="color:var(--fg-dim); font-size:12px; line-height:1.6; max-width:680px;">
+          The replay harness drives the same three sleeves (A/B/C) through a recorded
+          7-day tape and emits a full PnL report. Run it from a terminal:
+        </p>
+        <pre class="mono" style="background:var(--bg-2); padding:14px; border-radius:6px; border:1px solid var(--line); font-size:12px; color:var(--accent);">bash bnbagent --replay</pre>
+        <p style="color:var(--fg-dim); font-size:12px; line-height:1.6; max-width:680px; margin-top:14px;">
+          The HTML report lands at <code style="color:var(--accent);">data/reports/replay.html</code> and includes
+          Sharpe, Sortino, Calmar, max drawdown, hit rate, and sleeve attribution.
+        </p>
+      </section>
     </div>
-    <div class="card span-6">
-      <h2>🟣 Trust Wallet — Signed Transactions</h2>
-      <table id="twak-txs">
-        <thead><tr><th>Time</th><th>Sleeve</th><th>Symbol</th><th>BscScan</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
 
-  <!-- On-chain: identity + jobs -->
-  <div class="row" style="margin-bottom:16px;">
-    <div class="card span-4">
-      <h2>🟠 BNB SDK — ERC-8004 Identity</h2>
-      <div id="identity">—</div>
-    </div>
-    <div class="card span-4">
-      <h2>🟠 BNB SDK — ERC-8183 Jobs</h2>
-      <div id="jobs">—</div>
-    </div>
-    <div class="card span-4">
-      <h2>🔵 User Policy (signed)</h2>
-      <div id="policy">—</div>
-    </div>
-  </div>
+  </main>
 
-  <!-- Recent trades -->
-  <div class="row">
-    <div class="card span-12">
-      <h2>Recent Closed Trades</h2>
-      <table id="trades">
-        <thead><tr><th>Time</th><th>Sleeve</th><th>Symbol</th><th>Side</th><th>Notional</th><th>Entry</th><th>Exit</th><th>PnL</th><th>Reason</th></tr></thead>
-        <tbody></tbody>
-      </table>
+  <!-- ===== RIGHT RAIL: control + logs ===== -->
+  <aside class="rail right">
+    <h3>System Status</h3>
+    <div class="kv"><span class="k">Mode</span><span class="v" id="sys-mode">—</span></div>
+    <div class="kv"><span class="k">Chain</span><span class="v" id="sys-chain">—</span></div>
+    <div class="kv"><span class="k">Address</span><span class="v" id="sys-addr">—</span></div>
+    <div class="kv"><span class="k">Wallet</span><span class="v" id="sys-wallet">—</span></div>
+    <div class="kv"><span class="k">Updated</span><span class="v" id="sys-updated">—</span></div>
+
+    <h3>Sleeve Toggles</h3>
+    <div class="toggle" data-sleeve="A"><span class="label"><span style="color:var(--A);">●</span> A carry</span><div class="switch"></div></div>
+    <div class="toggle" data-sleeve="B"><span class="label"><span style="color:var(--B);">●</span> B momentum</span><div class="switch"></div></div>
+    <div class="toggle" data-sleeve="C"><span class="label"><span style="color:var(--C);">●</span> C mean-rev</span><div class="switch"></div></div>
+
+    <h3>Control Log</h3>
+    <div class="logs scroll" id="ctrl-log" style="max-height:200px; font-size:10px;">
+      <div class="line dim">—</div>
     </div>
-  </div>
 
-  <script>
-    const fmt = (n, d=2) => Number(n).toLocaleString(undefined, {minimumFractionDigits:d, maximumFractionDigits:d});
-    const usd = (n) => '$' + fmt(n);
-    const pct = (n) => (n>=0?'+':'') + fmt(n,2) + '%';
-    const ts = (epoch) => { try { return new Date(epoch*1000).toISOString().slice(11,19); } catch { return '—'; } };
-    const shortHash = (h) => h ? h.slice(0,10) + '…' + h.slice(-6) : '—';
+    <h3>Kill Switch</h3>
+    <button class="kill" id="kill-btn" onclick="toggleKill()">Engage Kill</button>
+    <div style="font:300 10px/1.4 'JetBrains Mono'; color:var(--fg-dim); margin-top:6px;">
+      Halts all new orders. Open positions stay open unless you also stop the agent.
+    </div>
+  </aside>
+</div>
 
-    async function fetchJSON(path) {
-      try { const r = await fetch(path); return await r.json(); } catch { return {}; }
+<script>
+/* ============================================================
+   BNB Agent — dashboard JS
+   - 1Hz poll for stats, equity series, ledgers, identity
+   - SSE stream for live logs
+   - Control writes are POSTed to /api/control
+   ============================================================ */
+const $ = (id) => document.getElementById(id);
+const fmt = (n, d=2) => Number(n).toLocaleString(undefined, {minimumFractionDigits:d, maximumFractionDigits:d});
+const usd = (n) => '$' + fmt(n);
+const pct = (n) => (n>=0?'+':'') + fmt(n, 2) + '%';
+const shortHash = (h) => h ? h.slice(0,8) + '…' + h.slice(-5) : '—';
+const ts = (epoch) => { try { return new Date(epoch*1000).toISOString().slice(11,19); } catch { return '—'; } };
+
+async function jget(path) { try { const r = await fetch(path); return await r.json(); } catch { return {}; } }
+async function jpost(path, body) {
+  try { const r = await fetch(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); return await r.json(); }
+  catch (e) { return { error: e.message }; }
+}
+
+let lastEquity = [];
+
+/* === equity chart (self-contained, no chart lib) ============== */
+function renderEquity(series) {
+  const c = $('equity-chart');
+  if (!c) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = c.clientWidth, H = c.clientHeight;
+  c.width = W * dpr; c.height = H * dpr;
+  const ctx = c.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  if (!series || series.length < 2) return;
+  const ys = series.map(s => s.equity);
+  const ymin = Math.min(...ys), ymax = Math.max(...ys);
+  const range = ymax - ymin || 1;
+  const pad = 6;
+
+  // grid
+  ctx.strokeStyle = '#1e2330';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    const y = pad + (H - 2*pad) * (i/3);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // line
+  const xAt = (i) => pad + (W - 2*pad) * (i / (series.length - 1));
+  const yAt = (v) => pad + (H - 2*pad) * (1 - (v - ymin) / range);
+
+  const grad = ctx.createLinearGradient(0, pad, 0, H - pad);
+  grad.addColorStop(0, 'rgba(198,242,78,0.30)');
+  grad.addColorStop(1, 'rgba(198,242,78,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(xAt(0), H - pad);
+  series.forEach((p, i) => ctx.lineTo(xAt(i), yAt(p.equity)));
+  ctx.lineTo(xAt(series.length-1), H - pad);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = '#c6f24e';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  series.forEach((p, i) => {
+    const x = xAt(i), y = yAt(p.equity);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // last-point dot
+  const lx = xAt(series.length-1), ly = yAt(series[series.length-1].equity);
+  ctx.fillStyle = '#c6f24e';
+  ctx.beginPath(); ctx.arc(lx, ly, 2.5, 0, Math.PI*2); ctx.fill();
+}
+
+/* === main refresh =============================================== */
+async function refresh() {
+  const [stats, series, charges, txs, identity, jobs, policy, trades, ctrl, config] = await Promise.all([
+    jget('/api/stats'), jget('/api/equity-series'), jget('/api/cmc-charges'),
+    jget('/api/txs'), jget('/api/identity'), jget('/api/jobs'),
+    jget('/api/policy'), jget('/api/trades'), jget('/api/control-log'),
+    jget('/api/config'),
+  ]);
+
+  // hero
+  $('equity').textContent     = stats.equity != null ? fmt(stats.equity) : '—';
+  $('equity-sub').textContent = stats.starting != null ? 'starting $' + fmt(stats.starting) : '—';
+  const dayEl = $('day-pnl');
+  dayEl.textContent = stats.day_pnl_pct != null ? pct(stats.day_pnl_pct) : '—';
+  dayEl.className   = 'val ' + (stats.day_pnl_pct >= 0 ? 'green' : 'red');
+  $('max-dd').textContent     = stats.drawdown_pct != null ? pct(stats.drawdown_pct) : '—';
+  $('max-dd').className       = 'val yellow';
+  $('open-pos').textContent   = stats.open_positions ?? '—';
+
+  // chart
+  renderEquity(series.series || []);
+  $('equity-meta').textContent = (series.series?.length || 0) + ' samples';
+  $('cs-start').textContent = stats.starting != null ? usd(stats.starting) : '—';
+  $('cs-peak').textContent  = stats.peak != null ? usd(stats.peak) : '—';
+  const pnl = (stats.equity != null && stats.starting != null) ? stats.equity - stats.starting : null;
+  $('cs-pnl').textContent  = pnl != null ? (pnl >= 0 ? '+' : '') + usd(pnl) : '—';
+  $('cs-pnl').className    = 'val ' + (pnl >= 0 ? 'green' : 'red');
+  $('cs-trades').textContent = stats.closed_trades ?? '—';
+
+  // sleeves
+  const sx = stats.sleeve_exposure || {};
+  const alloc = policy.sleeve_allocations || {};
+  const sleeveCards = `
+    <div class="alloc-bar">
+      <div class="seg A" style="width:${(alloc.A||0)*100}%"></div>
+      <div class="seg B" style="width:${(alloc.B||0)*100}%"></div>
+      <div class="seg C" style="width:${(alloc.C||0)*100}%"></div>
+    </div>
+    <div class="sleeve A">
+      <div class="head"><div class="name"><span class="dot"></span>A · Funding Carry</div><div class="alloc">${(alloc.A*100).toFixed(0)}% · 70% target</div></div>
+      <div class="pulse-row"><div class="v">${usd(sx.A||0)}</div><div class="u">long spot + short perp</div></div>
+      <div class="meta"><span>ticks ${stats.sleeves?.A?.tick_count ?? 0}</span><span>${stats.sleeves?.A?.period_s ?? 0}s</span></div>
+    </div>
+    <div class="sleeve B" style="margin-top:8px;">
+      <div class="head"><div class="name"><span class="dot"></span>B · DEX Momentum</div><div class="alloc">${(alloc.B*100).toFixed(0)}% · 20% target</div></div>
+      <div class="pulse-row"><div class="v">${usd(sx.B||0)}</div><div class="u">CMC signal · ATR stop · 3% TP</div></div>
+      <div class="meta"><span>ticks ${stats.sleeves?.B?.tick_count ?? 0}</span><span>${stats.sleeves?.B?.period_s ?? 0}s</span></div>
+    </div>
+    <div class="sleeve C" style="margin-top:8px;">
+      <div class="head"><div class="name"><span class="dot"></span>C · Mean Reversion</div><div class="alloc">${(alloc.C*100).toFixed(0)}% · 10% target</div></div>
+      <div class="pulse-row"><div class="v">${usd(sx.C||0)}</div><div class="u">z-score ≤ −2.5σ on top-20</div></div>
+      <div class="meta"><span>ticks ${stats.sleeves?.C?.tick_count ?? 0}</span><span>${stats.sleeves?.C?.period_s ?? 0}s</span></div>
+    </div>`;
+  $('sleeve-cards').innerHTML = sleeveCards;
+  // disabled sleeves
+  if (policy.sleeves) {
+    document.querySelectorAll('.sleeve').forEach(el => {
+      const letter = el.classList[1];
+      if (policy.sleeves[letter] && !policy.sleeves[letter].enabled) el.classList.add('disabled');
+      else el.classList.remove('disabled');
+    });
+  }
+
+  // CMC ledger
+  const cmcBody = document.querySelector('#cmc-charges tbody');
+  cmcBody.innerHTML = (charges || []).slice(-15).reverse().map(c => `
+    <tr>
+      <td class="dim">${ts(c.ts)}</td>
+      <td><code>${(c.method||'').padEnd(4)} ${(c.path||'').slice(0,32)}</code></td>
+      <td class="num">$${c.cost_usdc || '0.01'}</td>
+      <td class="dim">${(c.payment_header || '').slice(0,18)}…</td>
+    </tr>`).join('') || '<tr><td colspan="4" class="dim" style="padding:14px;">no x402 calls yet</td></tr>';
+  const totalSpent = (charges||[]).reduce((a,c)=>a+parseFloat(c.cost_usdc||0),0);
+  $('cmc-meta').textContent = '$' + fmt(totalSpent) + ' today';
+
+  // TWAK txs
+  const txBody = document.querySelector('#twak-txs tbody');
+  txBody.innerHTML = (txs || []).slice(-15).reverse().map(t => `
+    <tr>
+      <td class="dim">${ts(t.ts)}</td>
+      <td><span class="pill ${t.sleeve}">${t.sleeve||'—'}</span></td>
+      <td>${t.symbol||'—'}</td>
+      <td><a href="${t.bscscan}" target="_blank">${shortHash(t.tx_hash)} ↗</a></td>
+    </tr>`).join('') || '<tr><td colspan="4" class="dim" style="padding:14px;">no transactions yet</td></tr>';
+
+  // identity
+  $('id-agent').textContent = identity.agent_address ? shortHash(identity.agent_address) : '—';
+  $('id-eval').textContent  = identity.evaluator ? shortHash(identity.evaluator) : '—';
+  $('id-cid').textContent   = identity.cid ? shortHash(identity.cid) : '—';
+  $('id-ver').textContent   = identity.version || '—';
+  if (identity.token_id != null) {
+    document.querySelector('#identity .token').textContent = '#' + identity.token_id;
+  }
+  $('id-link').href = identity['8004scan_url'] || '#';
+  $('erc8004-tok').textContent = identity.token_id != null ? '#' + identity.token_id : '—';
+  $('erc8004-cid').textContent = identity.cid ? shortHash(identity.cid) : '—';
+  $('erc8004-link').href = identity['8004scan_url'] || '#';
+
+  // jobs
+  $('jobs-list').innerHTML = (jobs && jobs.length) ? jobs.slice(0,8).map(j => `
+    <div class="kv"><span class="k">Job #${j.id} <span class="dim">sleeve ${(j.deliverable_spec||'').slice(0,6) || '—'}</span></span>
+    <span class="pill ${j.status}">${j.status}</span></div>`).join('')
+    : '<div class="kv"><span class="k">no jobs opened</span><span class="v">—</span></div>';
+
+  // policy
+  if (policy.version) {
+    $('pol-ver').textContent   = 'v' + policy.version;
+    $('pol-daily').textContent = (policy.global_risk?.daily_loss_circuit_breaker_pct ?? '—') + '%';
+    $('pol-trade').textContent = (policy.global_risk?.per_trade_risk_pct ?? '—') + '%';
+    $('pol-lev').textContent   = (policy.global_risk?.max_gross_leverage ?? '—') + '×';
+    $('pol-pos').textContent   = (policy.global_risk?.max_single_position_pct ?? '—') + '%';
+    $('pol-alloc').textContent = `${policy.sleeve_allocations?.A} · ${policy.sleeve_allocations?.B} · ${policy.sleeve_allocations?.C}`;
+    $('pol-sig').textContent   = policy.signature || '—';
+  }
+
+  // trades
+  const trBody = document.querySelector('#trades tbody');
+  trBody.innerHTML = (trades || []).slice(-15).reverse().map(t => {
+    const pnl = parseFloat(t.pnl_usdc) || 0;
+    return `<tr>
+      <td class="dim">${ts(t.ts_close)}</td>
+      <td><span class="pill ${t.sleeve}">${t.sleeve}</span></td>
+      <td>${t.symbol}</td>
+      <td class="num ${pnl>=0?'green':'red'}">${pnl>=0?'+':''}${usd(pnl)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="4" class="dim" style="padding:14px;">no closed trades yet</td></tr>';
+
+  // system status
+  $('sys-mode').textContent  = (config.mode || '—');
+  $('sys-chain').textContent = (config.chain_id === 56 ? 'BSC mainnet' : (config.chain_id === 97 ? 'BSC testnet' : 'chain ' + config.chain_id));
+  $('sys-addr').textContent  = identity.agent_address ? shortHash(identity.agent_address) : '—';
+  $('sys-wallet').textContent= config.chain_id === 56 ? 'TWAK' : 'TWAK (testnet)';
+  $('sys-updated').textContent= stats.updated_at ? ts(stats.updated_at) + ' UTC' : '—';
+  $('updated').textContent   = stats.updated_at ? 'updated ' + ts(stats.updated_at) : 'live';
+
+  // kill switch
+  if (stats.kill_switch) {
+    $('kill-btn').classList.add('active');
+    $('kill-btn').textContent = '◼ Kill Active · Resume';
+  } else {
+    $('kill-btn').classList.remove('active');
+    $('kill-btn').textContent = 'Engage Kill';
+  }
+
+  // control log
+  $('ctrl-log').innerHTML = (ctrl || []).slice(-20).reverse().map(l =>
+    `<div class="line">${l}</div>`).join('') || '<div class="line dim">—</div>';
+
+  // sleeve toggles sync
+  if (policy.sleeves) {
+    document.querySelectorAll('.toggle[data-sleeve]').forEach(el => {
+      const k = el.dataset.sleeve;
+      const on = policy.sleeves[k]?.enabled !== false;
+      el.classList.toggle('on', on);
+    });
+  }
+}
+
+/* === pane switching ============================================== */
+function showPane(p) {
+  for (const id of ['live','config','logs','replay']) {
+    $(`pane-${id}`).style.display = (id === p) ? '' : 'none';
+    const b = $('nav-' + id); if (b) b.classList.toggle('active', id === p);
+  }
+  if (p === 'logs') startLogStream();
+  else stopLogStream();
+}
+
+/* === kill switch ================================================== */
+async function toggleKill() {
+  const active = $('kill-btn').classList.contains('active');
+  const r = await jpost('/api/control', active
+    ? { resume: true }
+    : { kill: true, kill_reason: 'manual from dashboard @ ' + new Date().toISOString() });
+  if (r.ok) refresh();
+  else alert('control failed: ' + JSON.stringify(r));
+}
+
+/* === sleeve toggles =============================================== */
+document.addEventListener('click', async (e) => {
+  const t = e.target.closest('.toggle[data-sleeve]');
+  if (!t) return;
+  const k = t.dataset.sleeve;
+  const want = !t.classList.contains('on');
+  const r = await jpost('/api/control', { sleeves: { [k]: want } });
+  if (r.ok) refresh();
+});
+
+/* === risk overrides =============================================== */
+async function applyConfig() {
+  const r = await jpost('/api/control', {
+    global_risk: {
+      daily_loss_circuit_breaker_pct: parseFloat($('cfg-daily').value),
+      per_trade_risk_pct:             parseFloat($('cfg-trade').value),
+      max_gross_leverage:             parseFloat($('cfg-lev').value),
+      max_single_position_pct:        parseFloat($('cfg-pos').value),
     }
+  });
+  if (r.ok) { refresh(); alert('applied on next heartbeat'); }
+  else alert('config apply failed');
+}
 
-    function renderEquity(series) {
-      const c = document.getElementById('equity-chart');
-      const ctx = c.getContext('2d');
-      const W = c.width = c.clientWidth;
-      const H = c.height = 200;
-      ctx.fillStyle = '#131722'; ctx.fillRect(0,0,W,H);
-      if (!series || series.length < 2) return;
-      const ys = series.map(s => s.equity);
-      const ymin = Math.min(...ys), ymax = Math.max(...ys);
-      const range = ymax - ymin || 1;
-      ctx.strokeStyle = '#3fb950'; ctx.lineWidth = 2; ctx.beginPath();
-      series.forEach((p, i) => {
-        const x = (i / (series.length-1)) * W;
-        const y = H - ((p.equity - ymin) / range) * (H - 20) - 10;
-        if (i === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-      });
-      ctx.stroke();
-      // fill
-      const grad = ctx.createLinearGradient(0,0,0,H);
-      grad.addColorStop(0, 'rgba(63,185,80,0.3)');
-      grad.addColorStop(1, 'rgba(63,185,80,0)');
-      ctx.fillStyle = grad; ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath(); ctx.fill();
-    }
+/* === log stream (SSE) ============================================== */
+let logSrc = null;
+function startLogStream() {
+  if (logSrc) return;
+  logSrc = new EventSource('/api/logs/stream');
+  logSrc.onmessage = (e) => {
+    const box = $('log-stream');
+    if (box.firstElementChild?.textContent === 'awaiting stream…') box.innerHTML = '';
+    const line = e.data;
+    const isWarn = /WARN|warn/.test(line);
+    const isErr  = /ERROR|error|Traceback/.test(line);
+    const cls = isErr ? 'error' : isWarn ? 'warn' : '';
+    const el = document.createElement('div');
+    el.className = 'line ' + cls;
+    el.textContent = line;
+    box.appendChild(el);
+    // cap
+    while (box.children.length > 500) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
+  };
+}
+function stopLogStream() {
+  if (logSrc) { logSrc.close(); logSrc = null; }
+}
 
-    async function refresh() {
-      const [stats, series, charges, txs, identity, jobs, policy, trades] = await Promise.all([
-        fetchJSON('/api/stats'),
-        fetchJSON('/api/equity-series'),
-        fetchJSON('/api/cmc-charges'),
-        fetchJSON('/api/txs'),
-        fetchJSON('/api/identity'),
-        fetchJSON('/api/jobs'),
-        fetchJSON('/api/policy'),
-        fetchJSON('/api/trades'),
-      ]);
-
-      // Top stats
-      document.getElementById('equity').textContent = stats.equity != null ? usd(stats.equity) : '—';
-      const dayEl = document.getElementById('day-pnl');
-      dayEl.textContent = stats.day_pnl_pct != null ? pct(stats.day_pnl_pct) : '—';
-      dayEl.className = 'value ' + (stats.day_pnl_pct >= 0 ? 'green' : 'red');
-      document.getElementById('max-dd').textContent = stats.drawdown_pct != null ? pct(stats.drawdown_pct) : '—';
-      document.getElementById('open-pos').textContent = stats.open_positions ?? '—';
-
-      // Equity chart
-      renderEquity(series.series || []);
-
-      // Sleeve exposure
-      const sx = stats.sleeve_exposure || {};
-      const total = Object.values(sx).reduce((a,b)=>a+(+b||0),0) || 1;
-      const pctA = (sx.A||0)/total*100, pctB = (sx.B||0)/total*100, pctC = (sx.C||0)/total*100;
-      document.getElementById('sleeve-exposure').innerHTML = `
-        <div style="display:flex; gap:12px; font-size:12px; margin-bottom:6px;">
-          <div><span style="color:var(--blue)">●</span> A carry: ${usd(sx.A||0)} (${fmt(pctA,1)}%)</div>
-          <div><span style="color:var(--purple)">●</span> B momentum: ${usd(sx.B||0)} (${fmt(pctB,1)}%)</div>
-          <div><span style="color:var(--orange)">●</span> C mean-rev: ${usd(sx.C||0)} (${fmt(pctC,1)}%)</div>
-        </div>
-        <div class="sleeve-bar"><div class="seg A" style="width:${pctA}%"></div><div class="seg B" style="width:${pctB}%"></div><div class="seg C" style="width:${pctC}%"></div></div>
-      `;
-
-      const sleeves = stats.sleeves || {};
-      document.getElementById('sleeve-activity').innerHTML = Object.entries(sleeves).map(([n, s]) =>
-        `<div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;">
-          <span>sleeve ${n}</span>
-          <span class="ts">${s.tick_count} ticks · period ${s.period_s}s · last ${ts(s.last_tick_ts)}</span>
-        </div>`
-      ).join('') || '<div class="ts">no data</div>';
-
-      // CMC charges
-      const cmcBody = document.querySelector('#cmc-charges tbody');
-      cmcBody.innerHTML = (charges || []).slice(-15).reverse().map(c => `
-        <tr>
-          <td>${ts(c.ts)}</td>
-          <td><code>${c.method} ${c.path}</code></td>
-          <td>${c.cost_usdc ? '$' + c.cost_usdc : '—'}</td>
-          <td class="ts">${c.payment_header || '—'}</td>
-        </tr>
-      `).join('') || '<tr><td colspan="4" class="ts">no x402 calls yet</td></tr>';
-      const totalSpent = (charges||[]).reduce((a,c)=>a+parseFloat(c.cost_usdc||0),0);
-      const pill = document.getElementById('cmc-spend-pill');
-      pill.textContent = '$' + fmt(totalSpent,2) + ' spent';
-      pill.className = 'pill ' + (totalSpent < 5 ? 'green' : totalSpent < 8 ? 'yellow' : 'red');
-
-      // TWAK txs
-      const txBody = document.querySelector('#twak-txs tbody');
-      txBody.innerHTML = (txs || []).slice(-15).reverse().map(t => `
-        <tr>
-          <td>${ts(t.ts)}</td>
-          <td><span class="pill blue">${t.sleeve || '—'}</span></td>
-          <td>${t.symbol || '—'}</td>
-          <td><a href="${t.bscscan}" target="_blank">${shortHash(t.tx_hash)}</a></td>
-        </tr>
-      `).join('') || '<tr><td colspan="4" class="ts">no transactions yet</td></tr>';
-
-      // Identity
-      document.getElementById('identity').innerHTML = identity && identity.token_id != null ? `
-        <div style="font-size:12px; line-height:1.6;">
-          <div><span class="ts">Token ID:</span> <strong>${identity.token_id}</strong></div>
-          <div><span class="ts">Agent:</span> <code>${shortHash(identity.agent_address)}</code></div>
-          <div><span class="ts">Evaluator:</span> <code>${shortHash(identity.evaluator)}</code></div>
-          <div><span class="ts">CID:</span> <code>${shortHash(identity.cid)}</code></div>
-          <div><span class="ts">Version:</span> ${identity.version}</div>
-          <div style="margin-top:8px;"><a href="${identity['8004scan_url']}" target="_blank">→ 8004scan</a></div>
-        </div>
-      ` : '<div class="ts">identity not yet registered</div>';
-
-      // Jobs
-      document.getElementById('jobs').innerHTML = (jobs && jobs.length) ? jobs.map(j => `
-        <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px; border-bottom:1px solid var(--border);">
-          <span>Job #${j.id} <span class="ts">sleeve ${j.status === 'Completed' ? 'ALL' : (j.deliverable_spec||'').slice(0,8)}</span></span>
-          <span class="pill ${j.status === 'Completed' ? 'green' : j.status === 'Submitted' ? 'yellow' : j.status === 'Funded' ? 'blue' : 'gray'}">${j.status}</span>
-        </div>
-      `).join('') : '<div class="ts">no jobs opened yet</div>';
-
-      // Policy
-      document.getElementById('policy').innerHTML = policy && policy.version ? `
-        <div style="font-size:12px; line-height:1.6;">
-          <div><span class="ts">Version:</span> <strong>v${policy.version}</strong></div>
-          <div><span class="ts">Daily loss cap:</span> ${policy.global_risk?.daily_loss_circuit_breaker_pct}%</div>
-          <div><span class="ts">Per-trade risk:</span> ${policy.global_risk?.per_trade_risk_pct}%</div>
-          <div><span class="ts">Max leverage:</span> ${policy.global_risk?.max_gross_leverage}x</div>
-          <div><span class="ts">Signature:</span> <code style="font-size:9px;">${shortHash(policy.signature)}</code></div>
-          <pre style="margin-top:8px;">sleeve_allocations: A=${policy.sleeve_allocations?.A} B=${policy.sleeve_allocations?.B} C=${policy.sleeve_allocations?.C}</pre>
-        </div>
-      ` : '<div class="ts">no policy loaded</div>';
-
-      // Trades
-      const trBody = document.querySelector('#trades tbody');
-      trBody.innerHTML = (trades || []).slice(-20).reverse().map(t => `
-        <tr>
-          <td>${ts(t.ts_close)}</td>
-          <td><span class="pill blue">${t.sleeve}</span></td>
-          <td>${t.symbol}</td>
-          <td>${t.side}</td>
-          <td>${usd(t.notional)}</td>
-          <td>${fmt(t.entry, 4)}</td>
-          <td>${fmt(t.exit, 4)}</td>
-          <td style="color:${parseFloat(t.pnl_usdc)>=0?'var(--green)':'var(--red)'}">${parseFloat(t.pnl_usdc)>=0?'+':''}${usd(t.pnl_usdc)}</td>
-          <td><span class="pill gray">${t.reason}</span></td>
-        </tr>
-      `).join('') || '<tr><td colspan="8" class="ts">no trades yet — agent is warming up</td></tr>';
-
-      document.getElementById('updated').textContent = 'updated ' + ts(stats.updated_at || Math.floor(Date.now()/1000)) + ' UTC';
-    }
-
-    refresh();
-    setInterval(refresh, 2000);
-  </script>
+/* === boot ========================================================= */
+refresh();
+setInterval(refresh, 1500);
+window.addEventListener('beforeunload', stopLogStream);
+</script>
 </body>
 </html>

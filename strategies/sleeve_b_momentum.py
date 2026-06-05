@@ -24,6 +24,7 @@ import numpy as np
 
 from core.portfolio import Position
 from core.risk import ProposedTrade, kelly_size, cap_by_risk
+from core.utils import token_address
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +47,9 @@ class SleeveBMomentum:
         self.basket_top_n = 200
         self.positions: dict[str, Position] = {}
         self.win_rate_by_symbol: dict[str, float] = {}
+        # symbol → epoch of last losing exit. Used to prevent revenge re-entries.
+        self.loss_cooldown_until: dict[str, int] = {}
+        self.loss_cooldown_s: int = 4 * 3600  # 4h cool-off after a stop-out
 
     async def tick(self):
         self.portfolio.update_peak()
@@ -91,6 +95,9 @@ class SleeveBMomentum:
 
     async def _open_trade(self, sym: str, atr14: float, px: float, equity: Decimal, sleeve_cfg: dict):
         if sym in self.positions:
+            return
+        # Cool-off: don't re-enter a symbol right after a losing exit.
+        if self.loss_cooldown_until.get(sym, 0) > int(time.time()):
             return
         p_win = self.win_rate_by_symbol.get(sym, 0.55)
         tp_pct = sleeve_cfg["tp_pct"] / 100
@@ -175,6 +182,9 @@ class SleeveBMomentum:
         win = 1 if pnl > 0 else 0
         prev = self.win_rate_by_symbol.get(sym, 0.55)
         self.win_rate_by_symbol[sym] = 0.9 * prev + 0.1 * win
+        # Cooldown after a stop-out to prevent revenge entries.
+        if pnl < 0 and reason in ("atr_stop", "stop_hit", "time_stop"):
+            self.loss_cooldown_until[sym] = int(time.time()) + self.loss_cooldown_s
 
     def _atr(self, candles: list[dict], period: int) -> float:
         if len(candles) < period + 1:
@@ -186,12 +196,4 @@ class SleeveBMomentum:
         return float(np.mean(trs[-period:])) if trs else 0.0
 
     def _token_address(self, symbol: str) -> str:
-        for tok in self.cfg.get("tokens", {}).values():
-            if isinstance(tok, dict) and tok.get("symbol") == symbol:
-                return tok["bsc_address"]
-        entry = self.cfg.get("tokens", {}).get(symbol)
-        if isinstance(entry, dict):
-            return entry.get("bsc_address", "0x" + "00" * 20)
-        if isinstance(entry, str):
-            return entry
-        return "0x" + "00" * 20
+        return token_address(self.cfg, symbol)

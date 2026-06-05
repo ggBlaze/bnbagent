@@ -48,6 +48,10 @@ def circuit_breaker_check(
     if now_ts < day_breach_active_until:
         return False, f"cooldown active until {day_breach_active_until}"
 
+    # 0b) Hard kill-switch (set by dashboard / control endpoint)
+    if policy.get("_kill_switch"):
+        return False, f"kill switch engaged: {policy.get('_kill_reason', 'manual')}"
+
     # 1) Daily loss circuit breaker
     if day_start_equity is not None and day_start_equity > 0:
         dloss_pct = float((day_start_equity - current_equity) / day_start_equity * 100)

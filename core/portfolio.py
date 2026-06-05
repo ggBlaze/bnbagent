@@ -25,14 +25,24 @@ class Position:
     extra: dict = field(default_factory=dict)
 
     def mark_to_market(self, current_price: Decimal) -> Decimal:
-        """Unrealized PnL in USDC."""
+        """Unrealized PnL in USDC.
+
+        For spot_long+perp_short: PnL = funding income + spot PnL
+        (perp short leg cancels the directional exposure; the residual
+        exposure is to basis drift, which is captured by the funding
+        income over time).
+        """
         if self.side == "long":
             return (current_price - self.entry_price) / self.entry_price * self.notional_usdc
         if self.side == "short":
             return (self.entry_price - current_price) / self.entry_price * self.notional_usdc
         if self.side == "spot_long+perp_short":
-            # carry PnL = funding income - basis drift
-            return self.extra.get("funding_paid_usdc", Decimal(0))
+            # Carry PnL = funding income + spot PnL vs mark.
+            # Short perp leg is delta-neutral by construction; only the
+            # basis drift (mark - spot) moves PnL, captured implicitly
+            # through the spot leg.
+            spot_pnl = (current_price - self.entry_price) / self.entry_price * self.notional_usdc
+            return self.extra.get("funding_paid_usdc", Decimal(0)) + spot_pnl
         return Decimal(0)
 
 
@@ -48,6 +58,15 @@ class Portfolio:
         self.day_start_equity: dict[str, Decimal] = {}    # YYYY-MM-DD → equity at start
         self.day_breach_active_until: int = 0
         self.equity_history: deque = deque(maxlen=86_400)  # 1 sample/sec for 1 day
+        self.kill_switch: bool = False
+        self.kill_reason: str = ""
+        # seed day_start for today so the daily-loss breaker is active from tick 1
+        self.day_start_equity[self._today_static()] = starting_equity
+
+    @staticmethod
+    def _today_static() -> str:
+        import time as _t
+        return _t.strftime("%Y-%m-%d", _t.gmtime())
 
     # --- helpers ---
 

@@ -79,7 +79,19 @@ class Agent:
         await self._shutdown.wait()
 
     async def _heartbeat(self):
+        from .control import apply_control
         while not self._shutdown.is_set():
+            # Pull any pending intents from the dashboard / control file
+            try:
+                msgs = apply_control(self.policy, self.portfolio)
+                if msgs:
+                    for m in msgs:
+                        log.warning("control: %s", m)
+                    self.dashboard_state["control_log"] = (
+                        self.dashboard_state.get("control_log", []) + msgs
+                    )[-100:]
+            except Exception as e:
+                log.warning("control apply failed: %s", e)
             self.portfolio.update_peak()
             stats = self.portfolio.stats()
             stats["sleeves"] = {
@@ -90,6 +102,8 @@ class Agent:
                 }
                 for name, s in self.sleeves.items()
             }
+            stats["kill_switch"] = self.portfolio.kill_switch
+            stats["kill_reason"] = self.portfolio.kill_reason
             self.dashboard_state["stats"] = stats
             self.dashboard_state["updated_at"] = int(__import__('time').time())
             await asyncio.sleep(1.0)

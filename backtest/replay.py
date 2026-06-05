@@ -197,7 +197,10 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
             for pid, pos in list(portfolio.positions.items()):
                 if pos.symbol == sym:
                     pos.extra["mark"] = mark
-        portfolio.set_mark_provider(lambda s: Decimal(str(_mark(s, ts, candles_by_sym))))
+        # bind `ts` via default arg so the lambda doesn't capture a moving target
+        portfolio.set_mark_provider(
+            lambda s, _ts=ts: Decimal(str(_mark(s, _ts, candles_by_sym)))
+        )
 
         # tick sleeves
         try:

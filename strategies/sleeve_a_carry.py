@@ -24,6 +24,7 @@ from typing import Any
 from connectors.bnb_sdk import Perps
 from core.portfolio import Position
 from core.risk import ProposedTrade
+from core.utils import token_address
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ class SleeveACarry:
         self.venue: str = ""
         self.rows: dict[str, CarryRow] = {}
         self.last_rebalance: int = 0
+        self.last_funding_accrual: int = 0
         self.notional_budget_pct = self.policy["sleeve_allocations"]["A"]
 
     # --- lifecycle ---
@@ -197,15 +199,21 @@ class SleeveACarry:
             elif liq < 0.10:
                 self.perps.reduce_short(row.venue, sym, factor=0.5)
             elif abs(basis) > basis_trigger:
-                self.perps.close_short(row.venue, sym)
+                # basis drifted → close perp leg and let spot leg run with stop
+                self._close_pair(sym, exit_price=Decimal(str(mark)), reason="basis_trigger")
 
     async def _collect_funding(self, equity: Decimal):
-        """Every 8h, mark funding income into the carry rows."""
+        """Accrue funding income at 8h boundaries only (not every 30s tick)."""
+        now = int(time.time())
+        if now - self.last_funding_accrual < 8 * 3600:
+            return
+        self.last_funding_accrual = now
         for sym, row in list(self.rows.items()):
             f = self.perps.current_funding(row.venue, sym)
             notional = self.portfolio.positions.get(f"A:{sym}")
             if notional:
-                inc = Decimal(str(abs(f) / 100 * 8)) * notional.notional_usdc
+                # funding_8h is a fraction (e.g. 0.0008 = 0.08% per 8h)
+                inc = Decimal(str(abs(f))) * notional.notional_usdc
                 row.funding_paid_usdc += inc
                 notional.extra["funding_paid_usdc"] = row.funding_paid_usdc
 
@@ -213,19 +221,13 @@ class SleeveACarry:
         pos = self.portfolio.positions.get(f"A:{sym}")
         if not pos:
             return
-        self.perps.close_short(self.rows[sym].venue, sym)
+        row = self.rows.get(sym)
+        if row is not None:
+            # close the perp short exactly once
+            self.perps.close_short(row.venue, sym)
         pnl = self.portfolio.close_position(f"A:{sym}", exit_price=exit_price, reason=reason)
         self.rows.pop(sym, None)
         return pnl
 
     def _token_address(self, symbol: str) -> str:
-        for tok in self.cfg.get("tokens", {}).values():
-            if isinstance(tok, dict) and tok.get("symbol") == symbol:
-                return tok["bsc_address"]
-        # fallback: direct lookup
-        entry = self.cfg.get("tokens", {}).get(symbol)
-        if isinstance(entry, dict):
-            return entry.get("bsc_address", "0x" + "00" * 20)
-        if isinstance(entry, str):
-            return entry
-        return "0x" + "00" * 20
+        return token_address(self.cfg, symbol)
