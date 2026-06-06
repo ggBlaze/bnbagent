@@ -46,7 +46,7 @@ class SleeveACarry:
 
     name = "A"
 
-    def __init__(self, name: str, components: dict, agent):
+    def __init__(self, name: str, components: dict, agent, clock=None):
         self.name = name
         self.cfg = components["config"]
         self.policy = components["policy"]
@@ -58,6 +58,12 @@ class SleeveACarry:
         self.ipfs = components["ipfs"]
         self.agent = agent
         self.portfolio = components["portfolio"]
+        # Deterministic clock (v2.0.4). In production this defaults to
+        # time.time (wall clock); in the replay harness it's set to a
+        # callable that returns the current tape ts. This makes every
+        # replay run produce identical numbers, so the meta-test that
+        # locks the demo-script table to the JSON passes reliably.
+        self.clock = clock or time.time
 
         self.basket: list[str] = []
         self.venue: str = ""
@@ -88,7 +94,7 @@ class SleeveACarry:
         min_vol = float(self.policy.get("global_risk", {}).get("min_realized_vol_annualized", 0.05))
         min_hold_s = int(self.policy.get("global_risk", {}).get("low_vol_min_hold_s", 24 * 3600))
         realized_vol = await self._realized_vol_annualized()
-        now_ts = int(time.time())
+        now_ts = int(self.clock())
         if realized_vol < min_vol and self.rows:
             # Only close positions held longer than min_hold_s
             stale = [
@@ -144,7 +150,7 @@ class SleeveACarry:
     def _should_rebalance(self, hours: int) -> bool:
         if not self.rows:
             return True
-        return (int(time.time()) - self.last_rebalance) > hours * 3600
+        return (int(self.clock()) - self.last_rebalance) > hours * 3600
 
     async def _rebalance(self, equity: Decimal):
         cfg = self.cfg
@@ -168,7 +174,7 @@ class SleeveACarry:
 
         self.venue = venue
         self.basket = basket
-        self.last_rebalance = int(time.time())
+        self.last_rebalance = int(self.clock())
 
         # Enter new carry
         per_token_usdc = equity * Decimal(str(self.notional_budget_pct)) / len(basket)
@@ -243,7 +249,7 @@ class SleeveACarry:
                 symbol=sym, venue=venue, spot_tx=rcpt_spot, perp_tx=tx_perp,
                 entry_spot_price=spot_price,
                 entry_funding=self.perps.current_funding(venue, sym),
-                opened_at=int(time.time()),
+                opened_at=int(self.clock()),
             )
             self.rows[sym] = row
 
@@ -279,7 +285,7 @@ class SleeveACarry:
 
     async def _collect_funding(self, equity: Decimal):
         """Accrue funding income at 8h boundaries only (not every 30s tick)."""
-        now = int(time.time())
+        now = int(self.clock())
         if now - self.last_funding_accrual < 8 * 3600:
             return
         self.last_funding_accrual = now

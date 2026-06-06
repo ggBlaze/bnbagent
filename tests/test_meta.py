@@ -110,13 +110,15 @@ def test_demo_script_kpi_table_matches_replay_json():
         # The demo-script contains a markdown table row like:
         #   | bull | +0.21% | 0.74% | 189 | 76% | +14 |
         demo = (ROOT / "docs" / "demo-script.md").read_text()
-        # Look for the v2.0.3 numbers block
+        # Look for the v2.0.4 numbers block (matches the latest release
+        # the demo-script documents; the table format hasn't changed
+        # since v2.0.1, only the version label moves forward)
         block_m = re.search(
-            r"\*\*v2\.0\.3 numbers[^\n]*\n\n\|[^\n]+\n\|[^\n]+\n((?:\|[^\n]+\n)+)",
+            r"\*\*v2\.0\.\d numbers[^\n]*\n\n\|[^\n]+\n\|[^\n]+\n((?:\|[^\n]+\n)+)",
             demo,
         )
         if not block_m:
-            pytest.skip("v2.0.3 numbers table not found in demo-script.md")
+            pytest.skip("v2.0.4 numbers table not found in demo-script.md")
         rows_text = block_m.group(1)
         # Parse each row: | regime | return% | dd% | trades | hit% | sharpe |
         for line in rows_text.splitlines():

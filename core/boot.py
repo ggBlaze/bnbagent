@@ -113,7 +113,8 @@ def boot(starting_equity: Decimal = Decimal("100"),
          config_path: str = "config/config.yaml",
          replay_tape: list | None = None,
          verify_signature: bool = False,
-         mode: str | None = None) -> dict:
+         mode: str | None = None,
+         clock=None) -> dict:
     """Returns a dict of initialized components."""
     cfg = load_config(config_path)
     if mode is not None:
@@ -130,7 +131,12 @@ def boot(starting_equity: Decimal = Decimal("100"),
     cmc = init_cmc(cfg, wallet, replay_tape=replay_tape)
     bs = init_bsc(cfg)
     ipfs = init_ipfs(cfg)
-    portfolio = Portfolio(starting_equity=starting_equity)
+    # Deterministic clock (v2.0.4). In production this is wall clock;
+    # in the replay harness it's set to a callable that returns the
+    # current tape ts. The portfolio, perps, and sleeves all use the
+    # same clock so the entire run is reproducible.
+    portfolio = Portfolio(starting_equity=starting_equity, clock=clock)
+    bs["perps"] = Perps(mode=cfg.get("mode", "testnet"), clock=clock)
 
     identity = register_identity(bs["erc8004"], ipfs, wallet, policy)
 

@@ -49,9 +49,12 @@ class Position:
 class Portfolio:
     """Tracks equity, peak, drawdown, open positions, sleeve exposure."""
 
-    def __init__(self, starting_equity: Decimal = Decimal("100")):
+    def __init__(self, starting_equity: Decimal = Decimal("100"), clock=None):
+        import time as _time
         self.starting_equity = starting_equity
         self.cash_usdc = starting_equity
+        # Deterministic clock (v2.0.4). See sleeve_a_carry for rationale.
+        self.clock = clock or _time.time
         self.peak_equity = starting_equity
         self.positions: dict[str, Position] = {}      # id → Position
         self.closed_trades: deque = deque(maxlen=10_000)
@@ -74,7 +77,10 @@ class Portfolio:
         return time.strftime("%Y-%m-%d", time.gmtime())
 
     def _now(self) -> int:
-        return int(time.time())
+        # Deterministic clock (v2.0.4). In production this is wall
+        # clock; in the replay harness it's set to a callable that
+        # returns the current tape ts.
+        return int(self.clock())
 
     def _maybe_seed_day(self) -> None:
         today = self._today()
@@ -170,10 +176,10 @@ class Portfolio:
     # --- mark price (override in production with PCS Quoter / perps mark feed) ---
 
     def _mark_price(self, symbol: str) -> Decimal:
-        # default: a tiny random walk to simulate intra-tick mark changes
-        import random
-        base = Decimal("100")
-        return base * Decimal(str(1 + (random.random() - 0.5) * 0.001))
+        # Deterministic stub: returns 100. Production overrides via
+        # set_mark_provider. The previous version used random.random()
+        # which made the replay non-deterministic across processes.
+        return Decimal("100")
 
     def set_mark_provider(self, fn):
         self._mark_price = fn  # type: ignore

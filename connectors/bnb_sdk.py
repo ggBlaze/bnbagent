@@ -273,20 +273,19 @@ class Perps:
     funding rates with a deterministic random walk so the carry strategy has data.
     """
 
-    def __init__(self, config_path: str = "config/perps_venues.yaml", mode: str = "testnet"):
+    def __init__(self, config_path: str = "config/perps_venues.yaml", mode: str = "testnet", clock=None):
+        import time as _time
         with open(config_path) as f:
             self.venues = yaml.safe_load(f) or {}
         self.mode = mode
         self._state: dict[tuple[str, str], dict] = {}
         self._historical: dict[tuple[str, str], list[float]] = {}
         self._rng = random.Random(42)
-        # The replay harness sets the mark provider per tick via
-        # `set_mark_provider(callable)`. In production the provider is
-        # None and the cached value is used. The previous stub returned
-        # a constant 100, which caused sleeve_a._monitor's basis_trigger
-        # to fire on every tick (basis = (100 - entry) / entry, often
-        # > 0.5%), producing thousands of spurious trade-closes per
-        # replay run. See audit #21.
+        # Deterministic clock (v2.0.4). In production this defaults to
+        # time.time; in the replay harness it's set to a callable that
+        # returns the current tape ts. Used in tx_hash and any other
+        # wall-clock read.
+        self.clock = clock or _time.time
         self._mark_provider: dict | None = None
 
     def set_mark_provider(self, fn):
@@ -340,9 +339,14 @@ class Perps:
                 spot = float(fn(market))
                 # Per-venue basis noise: ±0.05% (5 bps). Matches the
                 # Aster / KiloEx / ApolloX / MUX observed perp-spot
-                # spread. Deterministic per (venue, market) so tests are
-                # reproducible.
-                seed = (hash((venue, market)) % 1000) / 1000.0
+                # spread. Deterministic per (venue, market) so tests
+                # are reproducible. We use a stable hash (Python's
+                # built-in hash() is randomized per process for
+                # strings via PYTHONHASHSEED, which would make the
+                # replay non-deterministic across processes). The
+                # zlib.crc32 of the key gives a stable 32-bit hash.
+                import zlib
+                seed = (zlib.crc32(f"{venue}|{market}".encode()) % 1000) / 1000.0
                 basis_bps = (seed - 0.5) * 0.001  # -0.05% to +0.05%
                 return spot * (1.0 + basis_bps)
             except Exception:
@@ -369,7 +373,7 @@ class Perps:
                    collateral_usdc: float) -> SignedTx:
         if self.mode in ("testnet", "replay"):
             tx_hash = "0x" + Web3.keccak(
-                text=f"perps_open_short:{venue}:{market}:{size_usd}:{time.time()}"
+                text=f"perps_open_short:{venue}:{market}:{size_usd}:{self.clock()}"
             ).hex()
             return SignedTx(raw_tx=b"\x00" * 100, tx_hash=tx_hash, signed={})
         raise NotImplementedError("real perps open not implemented in this build")
@@ -377,7 +381,7 @@ class Perps:
     def close_short(self, venue: str, market: str) -> SignedTx:
         if self.mode in ("testnet", "replay"):
             tx_hash = "0x" + Web3.keccak(
-                text=f"perps_close_short:{venue}:{market}:{time.time()}"
+                text=f"perps_close_short:{venue}:{market}:{self.clock()}"
             ).hex()
             return SignedTx(raw_tx=b"\x00" * 100, tx_hash=tx_hash, signed={})
         raise NotImplementedError("real perps close not implemented in this build")
@@ -385,7 +389,7 @@ class Perps:
     def reduce_short(self, venue: str, market: str, factor: float) -> SignedTx:
         if self.mode in ("testnet", "replay"):
             tx_hash = "0x" + Web3.keccak(
-                text=f"perps_reduce:{venue}:{market}:{factor}:{time.time()}"
+                text=f"perps_reduce:{venue}:{market}:{factor}:{self.clock()}"
             ).hex()
             return SignedTx(raw_tx=b"\x00" * 100, tx_hash=tx_hash, signed={})
         raise NotImplementedError

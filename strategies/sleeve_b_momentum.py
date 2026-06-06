@@ -34,7 +34,7 @@ class SleeveBMomentum:
 
     name = "B"
 
-    def __init__(self, name: str, components: dict, agent):
+    def __init__(self, name: str, components: dict, agent, clock=None):
         self.name = name
         self.cfg = components["config"]
         self.policy = components["policy"]
@@ -44,6 +44,8 @@ class SleeveBMomentum:
         self.bsc = components["bsc"]
         self.agent = agent
         self.portfolio = components["portfolio"]
+        # Deterministic clock (v2.0.4). See sleeve_a_carry for rationale.
+        self.clock = clock or time.time
         self.basket_top_n = 200
         self.positions: dict[str, Position] = {}
         self.win_rate_by_symbol: dict[str, float] = {}
@@ -94,15 +96,15 @@ class SleeveBMomentum:
             hi_4h = max(c.get("high", 0) for c in prev_4h)
             atr14 = self._atr(candles, sleeve_cfg["atr_len"])
             px = last.get("close", 0)
-            # Regime filter (v2.0.2 — Path A): require 4h AND 1h trend
-            # confirmation. Without this, the strategy enters in chop and
-            # gets chopped up by 1-3% stop/tp noise. Default: both on.
+            # Regime filter (v2.0.4): require 4h trend confirmation. The
+            # previous 1h check was removed from the code (the v2.0.2 /
+            # v2.0.3 commit message claimed it was loosened but only
+            # the config default changed, the code still gated on it).
+            # 4h-only is the documented behaviour; 1h is now always-pass.
             require_4h = self.policy.get("global_risk", {}).get("require_4h_trend_for_momentum", True)
-            require_1h = self.policy.get("global_risk", {}).get("require_1h_trend_for_momentum", True)
             trend_4h_ok = (not require_4h) or px > hi_4h
-            trend_1h_ok = (not require_1h) or (last.get("close", 0) > last.get("open", 0))
             if (vol_5m > sleeve_cfg["volume_spike_mult"] * vol_ma
-                    and trend_4h_ok and trend_1h_ok and atr14 > 0):
+                    and trend_4h_ok and atr14 > 0):
                 signals.append((sym, atr14, px))
         return signals[:5]    # top 5 only per tick
 
@@ -110,7 +112,7 @@ class SleeveBMomentum:
         if sym in self.positions:
             return
         # Cool-off: don't re-enter a symbol right after a losing exit.
-        if self.loss_cooldown_until.get(sym, 0) > int(time.time()):
+        if self.loss_cooldown_until.get(sym, 0) > int(self.clock()):
             return
         p_win = self.win_rate_by_symbol.get(sym, 0.55)
         tp_pct = sleeve_cfg["tp_pct"] / 100
@@ -143,7 +145,7 @@ class SleeveBMomentum:
             "win_rate_ewma": self.win_rate_by_symbol.get(sym, 0.55),
             "sleeve_dd_pct": 0.0,
             "policy_max_dd_pct": float(self.policy.get("global_risk", {}).get("max_drawdown_pct", 100)),
-            "loss_cooldown_active": self.loss_cooldown_until.get(sym, 0) > int(time.time()),
+            "loss_cooldown_active": self.loss_cooldown_until.get(sym, 0) > int(self.clock()),
         }
         market_snapshot = {"symbol": sym, "px": float(px), "atr14": atr14,
                            "vol_5m": 0, "vol_ma": 0}
@@ -177,7 +179,7 @@ class SleeveBMomentum:
         pos = Position(
             sleeve="B", symbol=sym, side="long",
             notional_usdc=size, risk_usdc=size * Decimal(str(stop_distance_pct)),
-            entry_ts=int(time.time()), entry_price=Decimal(str(px)),
+            entry_ts=int(self.clock()), entry_price=Decimal(str(px)),
             stop_price=Decimal(str(px - 2 * atr14)),
             tp_price=Decimal(str(px * (1 + tp_pct))),
         )
@@ -242,7 +244,7 @@ class SleeveBMomentum:
                 reason = "atr_stop"
             elif pos.tp_price is not None and px >= pos.tp_price:
                 reason = "tp_hit"
-            elif (int(time.time()) - pos.entry_ts) > max_hold:
+            elif (int(self.clock()) - pos.entry_ts) > max_hold:
                 reason = "time_stop"
             if reason:
                 self._close(sym, px, reason)
@@ -258,7 +260,7 @@ class SleeveBMomentum:
         self.win_rate_by_symbol[sym] = 0.9 * prev + 0.1 * win
         # Cooldown after a stop-out to prevent revenge entries.
         if pnl < 0 and reason in ("atr_stop", "stop_hit", "time_stop"):
-            self.loss_cooldown_until[sym] = int(time.time()) + self.loss_cooldown_s
+            self.loss_cooldown_until[sym] = int(self.clock()) + self.loss_cooldown_s
 
     def _recent_trades_for(self, sym: str, n: int = 20) -> list[dict]:
         """Return the last N closed trades on this symbol from the portfolio."""

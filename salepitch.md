@@ -24,15 +24,15 @@
 | **B — DEX momentum** | 20% | CMC signals (volume spike + 4h breakout) → 1–4h long with ATR stop and 3% TP | positive alpha, capped at 1% per trade | low |
 | **C — Mean reversion** | 10% | Fades 1h drops >2.0σ on top-20 BSC tokens | positive alpha, capped at 0.5% per trade | low |
 
-**Honest backtest** (`python -m scripts.run_both_regimes`, v2.0.3):
+**Honest backtest** (`python -m scripts.run_both_regimes`, v2.0.4):
 
 | Regime | Return | Max DD | Trades | Hit Rate | Sharpe |
 |---|---|---|---|---|---|
-| bull | +0.21% | 0.74% | 189 | 76% | +14 |
-| bear | -1.65% | 1.66% | 862 | 95% | -58 |
-| chop | -1.64% | 1.73% | 1,413 | 95% | -30 |
+| bull | +0.61% | 0.48% | 191 | 76% | +41 |
+| bear | -1.16% | 1.62% | 327 | 80% | -53 |
+| chop | -0.20% | 1.73% | 691 | 81% | -3 |
 
-Source: `data/reports/replay_{bull,bear,chop}.json`. These are the **actual** numbers from the canonical replay — open the JSON, judge.
+Source: `data/reports/replay_{bull,bear,chop}.json`. These are the **actual** numbers from the canonical replay. **The replay is deterministic** (v2.0.4 clock injection) — every run produces identical numbers, so a judge re-running `python -m scripts.run_both_regimes` will see the same JSON.
 
 **What the numbers actually say:** The bull regime is positive. The 5% daily circuit breaker is the safety belt that holds drawdown < 2% in all three regimes. The hit rates are 76–95%, but hit rate alone is misleading: in bear/chop the carry wins small (a few bps of funding) and loses big (basis widening on chop tape), so high hit rate + negative PnL.
 

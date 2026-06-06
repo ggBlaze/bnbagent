@@ -59,7 +59,7 @@ sleeves:
     zscore_threshold: 2.0    # was 2.5 — too tight, fires 1.1% of ticks
     stop_pct: 2.0
     target_pct: 1.0
-    lookback_h: 1
+    lookback_h: 4           # was 1 — single-element std was 0, never fired
     kelly_fraction: 0.25
     max_position_pct: 5.0
 allowlist:

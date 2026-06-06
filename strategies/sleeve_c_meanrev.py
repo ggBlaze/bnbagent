@@ -25,7 +25,7 @@ class SleeveCMeanRev:
 
     name = "C"
 
-    def __init__(self, name: str, components: dict, agent):
+    def __init__(self, name: str, components: dict, agent, clock=None):
         self.name = name
         self.cfg = components["config"]
         self.policy = components["policy"]
@@ -35,6 +35,8 @@ class SleeveCMeanRev:
         self.bsc = components["bsc"]
         self.agent = agent
         self.portfolio = components["portfolio"]
+        # Deterministic clock (v2.0.4). See sleeve_a_carry for rationale.
+        self.clock = clock or time.time
         self.positions: dict[str, Position] = {}
         self.win_rate_by_symbol: dict[str, float] = {}
         self.loss_cooldown_until: dict[str, int] = {}
@@ -84,7 +86,7 @@ class SleeveCMeanRev:
     async def _open_mean_rev(self, sym: str, ref_price: float, sigma: float, equity: Decimal, sleeve_cfg: dict):
         if sym in self.positions:
             return
-        if self.loss_cooldown_until.get(sym, 0) > int(time.time()):
+        if self.loss_cooldown_until.get(sym, 0) > int(self.clock()):
             return
         p_win = self.win_rate_by_symbol.get(sym, 0.70)
         stop_pct = sleeve_cfg["stop_pct"] / 100
@@ -115,7 +117,7 @@ class SleeveCMeanRev:
             "win_rate_ewma": self.win_rate_by_symbol.get(sym, 0.70),
             "sleeve_dd_pct": 0.0,
             "policy_max_dd_pct": float(self.policy.get("global_risk", {}).get("max_drawdown_pct", 100)),
-            "loss_cooldown_active": self.loss_cooldown_until.get(sym, 0) > int(time.time()),
+            "loss_cooldown_active": self.loss_cooldown_until.get(sym, 0) > int(self.clock()),
         }
         market_snapshot = {"symbol": sym, "px": float(ref_price), "sigma": float(sigma)}
         try:
@@ -148,7 +150,7 @@ class SleeveCMeanRev:
         pos = Position(
             sleeve="C", symbol=sym, side="long",
             notional_usdc=size, risk_usdc=size * Decimal(str(stop_pct)),
-            entry_ts=int(time.time()), entry_price=Decimal(str(ref_price)),
+            entry_ts=int(self.clock()), entry_price=Decimal(str(ref_price)),
             stop_price=Decimal(str(ref_price * (1 - stop_pct))),
             tp_price=Decimal(str(ref_price * (1 + target_pct))),
         )
@@ -171,7 +173,7 @@ class SleeveCMeanRev:
                 reason = "tp_hit"
             elif px <= pos.stop_price:
                 reason = "stop_hit"
-            elif (int(time.time()) - pos.entry_ts) > max_hold:
+            elif (int(self.clock()) - pos.entry_ts) > max_hold:
                 reason = "time_stop"
             if reason:
                 self._close(sym, px, reason)
@@ -185,7 +187,7 @@ class SleeveCMeanRev:
         prev = self.win_rate_by_symbol.get(sym, 0.70)
         self.win_rate_by_symbol[sym] = 0.9 * prev + 0.1 * win
         if pnl < 0 and reason in ("stop_hit", "time_stop"):
-            self.loss_cooldown_until[sym] = int(time.time()) + self.loss_cooldown_s
+            self.loss_cooldown_until[sym] = int(self.clock()) + self.loss_cooldown_s
 
     def _token_address(self, symbol: str) -> str:
         return token_address(self.cfg, symbol)

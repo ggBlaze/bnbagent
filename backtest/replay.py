@@ -98,6 +98,46 @@ def make_synthetic_week(seed: int = 42, regime: str = "bull") -> list[dict]:
     return {"candles": tape, "fundings": fundings, "regime": regime, "seed": seed}
 
 
+def make_synthetic_week_hourly(seed: int = 42, regime: str = "bull") -> dict:
+    """Aggregate the 5-min tape into 1-hour bars so Sleeve B and
+    Sleeve C — which ask for hourly candles from CMC — actually have
+    valid data to work with. The 5-min tape gives 2016 bars per symbol;
+    the hourly aggregation gives 168 bars per symbol (7d × 24h).
+
+    OHLCV aggregation is standard: open=first, high=max, low=min,
+    close=last, volume=sum. The aggregated ts is the hour boundary.
+    The fundings dict is unchanged (fundings are 8h boundaries either
+    way).
+    """
+    five_min = make_synthetic_week(seed=seed, regime=regime)
+    buckets: dict[tuple[str, int], list[dict]] = {}
+    for c in five_min["candles"]:
+        # 1h boundary: round down to the nearest hour
+        h_ts = (c["ts"] // 3600) * 3600
+        buckets.setdefault((c["symbol"], h_ts), []).append(c)
+    hourly: list[dict] = []
+    for (sym, h_ts), cs in buckets.items():
+        # sort by ts ascending (they should already be, but be safe)
+        cs = sorted(cs, key=lambda x: x["ts"])
+        hourly.append({
+            "ts":      h_ts,
+            "symbol":  sym,
+            "open":    cs[0]["open"],
+            "high":    max(c["high"] for c in cs),
+            "low":     min(c["low"]  for c in cs),
+            "close":   cs[-1]["close"],
+            "volume":  sum(c["volume"] for c in cs),
+        })
+    hourly.sort(key=lambda c: (c["ts"], c["symbol"]))
+    return {
+        "candles":  hourly,
+        "fundings": five_min["fundings"],
+        "regime":   regime,
+        "seed":     seed,
+        "interval": "hour",
+    }
+
+
 # --- replay engine ---
 
 async def run_replay(tape_path: str | None, report_path: str, equity: float = 100.0,
@@ -109,7 +149,16 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
             log.info("no tape provided — generating synthetic week")
             tape = make_synthetic_week()
 
-    components = boot(starting_equity=Decimal(str(equity)))
+    # Deterministic clock (v2.0.4). We hold a mutable holder so the
+    # main loop can advance the clock to the current tape ts on every
+    # tick. This makes the replay fully reproducible — every run
+    # produces identical numbers, so the meta-test that locks the
+    # demo-script table to the JSON passes reliably.
+    _clock_holder = [0.0]
+    def _clock() -> float:
+        return _clock_holder[0]
+
+    components = boot(starting_equity=Decimal(str(equity)), clock=_clock)
     # override mode at runtime: replay stub is sufficient because we patch the CMC client below
     policy = components["policy"]
     portfolio: Portfolio = components["portfolio"]
@@ -169,10 +218,11 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
     cmc.ohlcv_historical = fake_ohlc
     cmc.call = lambda *a, **kw: asyncio.sleep(0)  # no-op
 
-    # drive sleeves
-    a = SleeveACarry(name="A", components=components, agent=None)
-    b = SleeveBMomentum(name="B", components=components, agent=None)
-    c = SleeveCMeanRev(name="C", components=components, agent=None)
+    # drive sleeves (pass the deterministic clock from boot so every
+    # time.time() read inside the strategy is reproducible)
+    a = SleeveACarry(name="A", components=components, agent=None, clock=_clock)
+    b = SleeveBMomentum(name="B", components=components, agent=None, clock=_clock)
+    c = SleeveCMeanRev(name="C", components=components, agent=None, clock=_clock)
 
     # Build a simple Agent shim that calls the risk engine + portfolio
     class AgentShim:
@@ -223,6 +273,11 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
     minutes = len(tape.get("candles", [])) // 20   # unique ts buckets
     unique_ts = sorted({c["ts"] for c in tape.get("candles", [])})
     for tick_idx, ts in enumerate(unique_ts):
+        # Advance the deterministic clock to the current tape ts (v2.0.4).
+        # Every strategy + portfolio + perps read this clock instead of
+        # wall-clock time.time(), so the replay is bit-for-bit
+        # reproducible across processes and across runs.
+        _clock_holder[0] = float(ts)
         # mark-to-market: update each position's mark price from latest candle
         for sym in candles_by_sym:
             mark = next((c["close"] for c in reversed(candles_by_sym[sym]) if c["ts"] <= ts), None)

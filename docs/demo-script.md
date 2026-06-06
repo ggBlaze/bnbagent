@@ -12,34 +12,59 @@ MCP integration.
 test for the strategy, not the live-PnL window. Replace these with the
 live window numbers once that runs (2026-06-22 → 2026-06-28).**
 
-**v2.0.3 numbers (2026-06-05, canonical):**
+**v2.0.4 numbers (2026-06-05, canonical, deterministic):**
 
 | Regime | Return | Max DD | Trades | Hit Rate | Sharpe |
 |---|---|---|---|---|---|
-| bull | +0.21% | 0.74% | 189 | 76% | +14 |
-| bear | -1.65% | 1.66% | 862 | 95% | -58 |
-| chop | -1.64% | 1.73% | 1,413 | 95% | -30 |
+| bull | +0.61% | 0.48% | 191 | 76% | +41 |
+| bear | -1.16% | 1.62% | 327 | 80% | -53 |
+| chop | -0.20% | 1.73% | 691 | 81% | -3 |
 
 Source: `data/reports/replay_{bull,bear,chop}.json`. These are the actual
 JSON values from the canonical `python -m scripts.run_both_regimes` run
-on 2026-06-05. Open the file, judge.
+on 2026-06-05. **The replay is now bit-for-bit deterministic** — every
+run produces identical numbers (clock injection in v2.0.4). Open the
+file, re-run the script, judge.
 
-**What v2.0.3 actually shipped:**
+**What v2.0.4 actually shipped:**
 
-- AgentShim now has `review_trade` (the harness was logging warnings
-  on every tick)
-- Sleeve B: regime filter loosened to 4h-only (was 4h+1h AND), vol spike
-  threshold 2.0×→1.5× (more candidates)
-- Sleeve C: zscore 2.5→2.0 (more candidates)
-- Sleeve A: minimum-hold-time 24h on vol-pause (no churn in/out of
-  positions when realized vol oscillates around the 5% threshold)
+- **Determinism fix**: injected a synthetic clock into the strategies,
+  portfolio, and perps. Every `int(time.time())` and `random.random()`
+  replaced with `int(self.clock())` or a deterministic equivalent.
+  The replay harness advances the clock to the candle's ts on each
+  tick. `hash()` for perps basis noise replaced with `zlib.crc32`.
+  Result: a meta-test that locks the demo-script table to the JSON
+  now passes reliably.
+- Sleeve B: 1h-trend check **removed from the code** (was only in
+  config in v2.0.2/v2.0.3, now actually dropped). 4h-only is the
+  documented behaviour.
+- Sleeve A: min-hold-time on vol-pause.
+- AgentShim has `review_trade` (no more warning spam).
 
 **Structural caveat:** on the synthetic 5-min tape, all trades are
 attributed to Sleeve A (the carry). Sleeve B's `_scan_signals` asks for
 24 hourly candles; the tape is 5-min. So the "4h breakout" is actually
 a "20min breakout". This is a data/scale mismatch in the harness, not
-a strategy bug. On real BSC hourly data (CMC OHLCV), the B/C signals
-should fire. Live PnL window 2026-06-22 → 2026-06-28 will tell.
+a strategy bug.
+
+**v2.0.4 fix:** `make_synthetic_week_hourly()` aggregates the 5-min tape
+into 1-hour bars. On the hourly tape, **Sleeve C now fires** (A + C
+attribution in all 3 regimes). Sleeve B still doesn't fire — `px > hi_4h`
+is structurally rare on random GBM tape (would need a true breakout).
+On real CMC hourly OHLCV, B should fire as designed. The hourly
+results:
+
+| Regime | Return | DD | Trades | Sleeves |
+|---|---|---|---|---|
+| bull 1h | -0.08% | 1.35% | 93 | A + C |
+| bear 1h | +628% | 0.15% | 407 | A + C |
+| chop 1h | -1.57% | 1.81% | 170 | A + C |
+
+**The bear 1h +628% is overfit noise** — synthetic bear tape with z-score
+2.0 mean-reversion is a self-fulfilling pattern. Live PnL window will
+be the real test.
+
+Live PnL window 2026-06-22 → 2026-06-28 will tell.
 
 ---
 
