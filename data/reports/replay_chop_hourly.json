@@ -1,0 +1,22 @@
+{
+  "starting_equity": 1000.0,
+  "ending_equity": 1006.1669789100469,
+  "total_return_pct": 0.6166978910046916,
+  "trades": 135,
+  "hit_rate": 0.7555555555555555,
+  "profit_factor": 1.1182145206532668,
+  "sharpe": 26.513500268206396,
+  "sortino": 19.68707623938132,
+  "max_drawdown_pct": 1.4995705686539966,
+  "calmar": 562.2482533422108,
+  "attribution": {
+    "A": {
+      "trades": 135,
+      "pnl": 6.1669789100469865,
+      "hit_rate": 0.7555555555555555
+    }
+  },
+  "breaches": 0,
+  "kill_switch_engaged": false,
+  "summary": {}
+}

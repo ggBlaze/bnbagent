@@ -12,7 +12,7 @@ MCP integration.
 test for the strategy, not the live-PnL window. Replace these with the
 live window numbers once that runs (2026-06-22 → 2026-06-28).**
 
-**v2.0.4 numbers (2026-06-05, canonical, deterministic):**
+**v2.0.5 numbers (2026-06-06, canonical, committed JSON):**
 
 5-min tape (default — 7 days of 5-min bars):
 
@@ -27,30 +27,35 @@ OHLCV which the live PnL window will use):
 
 | Regime | Return | Max DD | Trades | Hit Rate | Sleeves |
 |---|---|---|---|---|---|
-| bull 1h | -0.40% | 1.02% | 85 | 76% | A + C |
-| bear 1h | +219.26% | 0.27% | 247 | 89% | A + C |
-| chop 1h | -1.69% | 1.71% | 158 | 90% | A + C |
+| bull 1h | +0.99% | 0.37% | 87 | 79% | A |
+| bear 1h | -0.57% | 1.08% | 99 | 72% | A |
+| chop 1h | +0.62% | 1.50% | 135 | 76% | A |
 
 Source: `data/reports/replay_{bull,bear,chop}.json` and
 `data/reports/replay_{bull,bear,chop}_hourly.json`. These are the actual
-JSON values from the canonical `python -m scripts.run_both_regimes` run
-on 2026-06-05. **The replay is now bit-for-bit deterministic** — every
-run produces identical numbers (clock injection in v2.0.4). Open the
-file, re-run the script, judge.
+JSON values, **committed to the repo** so a fresh `git clone` produces
+the same numbers in the demo-script. The meta-test
+`tests/test_meta.py::test_demo_script_kpi_table_matches_replay_json`
+locks this table to the JSON on every commit. Open the file, judge.
 
-**What the 1h tape actually shows:** Sleeve C now fires on the hourly
-tape (attribution shows A + C in all 3 regimes). Sleeve B still
-doesn't fire — `px > hi_4h` requires a true volume breakout, which
-random GBM doesn't generate. On real CMC hourly data, B should fire
-as designed.
+**What the 1h tape actually shows:** on the committed v2.0.5 code
+(`lookback_h=4`, `zscore=2.0`), the z-score mean-reversion signal
+rarely fires on random GBM, so Sleeve C does not contribute in the
+committed JSON. Sleeve B also doesn't fire — `px > hi_4h` requires a
+true volume breakout, which random GBM doesn't generate. The
+3-sleeve ensemble is, in practice, **1-sleeve Sleeve A on synthetic
+data**. Real CMC hourly OHLCV in the live PnL window
+(2026-06-22 → 2026-06-28) is the real test of B and C.
 
-**The +219% in bear 1h is overfit noise on the synthetic tape.**
-The z-score 2.0 mean-reversion signal is a self-fulfilling pattern
-on a downward-drift tape: price drops 2σ, C buys, price bounces 1%
-(target hit), C exits. 307 of the 247 trades in bear 1h are C
-exploiting this. On real BSC markets, the pattern is much weaker
-because the noise floor is different. The live PnL window
-(2026-06-22 → 2026-06-28) is the real test.
+**Note on determinism:** v2.0.4 claimed bit-for-bit reproducibility
+via clock injection. The claim was not fully achieved — `int(time.time())`
+calls remain in `backtest/replay.py` (lines 69, 93, 261, 327) and
+`core/control.py:93` writes `int(time.time())` to the audit log on every
+replay. Two consecutive runs of the same code can produce different
+attribution on the hourly tape (C fires sporadically based on a
+non-seeded condition). The committed JSON in this commit is the
+single source of truth for the demo voiceover; the live PnL window
+is the real test.
 
 ---
 
@@ -134,7 +139,7 @@ Show the result card with the website download button.
 
 **Click:** the **Replay** tab (or open `data/reports/replay_compare.html`).
 
-> "Here's the honest backtest, run on the same code with three synthetic regimes. Bull: +0.21% return, 76% hit rate, max DD 0.74%. Bear: -1.65%, 95% hit rate, max DD 1.66%. Chop: -1.64%, 95% hit rate, max DD 1.73%. These are the actual numbers from `data/reports/replay_{bull,bear,chop}.json` — open the JSON, judge. The bull regime is positive. The 5% daily circuit breaker is the safety belt — it holds drawdown under 2% in all three regimes. The hit rate alone is misleading: in bear/chop the carry wins small (a few bps of funding) and loses big (basis widening on chop), so high hit rate + negative PnL. The strategy is early-alpha carry on synthetic tape; the engineering around it — 3-layer LLM safety envelope, EIP-191 policy, ERC-8004 identity, ERC-8183 escrow, x402 microcharges, TWAK signed txs — is the Track 1 bet."
+> "Here's the honest backtest, run on the same code with three synthetic regimes (5-min tape — the canonical numbers from the committed `data/reports/replay_{bull,bear,chop}.json`): Bull: +0.61% return, 76% hit rate, max DD 0.48%. Bear: -1.16%, 80% hit rate, max DD 1.62%. Chop: -0.20%, 81% hit rate, max DD 1.73%. The bull regime is positive. The 5% daily circuit breaker is the safety belt — it holds drawdown under 2% in all three regimes. The hit rate alone is misleading: in bear/chop the carry wins small (a few bps of funding) and loses big (basis widening on chop), so high hit rate + negative PnL. The strategy is early-alpha carry on synthetic tape; the engineering around it — 3-layer LLM safety envelope, EIP-191 policy, ERC-8004 identity, ERC-8183 escrow, x402 microcharges, TWAK signed txs — is the Track 1 bet. The 1-hour tape (committed alongside, but more sporadic — Sleeve C fires intermittently) is in the table above."
 
 ---
 

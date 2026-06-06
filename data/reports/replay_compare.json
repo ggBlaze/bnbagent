@@ -1,0 +1,104 @@
+[
+  {
+    "regime": "bull",
+    "interval": "5m",
+    "ending_equity": 1006.1181402739982,
+    "total_return_pct": 0.6118140273998263,
+    "sharpe": 41.09991445744618,
+    "max_drawdown_pct": 0.47874196970893074,
+    "trades": 191,
+    "hit_rate": 0.7643979057591623,
+    "attribution": {
+      "A": {
+        "trades": 191,
+        "pnl": 6.118140273998508,
+        "hit_rate": 0.7643979057591623
+      }
+    }
+  },
+  {
+    "regime": "bull",
+    "interval": "1h",
+    "ending_equity": 1009.887541754594,
+    "total_return_pct": 0.9887541754594054,
+    "sharpe": 104.80897736806729,
+    "max_drawdown_pct": 0.366874599906644,
+    "trades": 87,
+    "hit_rate": 0.7931034482758621,
+    "attribution": {
+      "A": {
+        "trades": 87,
+        "pnl": 9.887541754593961,
+        "hit_rate": 0.7931034482758621
+      }
+    }
+  },
+  {
+    "regime": "bear",
+    "interval": "5m",
+    "ending_equity": 988.3675821974067,
+    "total_return_pct": -1.1632417802593276,
+    "sharpe": -53.08008351471988,
+    "max_drawdown_pct": 1.62446732499227,
+    "trades": 327,
+    "hit_rate": 0.8042813455657493,
+    "attribution": {
+      "A": {
+        "trades": 327,
+        "pnl": -11.632417802594068,
+        "hit_rate": 0.8042813455657493
+      }
+    }
+  },
+  {
+    "regime": "bear",
+    "interval": "1h",
+    "ending_equity": 994.3546011887006,
+    "total_return_pct": -0.564539881129944,
+    "sharpe": -51.68855431298914,
+    "max_drawdown_pct": 1.0782340058894517,
+    "trades": 99,
+    "hit_rate": 0.7171717171717171,
+    "attribution": {
+      "A": {
+        "trades": 99,
+        "pnl": -5.645398811299585,
+        "hit_rate": 0.7171717171717171
+      }
+    }
+  },
+  {
+    "regime": "chop",
+    "interval": "5m",
+    "ending_equity": 998.020783427473,
+    "total_return_pct": -0.1979216572526976,
+    "sharpe": -3.2124121274339736,
+    "max_drawdown_pct": 1.7303352866731774,
+    "trades": 691,
+    "hit_rate": 0.8075253256150506,
+    "attribution": {
+      "A": {
+        "trades": 691,
+        "pnl": -1.9792165725276123,
+        "hit_rate": 0.8075253256150506
+      }
+    }
+  },
+  {
+    "regime": "chop",
+    "interval": "1h",
+    "ending_equity": 1006.1669789100469,
+    "total_return_pct": 0.6166978910046916,
+    "sharpe": 26.513500268206396,
+    "max_drawdown_pct": 1.4995705686539966,
+    "trades": 135,
+    "hit_rate": 0.7555555555555555,
+    "attribution": {
+      "A": {
+        "trades": 135,
+        "pnl": 6.1669789100469865,
+        "hit_rate": 0.7555555555555555
+      }
+    }
+  }
+]

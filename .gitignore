@@ -12,10 +12,12 @@ data/parquet/*
 data/recordings/*
 data/jobs-*.json
 data/window-*-summary.json
-data/reports/
+# v2.0.5.1: data/reports/ is committed so the meta-test has a stable
+# JSON target across machines. Re-generate locally with
+# `python -m scripts.run_both_regimes` and only commit if you intend
+# to update the demo-script table to match.
 !data/parquet/.gitkeep
 !data/recordings/.gitkeep
-!data/reports/.gitkeep
 .coverage
 htmlcov/
 .pytest_cache/

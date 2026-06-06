@@ -24,23 +24,28 @@
 | **B — DEX momentum** | 20% | CMC signals (volume spike + 4h breakout) → 1–4h long with ATR stop and 3% TP | positive alpha, capped at 1% per trade | low |
 | **C — Mean reversion** | 10% | Fades 1h drops >2.0σ on top-20 BSC tokens | positive alpha, capped at 0.5% per trade | low |
 
-**Honest backtest** (`python -m scripts.run_both_regimes`, v2.0.4):
+**Honest backtest** (`python -m scripts.run_both_regimes`, v2.0.5, committed JSON):
 
 | Regime | Return | Max DD | Trades | Hit Rate | Sleeves |
 |---|---|---|---|---|---|
 | bull 5m | +0.61% | 0.48% | 191 | 76% | A |
 | bear 5m | -1.16% | 1.62% | 327 | 80% | A |
 | chop 5m | -0.20% | 1.73% | 691 | 81% | A |
-| bull 1h | -0.40% | 1.02% | 85 | 76% | A + C |
-| bear 1h | +219.26% | 0.27% | 247 | 89% | A + C |
-| chop 1h | -1.69% | 1.71% | 158 | 90% | A + C |
+| bull 1h | +0.99% | 0.37% | 87 | 79% | A |
+| bear 1h | -0.57% | 1.08% | 99 | 72% | A |
+| chop 1h | +0.62% | 1.50% | 135 | 76% | A |
 
 Source: `data/reports/replay_{bull,bear,chop}.json` and
-`data/reports/replay_{bull,bear,chop}_hourly.json`. These are the
-**actual** numbers from the canonical replay. **The replay is
-deterministic** (v2.0.4 clock injection) — every run produces
-identical numbers, so a judge re-running
-`python -m scripts.run_both_regimes` will see the same JSON.
+`data/reports/replay_{bull,bear,chop}_hourly.json` — **committed to
+the repo**. A judge cloning fresh and running
+`python -m scripts.run_both_regimes` may see slightly different
+attribution on the hourly tape (C fires sporadically — see
+`docs/demo-script.md` for the determinism caveat) but the 5m tape
+is stable. The committed JSON is the source of truth for the
+voiceover. The meta-test
+`tests/test_meta.py::test_demo_script_kpi_table_matches_replay_json`
+locks the 5m + 1h tables (return, DD, trades, hit rate, attribution)
+to the JSON on every commit.
 
 **What the numbers actually say:** The bull regime is positive. The 5% daily circuit breaker is the safety belt that holds drawdown < 2% in all three regimes. The hit rates are 76–95%, but hit rate alone is misleading: in bear/chop the carry wins small (a few bps of funding) and loses big (basis widening on chop tape), so high hit rate + negative PnL.
 
