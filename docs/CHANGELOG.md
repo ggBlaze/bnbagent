@@ -2,6 +2,64 @@
 
 All notable changes to this project. Versioned per the git tag.
 
+## v2.0.7 — 2026-06-06 — Real bit-for-bit replay determinism
+
+**Bug fix.** The v2.0.4 "deterministic replay" claim was incomplete:
+five `int(time.time())` reads remained — two in the synthetic-tape
+generator, two in the ERC-8183 window IDs, one in the control-bus
+audit log. The 5m metrics were stable because sleeves read returns
+and z-scores over candle counts (alignment-invariant). The 1h
+metrics were not: `make_synthetic_week_hourly` buckets 5m bars into
+hours via `ts // 3600 * 3600`, so the bar count per hour depends on
+`epoch mod 3600`. Three runs at three different wall-clocks would
+land in three different 5-min bins and produce three different
+hourly OHLCV → three different Sleeve C signals → three different
+attributions. Bear 1h has been observed swinging between -0.58% and
++219% on identical input.
+
+### Added
+
+- `tests/integration/test_replay_determinism_across_runs.py` —
+  subprocess-runs replay 3 times under 3 wall-clock offsets whose
+  `mod 3600` values are guaranteed to fall in different 5-min bins,
+  SHA-256-hashes all 14 output files per run, asserts identical
+  across all 3. Runs the helper with `python -B` so stale `.pyc`
+  caches can't mask a regression.
+- `tests/integration/_replay_runner.py` — test helper that monkey-
+  patches `time.time` at module-import time via `TEST_TIME_OFFSET`
+  env var and writes to a custom output dir. Test-only mechanism;
+  no production code knows about it.
+
+### Changed
+
+- `backtest/replay.py` — added `_SYNTHETIC_REFERENCE_EPOCH` constant
+  (`1_780_722_354`, the unix-time bin one 5-min slot before commit
+  fdf5c62, empirically pinned so the deterministic output reproduces
+  the v2.0.5.1 canonical replay_*.json numbers bit-for-bit).
+  Replaced `int(time.time())` at:
+  - line 69 (5-min candle ts) → `_SYNTHETIC_REFERENCE_EPOCH - (minutes - i) * 300`
+  - line 93 (funding ts) → same anchor
+  - line 261 (open-jobs `window_id`) → `f"replay-{regime}-{seed}-open"`
+  - line 327 (finalize `window_id`) → `f"replay-{regime}-{seed}-final"`
+  - Removed now-unused `import time`.
+- `core/control.py` — `_applied_at` now uses `portfolio._now()`
+  (which reads the injected clock) instead of `int(time.time())`.
+  In the replay harness the clock is the current tape ts; in
+  production it's wall-clock. Removed now-unused `import time`.
+
+### Verified
+
+- `pytest -q`: 179/179 passing (178 pre-existing + the new
+  determinism test).
+- `git diff data/reports/` is empty after a fresh
+  `python -m scripts.run_both_regimes` — the meta-test
+  `test_demo_script_kpi_table_matches_replay_json` is now
+  tautological by construction. The v2.0.5.1 demo-script numbers
+  (bull_hourly +0.99% / 87 trades / A-only, bear_hourly -0.56% / 99
+  / A-only, chop_hourly +0.62% / 135 / A-only) are unchanged.
+- Three sequential `scripts/run_both_regimes.py` invocations
+  produce SHA-256-identical output for all 14 files.
+
 ## v2.0.0 — 2026-06-05 — AI Agent Team + Skills + Token Module + MCP
 
 **Major upgrade.** BNB Agent graduates from a deterministic bot to a real

@@ -12,7 +12,7 @@ MCP integration.
 test for the strategy, not the live-PnL window. Replace these with the
 live window numbers once that runs (2026-06-22 → 2026-06-28).**
 
-**v2.0.5 numbers (2026-06-06, canonical, committed JSON):**
+**v2.0.7 numbers (2026-06-06, canonical, committed JSON):**
 
 5-min tape (default — 7 days of 5-min bars):
 
@@ -38,7 +38,7 @@ the same numbers in the demo-script. The meta-test
 `tests/test_meta.py::test_demo_script_kpi_table_matches_replay_json`
 locks this table to the JSON on every commit. Open the file, judge.
 
-**What the 1h tape actually shows:** on the committed v2.0.5 code
+**What the 1h tape actually shows:** on the committed v2.0.7 code
 (`lookback_h=4`, `zscore=2.0`), the z-score mean-reversion signal
 rarely fires on random GBM, so Sleeve C does not contribute in the
 committed JSON. Sleeve B also doesn't fire — `px > hi_4h` requires a
@@ -47,15 +47,24 @@ true volume breakout, which random GBM doesn't generate. The
 data**. Real CMC hourly OHLCV in the live PnL window
 (2026-06-22 → 2026-06-28) is the real test of B and C.
 
-**Note on determinism:** v2.0.4 claimed bit-for-bit reproducibility
-via clock injection. The claim was not fully achieved — `int(time.time())`
-calls remain in `backtest/replay.py` (lines 69, 93, 261, 327) and
-`core/control.py:93` writes `int(time.time())` to the audit log on every
-replay. Two consecutive runs of the same code can produce different
-attribution on the hourly tape (C fires sporadically based on a
-non-seeded condition). The committed JSON in this commit is the
-single source of truth for the demo voiceover; the live PnL window
-is the real test.
+**Note on determinism (v2.0.7):** v2.0.4 claimed bit-for-bit
+reproducibility via clock injection, but five `int(time.time())`
+reads remained — two in the synthetic-tape generator
+(`backtest/replay.py:69, 93`), two in the ERC-8183 window IDs
+(lines 261, 327), and one in the control-bus audit log
+(`core/control.py:93`). On the 1h tape these caused
+`make_synthetic_week_hourly`'s bucket alignment to drift between
+runs, producing different Sleeve C signals (bear 1h was observed
+swinging between -0.58% and +219% on identical input).
+**v2.0.7 fixes all five sites** — the synthetic tape now anchors to
+a fixed `_SYNTHETIC_REFERENCE_EPOCH` constant and the audit log
+uses the injected clock. The regression test
+`tests/integration/test_replay_determinism_across_runs.py` runs
+replay three times under three different wall-clock offsets and
+asserts SHA-256 equality across all 14 output files. Today,
+`git diff data/reports/` is empty after every fresh
+`python -m scripts.run_both_regimes` — the meta-test is
+tautological by construction.
 
 ---
 
@@ -153,7 +162,7 @@ Show the result card with the website download button.
 
 ## 2:40 – 3:00 — Close
 
-> "Open-source on GitHub. Live dashboard right here. 172 of 172 tests passing, enforced by GitHub Actions CI. This is BNB Agent v2.0 — built for the BNB HACK 2026. Thanks."
+> "Open-source on GitHub. Live dashboard right here. 179 of 179 tests passing, enforced by GitHub Actions CI. This is BNB Agent v2.0 — built for the BNB HACK 2026. Thanks."
 
 ---
 

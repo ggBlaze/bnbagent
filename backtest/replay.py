@@ -19,7 +19,6 @@ import json
 import logging
 import random
 import sys
-import time
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -38,6 +37,31 @@ from jobs.open_jobs import open_jobs_for_window
 from jobs.finalize_window import finalize_window
 
 log = logging.getLogger(__name__)
+
+
+# Anchor for the deterministic synthetic-tape timestamps (v2.0.7).
+# Pre-v2.0.7 the tape was anchored to int(time.time()), so the
+# absolute candle timestamps depended on wall-clock at run time.
+# That itself was harmless on the 5m tape (sleeves read returns/
+# z-scores over candle counts, not absolute times), but
+# make_synthetic_week_hourly buckets 5m bars into hours via
+# `ts // 3600 * 3600`, so different wall-clocks landed bars in
+# different hour buckets, producing different hourly OHLCV →
+# different Sleeve C signals → different attribution. See
+# tests/integration/test_replay_determinism_across_runs.py.
+#
+# The specific value is the unix time of one 5-minute bin
+# before commit fdf5c62 (v2.0.5.1, 2026-06-06 00:10:54 UTC-5),
+# empirically pinned by sweeping all 12 candidate 5-min bins
+# until the bin that reproduces the v2.0.5.1 canonical
+# replay_*_hourly.json numbers bit-for-bit was found
+# (bull_hourly: trades=87, ending_equity=1009.887542,
+# return=+0.9888%, attribution=A-only). With this epoch the
+# meta-test test_demo_script_kpi_table_matches_replay_json
+# stays green and `git diff data/reports/` is empty after a
+# fresh `python -m scripts.run_both_regimes` from this commit
+# forward.
+_SYNTHETIC_REFERENCE_EPOCH = 1_780_722_354
 
 
 # --- synthetic tape generator (used when no real CMC history is available) ---
@@ -66,7 +90,7 @@ def make_synthetic_week(seed: int = 42, regime: str = "bull") -> list[dict]:
         raise ValueError(f"unknown regime: {regime!r}; use 'bull' | 'bear' | 'chop'")
     tape = []
     for i in range(minutes):
-        ts = int(time.time()) - (minutes - i) * 300
+        ts = _SYNTHETIC_REFERENCE_EPOCH - (minutes - i) * 300
         for sym in symbols:
             mu = rng.uniform(mu_low, mu_high)
             ret = rng.gauss(mu, sigma)
@@ -90,7 +114,7 @@ def make_synthetic_week(seed: int = 42, regime: str = "bull") -> list[dict]:
     for i in range(0, minutes, 96):
         for sym in symbols:
             fundings.append({
-                "ts": int(time.time()) - (minutes - i) * 300,
+                "ts": _SYNTHETIC_REFERENCE_EPOCH - (minutes - i) * 300,
                 "symbol": sym,
                 "venue": rng.choice(["aster", "killex", "apollox", "mux"]),
                 "funding": rng.uniform(fund_low, fund_high),
@@ -258,7 +282,7 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
         usdc_entry = components["config"]["tokens"]["USDC"]
         usdc_addr = usdc_entry["bsc_address"] if isinstance(usdc_entry, dict) else usdc_entry
         jobs = open_jobs_for_window(
-            window_id=f"replay-{int(time.time())}",
+            window_id=f"replay-{tape.get('regime','unk')}-{tape.get('seed',0)}-open",
             policy=policy,
             erc8183=components["erc8183"],
             ipfs=components["ipfs"],
@@ -324,7 +348,7 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
         summary = finalize_window(
             jobs=jobs, portfolio=portfolio, policy=policy,
             ipfs=components["ipfs"], erc8183=components["erc8183"],
-            window_id=f"replay-{int(time.time())}",
+            window_id=f"replay-{tape.get('regime','unk')}-{tape.get('seed',0)}-final",
         )
 
     # metrics

@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-import time
 from pathlib import Path
 from typing import Any
 
@@ -89,8 +88,12 @@ def apply_control(policy: dict, portfolio) -> list[str]:
                     msgs.append(f"risk.{k}: {old} → {v}")
 
     if msgs:
-        # bump version so observers can see it
-        c["_applied_at"] = int(time.time())
+        # bump version so observers can see it. Use the portfolio's
+        # injected clock (v2.0.7) instead of int(time.time()) so the
+        # replay harness — which routes the clock through the
+        # current tape ts — produces deterministic audit lines. In
+        # production the clock falls back to wall-clock.
+        c["_applied_at"] = portfolio._now()
         c["_applied_lines"] = msgs
         write_control(c)
     return msgs
