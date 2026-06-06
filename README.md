@@ -81,7 +81,7 @@ That's it. The dashboard auto-loads; first-time users land in the **Setup wizard
 | **B — DEX momentum** | 20% | CMC signals (volume spike + 4h breakout) → 1–4h long with ATR stop and 3% TP. Quarter-Kelly sizing. | positive alpha | capped at 1%/trade |
 | **C — Mean reversion** | 10% | Fades 1h drops >2.5σ on top-20 BSC tokens. 2% stop, 1% target. | positive alpha | capped at 0.5%/trade |
 
-70% of capital is **hedged** (delta-neutral carry) — so the agent is *expected* to have low drawdown and high Sharpe, which is exactly the scoring axes Track 1 judges reward.
+70% of capital is **hedged** (delta-neutral carry), with a 5% daily circuit breaker + 1% per-trade cap + 2× leverage cap. The agent is *designed* for low drawdown — see `data/reports/replay_{bull,bear,chop}.json` for the honest backtest (max DD < 2% in all three synthetic regimes).
 
 ### Hard risk controls (the only UX prompt the user sees)
 

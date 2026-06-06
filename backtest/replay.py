@@ -190,6 +190,13 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
                 day_breach_active_until=portfolio.day_breach_active_until,
             )
             return ok, reason
+        def review_trade(_self, proposed, sleeve_state, market_snapshot):
+            # Replay shim: pass-through so the reviewer code path is
+            # exercised in the harness. The real reviewer is wired in
+            # production via core.main._init_llm_components. Without
+            # this method, every tick logs a warning and the LLM-skip
+            # path is taken, which hides reviewer bugs.
+            return True, "ok_replay_shim", "shim"
 
     shim = AgentShim(policy, portfolio)
     a.agent = shim

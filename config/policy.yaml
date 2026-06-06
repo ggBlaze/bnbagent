@@ -15,12 +15,16 @@ global_risk:
   # If realized vol is below this annualized, Sleeve A's funding carry
   # is below transaction costs. Skip the carry rather than grinding.
   min_realized_vol_annualized: 0.05    # 5%
-  # Sleeve B (momentum) needs a confirmed trend on both 4h and 1h.
-  # Without this, the synthetic tape (no clear trends) causes constant
-  # churn. The 4h trend is a 4-bar return > 0; the 1h trend is the last
-  # bar's close > its open.
+  # Minimum hold time (s) before the vol-pause can close a position.
+  # Prevents open/close churn when realized vol oscillates around the
+  # 5% threshold. Default 24h — gives a position a full funding cycle
+  # to accrue meaningful carry before vol-pause can shut it down.
+  low_vol_min_hold_s: 86400
+  # Sleeve B (momentum) needs a confirmed 4h trend; the 1h trend is
+  # optional (was required in v2.0.2, caused zero fires on the
+  # synthetic tape because only 1% of ticks had all three signals).
   require_4h_trend_for_momentum: true
-  require_1h_trend_for_momentum: true
+  require_1h_trend_for_momentum: false
 sleeve_allocations:
   A: 0.7
   B: 0.2
@@ -35,7 +39,7 @@ sleeves:
     max_position_pct: 15.0
   B:
     enabled: true
-    volume_spike_mult: 2.0
+    volume_spike_mult: 1.5    # was 2.0 — too tight, fires 1% of ticks only
     breakout_lookback_h: 4
     atr_len: 14
     atr_stop_mult: 2.0
@@ -52,7 +56,7 @@ sleeves:
     max_loss_pct: 5.0
   C:
     enabled: true
-    zscore_threshold: 2.5
+    zscore_threshold: 2.0    # was 2.5 — too tight, fires 1.1% of ticks
     stop_pct: 2.0
     target_pct: 1.0
     lookback_h: 1

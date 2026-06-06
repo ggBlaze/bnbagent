@@ -81,14 +81,26 @@ class SleeveACarry:
         # Low-vol pause (v2.0.2 — Path A): if realized vol is below the
         # threshold, the funding carry is below transaction costs. Close
         # any open carry and skip re-entering until vol returns.
+        # v2.0.3 — minimum hold time: don't churn in/out of positions
+        # when realized vol oscillates around the threshold. The
+        # position must be held for at least min_hold_s seconds before
+        # the vol-pause can close it.
         min_vol = float(self.policy.get("global_risk", {}).get("min_realized_vol_annualized", 0.05))
+        min_hold_s = int(self.policy.get("global_risk", {}).get("low_vol_min_hold_s", 24 * 3600))
         realized_vol = await self._realized_vol_annualized()
+        now_ts = int(time.time())
         if realized_vol < min_vol and self.rows:
-            log.info(f"Sleeve A: realized vol {realized_vol:.3f} < {min_vol} — closing carry")
-            for sym in list(self.rows.keys()):
-                mark = float(self.perps.mark(self.rows[sym].venue, sym))
-                self._close_pair(sym, exit_price=Decimal(str(mark)), reason="low_vol_pause")
-            return
+            # Only close positions held longer than min_hold_s
+            stale = [
+                sym for sym, row in self.rows.items()
+                if (now_ts - row.opened_at) > min_hold_s
+            ]
+            if stale:
+                log.info(f"Sleeve A: realized vol {realized_vol:.3f} < {min_vol} — "
+                         f"closing {len(stale)} positions held > {min_hold_s}s")
+                for sym in stale:
+                    mark = float(self.perps.mark(self.rows[sym].venue, sym))
+                    self._close_pair(sym, exit_price=Decimal(str(mark)), reason="low_vol_pause")
 
         # Daily rebalance
         if self._should_rebalance(sleeve_cfg["rebalance_hours"]):

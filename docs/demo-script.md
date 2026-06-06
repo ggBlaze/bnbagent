@@ -12,17 +12,34 @@ MCP integration.
 test for the strategy, not the live-PnL window. Replace these with the
 live window numbers once that runs (2026-06-22 → 2026-06-28).**
 
-**v2.0.2 numbers (2026-06-05):**
+**v2.0.3 numbers (2026-06-05, canonical):**
 
-| Regime | Return | Max DD | Trades | Hit Rate |
-|---|---|---|---|---|
-| bull | +0.56% | 0.49% | 183 | 77% |
-| bear | -1.19% | 1.62% | 286 | 78% |
-| chop | -0.45% | 1.75% | 716 | 81% |
+| Regime | Return | Max DD | Trades | Hit Rate | Sharpe |
+|---|---|---|---|---|---|
+| bull | +0.21% | 0.74% | 189 | 76% | +14 |
+| bear | -1.65% | 1.66% | 862 | 95% | -58 |
+| chop | -1.64% | 1.73% | 1,413 | 95% | -30 |
 
-Improvement from v2.0.1: bull went from -3.07% to +0.56%, hit rates across all
-3 regimes are 77–81%, and max DD is bounded < 2% in every regime. The
-strategy is no longer bleeding.
+Source: `data/reports/replay_{bull,bear,chop}.json`. These are the actual
+JSON values from the canonical `python -m scripts.run_both_regimes` run
+on 2026-06-05. Open the file, judge.
+
+**What v2.0.3 actually shipped:**
+
+- AgentShim now has `review_trade` (the harness was logging warnings
+  on every tick)
+- Sleeve B: regime filter loosened to 4h-only (was 4h+1h AND), vol spike
+  threshold 2.0×→1.5× (more candidates)
+- Sleeve C: zscore 2.5→2.0 (more candidates)
+- Sleeve A: minimum-hold-time 24h on vol-pause (no churn in/out of
+  positions when realized vol oscillates around the 5% threshold)
+
+**Structural caveat:** on the synthetic 5-min tape, all trades are
+attributed to Sleeve A (the carry). Sleeve B's `_scan_signals` asks for
+24 hourly candles; the tape is 5-min. So the "4h breakout" is actually
+a "20min breakout". This is a data/scale mismatch in the harness, not
+a strategy bug. On real BSC hourly data (CMC OHLCV), the B/C signals
+should fire. Live PnL window 2026-06-22 → 2026-06-28 will tell.
 
 ---
 
@@ -106,7 +123,7 @@ Show the result card with the website download button.
 
 **Click:** the **Replay** tab (or open `data/reports/replay_compare.html`).
 
-> "Here's the honest backtest, run on the same code with three synthetic regimes. Bull: +0.56% with 77% hit rate, max DD 0.49%. Bear: -1.19% with 78% hit rate, max DD 1.62%. Chop: -0.45% with 81% hit rate, max DD 1.75%. The 5% daily circuit breaker is the safety belt — when vol drops below 5% annualized, Sleeve A pauses the carry rather than grinding. The regime filter on Sleeve B requires both 4h and 1h trend confirmation before entry. All three regimes have bounded drawdown and 75%+ hit rates."
+> "Here's the honest backtest, run on the same code with three synthetic regimes. Bull: +0.21% return, 76% hit rate, max DD 0.74%. Bear: -1.65%, 95% hit rate, max DD 1.66%. Chop: -1.64%, 95% hit rate, max DD 1.73%. These are the actual numbers from `data/reports/replay_{bull,bear,chop}.json` — open the JSON, judge. The bull regime is positive. The 5% daily circuit breaker is the safety belt — it holds drawdown under 2% in all three regimes. The hit rate alone is misleading: in bear/chop the carry wins small (a few bps of funding) and loses big (basis widening on chop), so high hit rate + negative PnL. The strategy is early-alpha carry on synthetic tape; the engineering around it — 3-layer LLM safety envelope, EIP-191 policy, ERC-8004 identity, ERC-8183 escrow, x402 microcharges, TWAK signed txs — is the Track 1 bet."
 
 ---
 
