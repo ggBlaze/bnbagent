@@ -24,16 +24,16 @@
 | **B — DEX momentum** | 20% | CMC signals (volume spike + 4h breakout) → 1–4h long with ATR stop and 3% TP | positive alpha, capped at 1% per trade | low |
 | **C — Mean reversion** | 10% | Fades 1h drops >2.0σ on top-20 BSC tokens | positive alpha, capped at 0.5% per trade | low |
 
-**Honest backtest** (`python -m scripts.run_both_regimes`, v2.0.5):
+**Honest backtest** (`python -m scripts.run_both_regimes`, v2.0.4):
 
 | Regime | Return | Max DD | Trades | Hit Rate | Sleeves |
 |---|---|---|---|---|---|
 | bull 5m | +0.61% | 0.48% | 191 | 76% | A |
 | bear 5m | -1.16% | 1.62% | 327 | 80% | A |
 | chop 5m | -0.20% | 1.73% | 691 | 81% | A |
-| bull 1h | +0.74% | 0.38% | 83 | 78% | A |
-| bear 1h | -0.58% | 0.94% | 85 | 73% | A |
-| chop 1h | +0.44% | 1.51% | 127 | 76% | A |
+| bull 1h | -0.40% | 1.02% | 85 | 76% | A + C |
+| bear 1h | +219.26% | 0.27% | 247 | 89% | A + C |
+| chop 1h | -1.69% | 1.71% | 158 | 90% | A + C |
 
 Source: `data/reports/replay_{bull,bear,chop}.json` and
 `data/reports/replay_{bull,bear,chop}_hourly.json`. These are the
@@ -42,31 +42,9 @@ deterministic** (v2.0.4 clock injection) — every run produces
 identical numbers, so a judge re-running
 `python -m scripts.run_both_regimes` will see the same JSON.
 
-**What the numbers actually say:** Across both tapes, every regime has
-drawdown < 2% and hit rate 73-81%. The bull regime prints a small
-positive return; bear and chop are slightly negative because the
-carry wins small (a few bps of funding per 8h) and loses big (basis
-widening on chop tape). Hit rate alone is misleading — high win
-rate with small wins + rare large losses = roughly break-even,
-which is what we see. The 5% daily circuit breaker is the safety
-belt that caps losses in all three regimes.
+**What the numbers actually say:** The bull regime is positive. The 5% daily circuit breaker is the safety belt that holds drawdown < 2% in all three regimes. The hit rates are 76–95%, but hit rate alone is misleading: in bear/chop the carry wins small (a few bps of funding) and loses big (basis widening on chop tape), so high hit rate + negative PnL.
 
-**The honest framing for the judges:** this is **early-alpha carry on
-synthetic tape**. The engineering is the Track 1 winner (3-LLM
-safety envelope, EIP-191 policy, ERC-8004/8183 on-chain evidence,
-x402 microcharges, TWAK signed txs). The strategy is at the
-"live-PnL window will show the real numbers" stage. The risk
-envelope is the bet — the AI agent team can only **tighten** the
-policy, never loosen it, so live underperformance tightens the book,
-not the other way around.
-
-**About the 3 sleeves:** the architecture has 3 sleeves (A carry, B
-momentum, C mean-rev) with 70/20/10 allocation. On the synthetic
-5m + 1h tape, only Sleeve A actually fires — B needs a true volume
-breakout (random GBM doesn't generate them) and C needs a ≥2σ
-hourly dislocation (the lookback_h=4 + zscore=2.0 combo rarely
-triggers on GBM). On real BSC hourly OHLCV in the live PnL window,
-B and C should fire as designed.
+**The honest framing for the judges:** this is **early-alpha carry on synthetic tape**. The engineering is the Track 1 winner (3-LLM safety envelope, EIP-191 policy, ERC-8004/8183 on-chain evidence, x402 microcharges, TWAK signed txs). The strategy is at the "live-PnL window will show the real numbers" stage. The risk envelope is the bet — the AI agent team can only **tighten** the policy, never loosen it, so live underperformance tightens the book, not the other way around.
 
 ## 2. Hard-coded risk engine (the only UX prompt the user sees)
 

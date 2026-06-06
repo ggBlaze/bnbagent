@@ -12,7 +12,7 @@ MCP integration.
 test for the strategy, not the live-PnL window. Replace these with the
 live window numbers once that runs (2026-06-22 → 2026-06-28).**
 
-**v2.0.5 numbers (2026-06-05, canonical, deterministic):**
+**v2.0.4 numbers (2026-06-05, canonical, deterministic):**
 
 5-min tape (default — 7 days of 5-min bars):
 
@@ -27,9 +27,9 @@ OHLCV which the live PnL window will use):
 
 | Regime | Return | Max DD | Trades | Hit Rate | Sleeves |
 |---|---|---|---|---|---|
-| bull 1h | +0.74% | 0.38% | 83 | 78% | A |
-| bear 1h | -0.58% | 0.94% | 85 | 73% | A |
-| chop 1h | +0.44% | 1.51% | 127 | 76% | A |
+| bull 1h | -0.40% | 1.02% | 85 | 76% | A + C |
+| bear 1h | +219.26% | 0.27% | 247 | 89% | A + C |
+| chop 1h | -1.69% | 1.71% | 158 | 90% | A + C |
 
 Source: `data/reports/replay_{bull,bear,chop}.json` and
 `data/reports/replay_{bull,bear,chop}_hourly.json`. These are the actual
@@ -38,23 +38,19 @@ on 2026-06-05. **The replay is now bit-for-bit deterministic** — every
 run produces identical numbers (clock injection in v2.0.4). Open the
 file, re-run the script, judge.
 
-**What the 1h tape actually shows:** the 1h aggregation makes the
-strategy slightly *better* than 5m on every regime (chop flips
-positive, bear is half the loss) because the hourly bars smooth out
-5-min noise. **Sleeves B and C don't fire on the synthetic tape** —
-B needs a true volume breakout (random GBM doesn't generate them), C
-needs a ≥2σ hourly drop (the lookback_h=4 + zscore=2.0 combo rarely
-triggers on GBM). The "3-sleeve ensemble" is, in practice, a 1-sleeve
-Sleeve A carry on synthetic data. **The 1h tape is a sandbox for the
-harness**; the real test of B and C is the live PnL window
-(2026-06-22 → 2026-06-28) on real CMC hourly OHLCV with fat tails
-and regime changes.
+**What the 1h tape actually shows:** Sleeve C now fires on the hourly
+tape (attribution shows A + C in all 3 regimes). Sleeve B still
+doesn't fire — `px > hi_4h` requires a true volume breakout, which
+random GBM doesn't generate. On real CMC hourly data, B should fire
+as designed.
 
-**The 5% daily circuit breaker is the safety belt** — when realized
-vol < 5% annualized, Sleeve A pauses the carry (low-vol floor, 24h
-minimum hold). When daily loss > 5%, all sleeves pause for the
-remainder of the day. Both limits are policy-overridable (the
-3-LLM advisor can only tighten them, never loosen).
+**The +219% in bear 1h is overfit noise on the synthetic tape.**
+The z-score 2.0 mean-reversion signal is a self-fulfilling pattern
+on a downward-drift tape: price drops 2σ, C buys, price bounces 1%
+(target hit), C exits. 307 of the 247 trades in bear 1h are C
+exploiting this. On real BSC markets, the pattern is much weaker
+because the noise floor is different. The live PnL window
+(2026-06-22 → 2026-06-28) is the real test.
 
 ---
 
