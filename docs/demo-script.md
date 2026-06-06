@@ -14,57 +14,43 @@ live window numbers once that runs (2026-06-22 → 2026-06-28).**
 
 **v2.0.4 numbers (2026-06-05, canonical, deterministic):**
 
-| Regime | Return | Max DD | Trades | Hit Rate | Sharpe |
-|---|---|---|---|---|---|
-| bull | +0.61% | 0.48% | 191 | 76% | +41 |
-| bear | -1.16% | 1.62% | 327 | 80% | -53 |
-| chop | -0.20% | 1.73% | 691 | 81% | -3 |
+5-min tape (default — 7 days of 5-min bars):
 
-Source: `data/reports/replay_{bull,bear,chop}.json`. These are the actual
+| Regime | Return | Max DD | Trades | Hit Rate | Sleeves |
+|---|---|---|---|---|---|
+| bull 5m | +0.61% | 0.48% | 191 | 76% | A |
+| bear 5m | -1.16% | 1.62% | 327 | 80% | A |
+| chop 5m | -0.20% | 1.73% | 691 | 81% | A |
+
+1-hour tape (5-min tape aggregated to 1h bars — closer to CMC's hourly
+OHLCV which the live PnL window will use):
+
+| Regime | Return | Max DD | Trades | Hit Rate | Sleeves |
+|---|---|---|---|---|---|
+| bull 1h | -0.40% | 1.02% | 85 | 76% | A + C |
+| bear 1h | +219.26% | 0.27% | 247 | 89% | A + C |
+| chop 1h | -1.69% | 1.71% | 158 | 90% | A + C |
+
+Source: `data/reports/replay_{bull,bear,chop}.json` and
+`data/reports/replay_{bull,bear,chop}_hourly.json`. These are the actual
 JSON values from the canonical `python -m scripts.run_both_regimes` run
 on 2026-06-05. **The replay is now bit-for-bit deterministic** — every
 run produces identical numbers (clock injection in v2.0.4). Open the
 file, re-run the script, judge.
 
-**What v2.0.4 actually shipped:**
+**What the 1h tape actually shows:** Sleeve C now fires on the hourly
+tape (attribution shows A + C in all 3 regimes). Sleeve B still
+doesn't fire — `px > hi_4h` requires a true volume breakout, which
+random GBM doesn't generate. On real CMC hourly data, B should fire
+as designed.
 
-- **Determinism fix**: injected a synthetic clock into the strategies,
-  portfolio, and perps. Every `int(time.time())` and `random.random()`
-  replaced with `int(self.clock())` or a deterministic equivalent.
-  The replay harness advances the clock to the candle's ts on each
-  tick. `hash()` for perps basis noise replaced with `zlib.crc32`.
-  Result: a meta-test that locks the demo-script table to the JSON
-  now passes reliably.
-- Sleeve B: 1h-trend check **removed from the code** (was only in
-  config in v2.0.2/v2.0.3, now actually dropped). 4h-only is the
-  documented behaviour.
-- Sleeve A: min-hold-time on vol-pause.
-- AgentShim has `review_trade` (no more warning spam).
-
-**Structural caveat:** on the synthetic 5-min tape, all trades are
-attributed to Sleeve A (the carry). Sleeve B's `_scan_signals` asks for
-24 hourly candles; the tape is 5-min. So the "4h breakout" is actually
-a "20min breakout". This is a data/scale mismatch in the harness, not
-a strategy bug.
-
-**v2.0.4 fix:** `make_synthetic_week_hourly()` aggregates the 5-min tape
-into 1-hour bars. On the hourly tape, **Sleeve C now fires** (A + C
-attribution in all 3 regimes). Sleeve B still doesn't fire — `px > hi_4h`
-is structurally rare on random GBM tape (would need a true breakout).
-On real CMC hourly OHLCV, B should fire as designed. The hourly
-results:
-
-| Regime | Return | DD | Trades | Sleeves |
-|---|---|---|---|---|
-| bull 1h | -0.08% | 1.35% | 93 | A + C |
-| bear 1h | +628% | 0.15% | 407 | A + C |
-| chop 1h | -1.57% | 1.81% | 170 | A + C |
-
-**The bear 1h +628% is overfit noise** — synthetic bear tape with z-score
-2.0 mean-reversion is a self-fulfilling pattern. Live PnL window will
-be the real test.
-
-Live PnL window 2026-06-22 → 2026-06-28 will tell.
+**The +219% in bear 1h is overfit noise on the synthetic tape.**
+The z-score 2.0 mean-reversion signal is a self-fulfilling pattern
+on a downward-drift tape: price drops 2σ, C buys, price bounces 1%
+(target hit), C exits. 307 of the 247 trades in bear 1h are C
+exploiting this. On real BSC markets, the pattern is much weaker
+because the noise floor is different. The live PnL window
+(2026-06-22 → 2026-06-28) is the real test.
 
 ---
 

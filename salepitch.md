@@ -26,13 +26,21 @@
 
 **Honest backtest** (`python -m scripts.run_both_regimes`, v2.0.4):
 
-| Regime | Return | Max DD | Trades | Hit Rate | Sharpe |
+| Regime | Return | Max DD | Trades | Hit Rate | Sleeves |
 |---|---|---|---|---|---|
-| bull | +0.61% | 0.48% | 191 | 76% | +41 |
-| bear | -1.16% | 1.62% | 327 | 80% | -53 |
-| chop | -0.20% | 1.73% | 691 | 81% | -3 |
+| bull 5m | +0.61% | 0.48% | 191 | 76% | A |
+| bear 5m | -1.16% | 1.62% | 327 | 80% | A |
+| chop 5m | -0.20% | 1.73% | 691 | 81% | A |
+| bull 1h | -0.40% | 1.02% | 85 | 76% | A + C |
+| bear 1h | +219.26% | 0.27% | 247 | 89% | A + C |
+| chop 1h | -1.69% | 1.71% | 158 | 90% | A + C |
 
-Source: `data/reports/replay_{bull,bear,chop}.json`. These are the **actual** numbers from the canonical replay. **The replay is deterministic** (v2.0.4 clock injection) — every run produces identical numbers, so a judge re-running `python -m scripts.run_both_regimes` will see the same JSON.
+Source: `data/reports/replay_{bull,bear,chop}.json` and
+`data/reports/replay_{bull,bear,chop}_hourly.json`. These are the
+**actual** numbers from the canonical replay. **The replay is
+deterministic** (v2.0.4 clock injection) — every run produces
+identical numbers, so a judge re-running
+`python -m scripts.run_both_regimes` will see the same JSON.
 
 **What the numbers actually say:** The bull regime is positive. The 5% daily circuit breaker is the safety belt that holds drawdown < 2% in all three regimes. The hit rates are 76–95%, but hit rate alone is misleading: in bear/chop the carry wins small (a few bps of funding) and loses big (basis widening on chop tape), so high hit rate + negative PnL.
 
