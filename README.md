@@ -11,7 +11,7 @@
 [![BNB Chain](https://img.shields.io/badge/BNB%20Chain-AI%20Agent%20SDK-orange)](https://www.bnbchain.org/en/solutions/ai-agent)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-171%2F172%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-172%2F172%20passing-brightgreen)](tests/)
 [![CI](https://img.shields.io/badge/CI-enforced-blueviolet)](.github/workflows/ci.yml)
 
 ---
@@ -530,7 +530,7 @@ bnbagent/
 │   ├── metrics.py
 │   └── replay.py
 │
-├── tests/                         ← 171/172 passing (enforced by CI)
+├── tests/                         ← 172/172 passing (enforced by CI)
 │   ├── unit/                      ← ~13 files
 │   ├── integration/               ← 1 file (MCP)
 │   └── fixtures/                  ← llm.py, wallets.py, skills.py
@@ -605,7 +605,7 @@ bnbagent/
 ## 15. Testing
 
 ```bash
-pytest -q                          # 171/172 passing (~12s)
+pytest -q                          # 172/172 passing (~12s)
 pytest tests/unit/                 # fast unit tests
 pytest tests/integration/          # MCP end-to-end
 pytest tests/unit/test_risk.py -v # 1 file

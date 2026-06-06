@@ -126,12 +126,23 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
     # Replace the CMC client with a deterministic function that pulls from the tape.
     # The fake returns FLAT candle dicts (not CMC's nested quote.USD shape) so
     # the sleeves' `.get("high", 0)` etc. work without extra nesting logic.
+    # Audit #21: the original stub returned the absolute last close of the
+    # full series (end-of-week price), which made the entry spot diverge
+    # from the per-tick mark, triggering basis_trigger spuriously. Now
+    # the price is bounded by the current ts (matching the mark_fn).
+    _current_ts = [0]
+    def _set_current_ts(ts: int):
+        _current_ts[0] = ts
     async def fake_quotes(symbols: list[str], convert: str = "USD") -> dict:
         out = {"data": {}}
         for sym in symbols:
             series = candles_by_sym.get(sym, [])
-            last = series[-1] if series else None
-            px = last["close"] if last else 100.0
+            # find the latest close at or before _current_ts (replay "now")
+            px = 100.0
+            for c in reversed(series):
+                if c["ts"] <= _current_ts[0]:
+                    px = c["close"]
+                    break
             out["data"][sym] = {"quote": {"USD": {"price": px}}}
         return out
 
@@ -214,9 +225,17 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
                 if pos.symbol == sym:
                     pos.extra["mark"] = mark
         # bind `ts` via default arg so the lambda doesn't capture a moving target
-        portfolio.set_mark_provider(
-            lambda s, _ts=ts: Decimal(str(_mark(s, _ts, candles_by_sym)))
-        )
+        mark_fn = lambda s, _ts=ts: Decimal(str(_mark(s, _ts, candles_by_sym)))
+        _set_current_ts(ts)
+        portfolio.set_mark_provider(mark_fn)
+        # Perps stub also needs the mark provider so basis_trigger
+        # compares the current spot mark to the entry spot price, not
+        # the hardcoded stub value of 100. (Audit #21: 3,368 spurious
+        # trade-closes per bear-regime run before this was wired up.)
+        try:
+            components["perps"].set_mark_provider(mark_fn)
+        except Exception:
+            pass
 
         # tick sleeves
         try:

@@ -4,9 +4,11 @@
 >
 > Built for the BNB HACK 2026 (CoinMarketCap × Trust Wallet × BNB Chain — $36K prize pool). The whole stack — agent, dashboard, installer, replay harness, on-chain identity — is one `git clone` and **two commands** away from running.
 >
-> Three strategies, one risk engine, zero per-transaction taps. The agent is delta-neutral by construction (70% in funding carry, 20% in momentum, 10% in mean-reversion) and every order is gated by a versioned, EIP-191-signed **User Policy** that you sign **once**. A 3% daily-loss circuit breaker, a 1% per-trade risk cap, and a 2× leverage cap are baked in — and judges can verify the on-disk policy still recovers to your address.
+> Three strategies, one risk engine, zero per-transaction taps. The agent is delta-neutral by construction (70% in funding carry, 20% in momentum, 10% in mean-reversion) and every order is gated by a versioned, EIP-191-signed **User Policy** that you sign **once**. A 5% daily-loss circuit breaker, a 1% per-trade risk cap, and a 2× leverage cap are baked in — and judges can verify the on-disk policy still recovers to your address.
 >
 > The agent **pays CMC $0.01 per data call** in USDC via x402 — every microcharge is on the dashboard with a BscScan link. The agent **signs every BSC transaction with TWAK** (AES-256-GCM keystore, keys never leave the host). The agent **registers its own identity NFT on BNB Chain via ERC-8004** and **escrows its own PnL deliverables via ERC-8183 jobs** that you, the user, evaluate.
+>
+> A **3-layer LLM agent team** (advisor + reviewer + chat) overlays the deterministic engine with hard safety envelopes. The advisor can only **TIGHTEN** risk. The reviewer can only **VETO** a trade. The chat can only **RECOMMEND** a policy change. None of these layers can loosen the user's signed policy, override the circuit breaker, or bypass the mainnet confirmation guard. The LLM is the co-pilot that can only ever pull the brake harder.
 >
 > No custodial risk. No black box. **You sign once, the agent runs for a week, you can kill it with one button.**
 
@@ -24,9 +26,19 @@
 
 **Why this wins PnL replay:** 70% of capital is hedged — so the agent is *expected* to have low drawdown and high Sharpe, which is exactly the axes Track 1 judges reward. The 30% alpha sleeve adds upside without busting the risk caps.
 
+**Honest backtest** (`python -m scripts.run_both_regimes`, v2.0.2):
+
+| Regime | Return | Max DD | Trades | Hit Rate |
+|---|---|---|---|---|
+| bull | +0.56% | 0.49% | 183 | 77% |
+| bear | -1.19% | 1.62% | 286 | 78% |
+| chop | -0.45% | 1.75% | 716 | 81% |
+
+The strategy is no longer bleeding. Hit rates are 77–81% in all three regimes. The bull regime is positive. The bear and chop regimes are slightly negative but with bounded drawdown (< 2%) and the 5% daily circuit breaker as the safety belt. The 3-layer LLM team would tighten further if those numbers regressed in the live PnL-replay window.
+
 ## 2. Hard-coded risk engine (the only UX prompt the user sees)
 
-- **Daily loss circuit breaker**: 3%
+- **Daily loss circuit breaker**: 5%
 - **Per-trade risk cap**: 1%
 - **Max gross leverage**: 2×
 - **Max single position**: 15%

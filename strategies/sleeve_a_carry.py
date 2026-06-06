@@ -78,6 +78,18 @@ class SleeveACarry:
         if not sleeve_cfg.get("enabled", True):
             return
 
+        # Low-vol pause (v2.0.2 — Path A): if realized vol is below the
+        # threshold, the funding carry is below transaction costs. Close
+        # any open carry and skip re-entering until vol returns.
+        min_vol = float(self.policy.get("global_risk", {}).get("min_realized_vol_annualized", 0.05))
+        realized_vol = await self._realized_vol_annualized()
+        if realized_vol < min_vol and self.rows:
+            log.info(f"Sleeve A: realized vol {realized_vol:.3f} < {min_vol} — closing carry")
+            for sym in list(self.rows.keys()):
+                mark = float(self.perps.mark(self.rows[sym].venue, sym))
+                self._close_pair(sym, exit_price=Decimal(str(mark)), reason="low_vol_pause")
+            return
+
         # Daily rebalance
         if self._should_rebalance(sleeve_cfg["rebalance_hours"]):
             await self._rebalance(equity)
@@ -87,6 +99,33 @@ class SleeveACarry:
 
         # Periodic: collect funding (every 8h)
         await self._collect_funding(equity)
+
+    async def _realized_vol_annualized(self) -> float:
+        """Compute the basket's average 24h realized vol (annualized) using
+        the most recent 1h candles. Returns 0.0 if data is missing."""
+        try:
+            basket = self.cfg["cmc"]["basket_symbols"][:20]
+            ohlc = await self.cmc.ohlcv_historical(
+                basket, time_period="hour", count=24, convert="USD",
+            )
+            import numpy as np
+            vols = []
+            for sym, payload in (ohlc.get("data") or {}).items():
+                quotes = payload.get("quotes", [])
+                if len(quotes) < 5:
+                    continue
+                rets = [
+                    (quotes[i]["close"] - quotes[i-1]["close"]) / quotes[i-1]["close"]
+                    for i in range(1, len(quotes))
+                ]
+                if not rets:
+                    continue
+                # Annualize: 1h returns, 24*365 bars/year
+                vols.append(float(np.std(rets)) * (24 * 365) ** 0.5)
+            return sum(vols) / len(vols) if vols else 0.0
+        except Exception as e:
+            log.debug(f"Sleeve A: realized vol fetch failed: {e}")
+            return 0.0
 
     # --- core logic ---
 

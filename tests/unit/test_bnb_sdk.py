@@ -84,6 +84,27 @@ class TestPerps:
                     f"only after reading the venue's actual settlement history."
                 )
 
+    def test_mark_uses_provider_when_set(self):
+        """Audit #21: the old stub returned a constant 100, which caused
+        sleeve_a._monitor's basis_trigger to fire on every tick (basis =
+        (100 - entry) / entry, often > 0.5%), producing thousands of
+        spurious trade-closes per replay run. Now the perps mark uses a
+        provider (the live spot tape) plus a small deterministic basis
+        noise (±0.05%, 5 bps) that matches the real perp-spot spread."""
+        p = Perps(mode="testnet")
+        p.set_mark_provider(lambda s: 250.0)  # spot tape says 250 for any symbol
+        # Each (venue, market) has a deterministic basis noise in [-0.05%, +0.05%]
+        for venue in ("aster", "killex", "apollox", "mux"):
+            for market in ("BTC", "ETH", "SOL"):
+                mark = p.mark(venue, market)
+                # Within ±0.05% of 250
+                assert 249.875 <= mark <= 250.125, (
+                    f"mark {mark} for {venue}/{market} outside ±5bps of 250"
+                )
+        # Without a provider set, falls back to the cached value (100).
+        p2 = Perps(mode="testnet")
+        assert p2.mark("aster", "BTC") == 100.0
+
     def test_open_close_short(self):
         p = Perps(mode="testnet")
         tx_open = p.open_short("aster", "BTC", size_usd=100, leverage=1, collateral_usdc=100)

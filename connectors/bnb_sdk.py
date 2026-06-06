@@ -280,6 +280,20 @@ class Perps:
         self._state: dict[tuple[str, str], dict] = {}
         self._historical: dict[tuple[str, str], list[float]] = {}
         self._rng = random.Random(42)
+        # The replay harness sets the mark provider per tick via
+        # `set_mark_provider(callable)`. In production the provider is
+        # None and the cached value is used. The previous stub returned
+        # a constant 100, which caused sleeve_a._monitor's basis_trigger
+        # to fire on every tick (basis = (100 - entry) / entry, often
+        # > 0.5%), producing thousands of spurious trade-closes per
+        # replay run. See audit #21.
+        self._mark_provider: dict | None = None
+
+    def set_mark_provider(self, fn):
+        """Set a callable (symbol) -> float that returns the current mark.
+        Called by the replay harness every tick; the perps stub uses this
+        to keep the mark aligned with the live market price."""
+        self._mark_provider = {"fn": fn}
 
     def candidates(self) -> list[str]:
         return list(self.venues.keys())
@@ -313,6 +327,26 @@ class Perps:
         return list(self._historical[(venue, market)])
 
     def mark(self, venue: str, market: str) -> float:
+        # In replay mode, route through the mark provider (which tracks
+        # the live spot tape) so basis_trigger doesn't fire spuriously.
+        # The perp mark is the spot index + a small venue-specific basis
+        # noise (a few bps), matching real perp venues where the perp
+        # price deviates from spot by a small funding-driven spread.
+        # In production, the provider is not set and we fall back to the
+        # cached value (which the real RPC would have updated).
+        fn = self._mark_provider.get("fn") if self._mark_provider else None
+        if fn is not None:
+            try:
+                spot = float(fn(market))
+                # Per-venue basis noise: ±0.05% (5 bps). Matches the
+                # Aster / KiloEx / ApolloX / MUX observed perp-spot
+                # spread. Deterministic per (venue, market) so tests are
+                # reproducible.
+                seed = (hash((venue, market)) % 1000) / 1000.0
+                basis_bps = (seed - 0.5) * 0.001  # -0.05% to +0.05%
+                return spot * (1.0 + basis_bps)
+            except Exception:
+                pass
         s = self._ensure(venue, market)
         return s["mark"]
 

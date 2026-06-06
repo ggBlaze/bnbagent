@@ -63,7 +63,15 @@ def calmar(equity: list[float]) -> float:
         return 0.0
     total = equity[-1] / equity[0] - 1
     days = max(1, len(equity) / (24 * 60))
-    annualized = (1 + total) ** (365 / days) - 1
+    # (1 + total) ** (365 / days) can overflow for tiny `days` (e.g. 7d replay
+    # with huge `total`). Use log to bound it.
+    try:
+        import math
+        if 1 + total <= 0:
+            return 0.0
+        annualized = math.exp(math.log(1 + total) * (365 / days)) - 1
+    except (OverflowError, ValueError):
+        return 0.0
     mdd = max_drawdown_pct(equity)
     return annualized / (mdd / 100) if mdd > 0 else 0.0
 

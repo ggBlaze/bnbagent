@@ -24,4 +24,4 @@ class TestCMCClient:
 def await_sync(coro):
     """Run a coroutine synchronously for tests."""
     import asyncio
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.new_event_loop().run_until_complete(coro)

@@ -94,7 +94,15 @@ class SleeveBMomentum:
             hi_4h = max(c.get("high", 0) for c in prev_4h)
             atr14 = self._atr(candles, sleeve_cfg["atr_len"])
             px = last.get("close", 0)
-            if vol_5m > sleeve_cfg["volume_spike_mult"] * vol_ma and px > hi_4h and atr14 > 0:
+            # Regime filter (v2.0.2 — Path A): require 4h AND 1h trend
+            # confirmation. Without this, the strategy enters in chop and
+            # gets chopped up by 1-3% stop/tp noise. Default: both on.
+            require_4h = self.policy.get("global_risk", {}).get("require_4h_trend_for_momentum", True)
+            require_1h = self.policy.get("global_risk", {}).get("require_1h_trend_for_momentum", True)
+            trend_4h_ok = (not require_4h) or px > hi_4h
+            trend_1h_ok = (not require_1h) or (last.get("close", 0) > last.get("open", 0))
+            if (vol_5m > sleeve_cfg["volume_spike_mult"] * vol_ma
+                    and trend_4h_ok and trend_1h_ok and atr14 > 0):
                 signals.append((sym, atr14, px))
         return signals[:5]    # top 5 only per tick
 
