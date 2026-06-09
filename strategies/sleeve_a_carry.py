@@ -120,7 +120,18 @@ class SleeveACarry:
 
     async def _realized_vol_annualized(self) -> float:
         """Compute the basket's average 24h realized vol (annualized) using
-        the most recent 1h candles. Returns 0.0 if data is missing."""
+        the most recent 1h candles. Returns 0.0 if data is missing.
+
+        v2.0.8-M4: the v2.0.7 fallback was 0.0, which is BELOW the
+        low-vol-pause threshold (default 0.05). A single CMC blip
+        (rate limit, network blip) would force-close a healthy carry
+        book. The new fallback is min_vol + a small buffer, so an
+        outage looks like 'vol is fine' to the strategy and the
+        existing positions are preserved.
+
+        Operators can override via policy.global_risk.
+        min_realized_vol_annualized + a default 0.01 buffer.
+        """
         try:
             basket = self.cfg["cmc"]["basket_symbols"][:20]
             ohlc = await self.cmc.ohlcv_historical(
@@ -140,10 +151,23 @@ class SleeveACarry:
                     continue
                 # Annualize: 1h returns, 24*365 bars/year
                 vols.append(float(np.std(rets)) * (24 * 365) ** 0.5)
-            return sum(vols) / len(vols) if vols else 0.0
+            return sum(vols) / len(vols) if vols else self._vol_fallback()
         except Exception as e:
             log.debug(f"Sleeve A: realized vol fetch failed: {e}")
-            return 0.0
+            return self._vol_fallback()
+
+    def _vol_fallback(self) -> float:
+        """v2.0.8-M4: when the vol fetch fails or returns no data,
+        return a value ABOVE the low-vol-pause threshold so the
+        existing carry positions are NOT force-closed. Default buffer
+        of 0.01 (1%) above the configured min_vol. Operators can
+        override the buffer via policy.global_risk.vol_fallback_buffer.
+        """
+        min_vol = float(self.policy.get("global_risk", {}).get(
+            "min_realized_vol_annualized", 0.05))
+        buffer = float(self.policy.get("global_risk", {}).get(
+            "vol_fallback_buffer", 0.01))
+        return min_vol + buffer
 
     # --- core logic ---
 
