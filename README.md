@@ -583,6 +583,7 @@ bnbagent/
 | [`docs/onchain.md`](docs/onchain.md) | ERC-8004 identity + ERC-8183 job lifecycle |
 | [`docs/x402.md`](docs/x402.md) | x402 pay-per-request protocol, EIP-3009, daily spend cap |
 | [`docs/policy.md`](docs/policy.md) | The signed User Policy, how signing works, how verification works |
+| [`docs/POLICY_CHANGELOG.md`](docs/POLICY_CHANGELOG.md) | Per-version policy change log — every relaxation of a safety threshold with the rationale, the backtest tape, and the worst-case DD observed. v2.0.8-M1. |
 | [`docs/install.md`](docs/install.md) | One-command install + every env var |
 | [`docs/operations.md`](docs/operations.md) | Dashboard pane reference + kill switch + control log |
 | [`docs/setup-wizard.md`](docs/setup-wizard.md) | The 4-step Setup wizard (Network → Wallet → Sign Policy → Ready) |
