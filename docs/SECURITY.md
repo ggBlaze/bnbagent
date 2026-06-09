@@ -1,5 +1,35 @@
 # BNB Agent — Security Model
 
+## v2.0.8 security review (June 2026)
+
+A focused security review was performed in v2.0.8 covering the wallet
+keystore, the BSC RPC layer, the gas-pricing path, the CMC data
+dependency, the MCP server surface, and the vol-pause logic. The
+**full review (private)** lives outside this repo at
+`~/.openclaw/workspace-hax/Projects/audits/bnbagent-security-review-2026-06-08.md`
+(only the operator can read it; not committed to the public repo).
+
+Summary of the v2.0.8 fixes shipped:
+
+| ID | Severity | Summary | Status |
+|----|----------|---------|--------|
+| H-1 | HIGH    | Gate `BNBAGENT_PRIVATE_KEY` env var behind explicit opt-in | ✅ Fixed (v2.0.8-H1) |
+| H-2 | HIGH    | Add `pycryptodome>=3.18` to deps + hoist AES imports | ✅ Fixed (v2.0.8-H2) |
+| H-3 | HIGH    | `resync_nonce` to reconcile local cache from chain | ✅ Fixed (v2.0.8-H3) |
+| H-4 | HIGH    | `max_gas_price_gwei` from policy + refuse stuck-tx window | ✅ Fixed (v2.0.8-H4) |
+| M-3 | MEDIUM  | MCP SSE binds 127.0.0.1 + optional Bearer auth | ✅ Fixed (v2.0.8-M3) |
+| M-4 | MEDIUM  | Vol filter fallback above pause threshold | ✅ Fixed (v2.0.8-M4) |
+| M-1, M-2, M-5, M-6, M-7 | MEDIUM | Documented as post-hackathon hardening in the private review |
+| L-1 to L-6 | LOW | Minor; deferred |
+| I-1 to I-6 | INFO | Positive observations (risk engine order, code-enforced safety envelopes, etc.) |
+
+All 4 HIGH findings were production-only footguns — none were
+exploitable in testnet mode. The 2 MEDIUM findings shipped in v2.0.8
+are the ones with hackathon-demo-visible behavior (M-3 = the MCP
+server's bind default, M-4 = a CMC blip not force-closing the carry
+book). The remaining MEDIUMs are documented in the private review as
+post-hackathon hardening work.
+
 ## Threat model
 
 | Asset | Adversary | Mitigation |

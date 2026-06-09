@@ -11,7 +11,7 @@
 [![BNB Chain](https://img.shields.io/badge/BNB%20Chain-AI%20Agent%20SDK-orange)](https://www.bnbchain.org/en/solutions/ai-agent)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-179%2F179%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-212%2F212%20passing-brightgreen)](tests/)
 [![CI](https://img.shields.io/badge/CI-enforced-blueviolet)](.github/workflows/ci.yml)
 
 ---
@@ -530,7 +530,7 @@ bnbagent/
 │   ├── metrics.py
 │   └── replay.py
 │
-├── tests/                         ← 179/179 passing (enforced by CI)
+├── tests/                         ← 212/212 passing (enforced by CI)
 │   ├── unit/                      ← ~13 files
 │   ├── integration/               ← 1 file (MCP)
 │   └── fixtures/                  ← llm.py, wallets.py, skills.py
@@ -605,7 +605,7 @@ bnbagent/
 ## 15. Testing
 
 ```bash
-pytest -q                          # 179/179 passing (~12s)
+pytest -q                          # 212/212 passing (~3m cold, ~12s unit-only)
 pytest tests/unit/                 # fast unit tests
 pytest tests/integration/          # MCP end-to-end
 pytest tests/unit/test_risk.py -v # 1 file
@@ -648,6 +648,29 @@ pytest tests/unit/test_risk.py -v # 1 file
 | **Replay safety** | The replay harness runs the strategies against a synthetic tape; no real txs are signed. The `replay` mode in `BSCClient.broadcast` returns deterministic stubs. |
 
 Full details: [`docs/SECURITY.md`](docs/SECURITY.md).
+
+### Security review (v2.0.8)
+
+A focused security review was performed in v2.0.8 covering the wallet
+keystore, BSC RPC layer, gas pricing, CMC data dependency, MCP server
+surface, and vol-pause logic. The review identified **0 Critical,
+4 High, 7 Medium, 6 Low, 4 Info** findings. All 4 Highs + 2 of the
+Mediums were fixed in v2.0.8 (H1–H4, M3, M4). The full review is
+**private** to the operator and is **not** committed to this public
+repo. A summary of what was fixed (and what is deferred to
+post-hackathon hardening) is in [`docs/SECURITY.md`](docs/SECURITY.md)
+under "v2.0.8 security review".
+
+The hardening commits are:
+
+| Commit  | ID    | What it fixes |
+|---------|-------|---------------|
+| `1ea07b8` | H-4 | Gas-price cap from policy; refuse stuck-tx window |
+| `4973b9d` | H-3 | `resync_nonce` to reconcile local cache from chain |
+| `04719cb` | H-2 | Add `pycryptodome>=3.18` to deps + hoist AES imports |
+| `a4924ec` | H-1 | Gate `BNBAGENT_PRIVATE_KEY` env var behind explicit opt-in |
+| `2366d68` | M-4 | Vol filter fallback above pause threshold |
+| `bd9cb93` | M-3 | MCP SSE default bind 127.0.0.1 + optional Bearer auth |
 
 ---
 
