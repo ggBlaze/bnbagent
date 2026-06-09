@@ -13,6 +13,39 @@ from agents.base import (
 )
 
 
+# --- v2.0.8-M7: chat persona skill-toggle discipline ----------------------
+
+def test_chat_persona_has_skill_toggle_discipline():
+    """The chat persona must contain the v2.0.8-M7 skill-toggle discipline
+    section. This locks the constraint so a future edit can't silently
+    remove it.
+    """
+    path = PRO_DEFAULTS_DIR / "chat.md"
+    if not path.exists():
+        pytest.skip("chat.md not in _pro_defaults")
+    text = path.read_text()
+    assert "Skill-toggle discipline" in text, \
+        "chat.md is missing the 'Skill-toggle discipline' section (v2.0.8-M7)"
+    assert "cmc_global_filter" in text, \
+        "chat.md must name cmc_global_filter as the control-file-writing exception"
+    # The constraint is specific: it requires a confirmation BEFORE
+    # enable_skill is called for cmc_global_filter
+    assert "REPEAT BACK" in text or "confirm" in text.lower(), \
+        "chat.md must require an explicit confirmation before enabling cmc_global_filter"
+
+def test_chat_persona_names_control_file_side_effect():
+    """The chat persona must explicitly call out that cmc_global_filter
+    writes to the control file. This is the only Skill that does."""
+    path = PRO_DEFAULTS_DIR / "chat.md"
+    if not path.exists():
+        pytest.skip("chat.md not in _pro_defaults")
+    text = path.read_text()
+    assert "control file" in text.lower(), \
+        "chat.md must mention that cmc_global_filter writes to the control file"
+    assert "risk cap" in text.lower() or "global_risk" in text, \
+        "chat.md must name what cmc_global_filter can override"
+
+
 @pytest.fixture
 def tmp_personas(tmp_path, monkeypatch):
     """Redirect persona directories to tmp_path for isolation."""
