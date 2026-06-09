@@ -102,8 +102,25 @@ def _identity() -> dict:
 
 
 def _bscscan_url(tx_hash: str) -> str:
-    chain_id = _cfg().get("chain_id", 97)
-    base = "https://bscscan.com" if chain_id == 56 else "https://testnet.bscscan.com"
+    """v2.0.8-L3: branch on `mode`, not on `chain_id`.
+
+    The old check was `chain_id == 56` to decide mainnet vs testnet.
+    That works for BSC (97 vs 56) but breaks for any other chain
+    the operator might point the agent at (e.g. ETH mainnet has
+    chain_id 1, not 56; the old check would route to the BSC
+    testnet URL). The right key is `mode`: testnet, mainnet, replay.
+    Replay URLs are intentionally absent (there's nothing to link
+    to — replay is offline).
+    """
+    mode = _cfg().get("mode", "testnet")
+    if mode == "mainnet":
+        base = "https://bscscan.com"
+    elif mode == "replay":
+        base = ""  # no explorer; the link is a no-op in replay
+    else:  # testnet (default)
+        base = "https://testnet.bscscan.com"
+    if not base:
+        return ""   # replay: caller should treat as 'no link'
     return f"{base}/tx/{tx_hash}"
 
 
