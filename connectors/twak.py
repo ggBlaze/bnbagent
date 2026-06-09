@@ -29,6 +29,12 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from web3 import Web3
 
+# pycryptodome is a hard runtime requirement: keystore decrypt (and the
+# trust-wallet CLI fallback) both use AES-256-GCM. Hoist the import so
+# a missing dep fails at module load (loud, traceable) rather than at
+# first-decrypt time. The dep is now declared in pyproject.toml.
+from Crypto.Cipher import AES  # noqa: E402  (hoisted for early failure)
+
 log = logging.getLogger(__name__)
 
 Account.enable_unaudited_hdwallet_features()
@@ -158,15 +164,9 @@ def _decrypt_keystore(blob: dict, password: str) -> bytes:
     ct = bytes.fromhex(enc["ciphertext"][2:] if enc["ciphertext"].startswith("0x") else enc["ciphertext"])
     iters = enc.get("iterations", 200_000)
     key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iters, dklen=32)
-    try:
-        from Crypto.Cipher import AES
-        cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
-        pt = cipher.decrypt_and_verify(ct[:-16], ct[-16:])
-        return pt
-    except ImportError:
-        # fallback: derive key only — full decrypt needs pycryptodome
-        log.warning("pycryptodome not installed; keystore decryption requires 'pip install pycryptodome'")
-        raise
+    cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+    pt = cipher.decrypt_and_verify(ct[:-16], ct[-16:])
+    return pt
 
 
 # --- public helpers used elsewhere ---

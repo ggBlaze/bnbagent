@@ -13,6 +13,7 @@ requires-python = ">=3.10"
 dependencies = [
     "web3>=7.0",
     "eth-account>=0.13",
+    "pycryptodome>=3.18",
     "pydantic>=2.0",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",

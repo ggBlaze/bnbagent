@@ -28,10 +28,16 @@ from typing import Any
 from eth_account import Account
 from web3 import Web3
 
+# pycryptodome is a hard runtime requirement: every keystore decrypt path
+# uses AES-256-GCM. We hoist the import so a missing dep fails at module
+# load (loud, traceable) rather than at first-decrypt time (confusing,
+# recoverable only by reading the log). The dep is now also declared in
+# pyproject.toml so `pip install bnbagent` is sufficient.
+from Crypto.Cipher import AES  # noqa: E402  (hoisted for early failure)
+
 # --- AES-GCM ---------------------------------------------------------------
 def _aes_gcm_encrypt(key: bytes, plaintext: bytes) -> tuple[bytes, bytes]:
     """Returns (ciphertext_with_tag, iv)."""
-    from Crypto.Cipher import AES
     iv = secrets.token_bytes(12)
     cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
     ct, tag = cipher.encrypt_and_digest(plaintext)
@@ -39,7 +45,6 @@ def _aes_gcm_encrypt(key: bytes, plaintext: bytes) -> tuple[bytes, bytes]:
 
 
 def _aes_gcm_decrypt(key: bytes, ct_with_tag: bytes, iv: bytes) -> bytes:
-    from Crypto.Cipher import AES
     cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
     ct, tag = ct_with_tag[:-16], ct_with_tag[-16:]
     return cipher.decrypt_and_verify(ct, tag)
