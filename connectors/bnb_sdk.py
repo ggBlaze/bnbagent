@@ -157,6 +157,29 @@ class BSCClient:
         self._nonce_cache[address] = n
         return n
 
+    def resync_nonce(self, address: str) -> int:
+        """v2.0.8-H3: reconcile the local nonce cache from chain state.
+
+        On mainnet, the in-memory cache can drift from the chain's
+        'pending' nonce after a crash, restart, or partial broadcast.
+        Calling this method queries eth_getTransactionCount(address, 'pending')
+        and reseeds the cache, so the next next_nonce() returns a value
+        that won't be rejected as 'nonce too low' or 'nonce too high'.
+
+        In testnet/replay mode, the broadcast path is stubbed and the
+        chain isn't queried — the cache is returned as-is.
+
+        Returns the reconciled nonce (the next one to use).
+        """
+        if self.mode in ("testnet", "replay"):
+            return self._nonce_cache.get(address, -1) + 1
+        w3 = self.w3()
+        pending = w3.eth.get_transaction_count(Web3.to_checksum_address(address), "pending")
+        # the next nonce to use is the chain's pending nonce
+        self._nonce_cache[address] = pending - 1  # -1 because next_nonce adds 1
+        log.info("resync_nonce %s → %d (chain pending)", address, pending)
+        return pending
+
     def broadcast(self, signed: SignedTx) -> TxReceipt:
         if self.mode in ("testnet", "replay"):
             # stub: deterministic hash, no network call. For contract-create
