@@ -27,6 +27,41 @@ from typing import Any
 log = logging.getLogger("mcp.server")
 
 
+# v2.0.8-M3: module-level so it can be imported and unit-tested.
+# Same behavior as before; just hoisted out of main() for testability.
+try:
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.responses import JSONResponse
+
+    class _TokenAuthMiddleware(BaseHTTPMiddleware):
+        """Optional Bearer-token auth for the MCP SSE transport.
+
+        If BNBAGENT_MCP_TOKEN is set, every SSE / messages request must
+        carry a matching Authorization: Bearer <token> header. If unset,
+        the server logs a WARNING and accepts unauthenticated requests
+        (safe for localhost binding). The token is never logged, never
+        written to disk, never exposed in /api/* responses.
+        """
+
+        def __init__(self, app, token: str | None = None):
+            super().__init__(app)
+            self._token = token
+
+        async def dispatch(self, request, call_next):
+            if self._token is None:
+                return await call_next(request)
+            auth = request.headers.get("authorization", "")
+            if not auth.startswith("Bearer ") or auth[7:] != self._token:
+                return JSONResponse(
+                    {"error": "missing or invalid Bearer token"},
+                    status_code=401,
+                )
+            return await call_next(request)
+except ImportError:
+    # starlette not installed (e.g. minimal env without MCP extra)
+    _TokenAuthMiddleware = None  # type: ignore
+
+
 def _build_server():
     """Build the MCP Server. Imports core lazily to avoid circular imports."""
     from mcp.server import Server
@@ -209,7 +244,16 @@ def main():
     p = argparse.ArgumentParser(description="BNB Agent MCP server")
     p.add_argument("--transport", choices=["stdio", "sse"], default="stdio")
     p.add_argument("--port", type=int, default=8765)
-    p.add_argument("--host", default="0.0.0.0")
+    # v2.0.8-M3: default bind address is 127.0.0.1 (was 0.0.0.0).
+    # The MCP server has 10 tools (4 read-only, 1 recommend-only,
+    # 1 mainnet-gated deploy, 1 chat, 2 skill toggles, 1 list).
+    # Binding to 0.0.0.0 with no auth means anyone on the network
+    # can read the portfolio, enable skills (some write to the
+    # control file), and chat with the agent. Operators who need
+    # remote access can opt in with --host 0.0.0.0 AND a Bearer
+    # token via the BNBAGENT_MCP_TOKEN env var (enforced in
+    # _enforce_token). The default is now safe.
+    p.add_argument("--host", default="127.0.0.1")
     args = p.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -221,12 +265,25 @@ def main():
         try:
             from mcp.server.sse import SseServerTransport
             from starlette.applications import Starlette
+            from starlette.middleware import Middleware
+            from starlette.middleware.base import BaseHTTPMiddleware
+            from starlette.requests import Request
+            from starlette.responses import Response, JSONResponse
             from starlette.routing import Mount, Route
-            from starlette.responses import Response
             import uvicorn
         except ImportError as e:
             print(f"SSE transport not available: {e}", file=sys.stderr)
             sys.exit(1)
+
+        # v2.0.8-M3: optional Bearer token auth. If BNBAGENT_MCP_TOKEN
+        # is set, every SSE / messages request must carry a matching
+        # Authorization: Bearer <token> header. If unset, the server
+        # logs a WARNING (not an error — local-only stdio is still safe)
+        # and accepts unauthenticated requests. The token is NEVER
+        # logged, NEVER written to disk, and NEVER exposed in the
+        # /api/* responses.
+        mcp_token = os.environ.get("BNBAGENT_MCP_TOKEN")
+
         sse = SseServerTransport("/messages")
         server = _build_server()
 
@@ -235,10 +292,15 @@ def main():
                 await server.run(r, w, server.create_initialization_options())
             return Response()
 
-        app = Starlette(routes=[
-            Route("/sse", endpoint=handle_sse),
-            Mount("/messages", app=sse.handle_post_message),
-        ])
+        app = Starlette(
+            routes=[
+                Route("/sse", endpoint=handle_sse),
+                Mount("/messages", app=sse.handle_post_message),
+            ],
+            middleware=[Middleware(_TokenAuthMiddleware, token=mcp_token)],
+        )
+        log.info("MCP SSE listening on %s:%d (auth=%s)", args.host, args.port,
+                 "required" if mcp_token else "disabled (local-only)")
         uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 
