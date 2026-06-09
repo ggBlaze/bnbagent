@@ -70,11 +70,36 @@ class TWAKWallet:
 
     @classmethod
     def from_env(cls) -> "TWAKWallet":
-        """Load from TWAK_KEYSTORE + TWAK_PWD env. Falls back to BNBAGENT_PRIVATE_KEY for dev."""
+        """Load from TWAK_KEYSTORE + TWAK_PWD env. The BNBAGENT_PRIVATE_KEY
+        plaintext-key path is opt-in: only when BNBAGENT_ALLOW_PK_ENV=1 is
+        set, AND a CRITICAL log line is emitted. The dev fallback (no
+        keystore, no PK env) generates an ephemeral random key for
+        short-lived test runs."""
         keystore = os.environ.get("TWAK_KEYSTORE")
         pwd = os.environ.get("TWAK_PWD")
         pk = os.environ.get("BNBAGENT_PRIVATE_KEY")
         if pk:
+            if os.environ.get("BNBAGENT_ALLOW_PK_ENV") != "1":
+                # SECURITY: refuse to bypass the keystore silently. The
+                # keystore exists for a reason — encryption at rest with
+                # the operator's password. Loading a plaintext PK from an
+                # env var means the raw key sits in process memory and
+                # may have leaked into shell history, docker-compose, or
+                # a systemd unit file. The operator must explicitly opt
+                # in with BNBAGENT_ALLOW_PK_ENV=1 for this dev path.
+                log.critical(
+                    "BNBAGENT_PRIVATE_KEY is set but BNBAGENT_ALLOW_PK_ENV != 1. "
+                    "Refusing to bypass the keystore. Set BNBAGENT_ALLOW_PK_ENV=1 "
+                    "if you really mean it (NOT recommended for production)."
+                )
+                raise RuntimeError(
+                    "BNBAGENT_PRIVATE_KEY is set but not opted in via "
+                    "BNBAGENT_ALLOW_PK_ENV=1. Refusing to load a plaintext key."
+                )
+            log.critical(
+                "SECURITY: BNBAGENT_PRIVATE_KEY is in use (BNBAGENT_ALLOW_PK_ENV=1). "
+                "The keystore is being bypassed. Do NOT use this on mainnet."
+            )
             return cls.from_private_key(pk)
         if keystore and pwd and Path(keystore).expanduser().exists():
             with open(Path(keystore).expanduser()) as f:
