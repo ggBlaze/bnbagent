@@ -24,7 +24,7 @@ from web3 import Web3
 
 from connectors.keystore import (
     _keystore_path, create_keystore, import_keystore, load_keystore_summary,
-    unlock_and_get_account,
+    unlock_and_get_account, KeystoreCorrupt,
 )
 from policy.policy_sign import sign_policy
 
@@ -46,6 +46,7 @@ class SetupState:
     cmc_x402_base: str = "https://api.coinmarketcap.com/agent-hub"
     wallet_address: str = ""
     keystore_path: str = ""
+    keystore_error: str = ""     # v2.0.8-L4: human-readable error if the keystore is corrupt
     evaluator_address: str = ""
     policy_signed: bool = False
     policy_signature: str = ""
@@ -86,10 +87,23 @@ def _save_yaml(path: Path, data: dict) -> None:
 
 
 def load_setup_state() -> SetupState:
-    """Read everything from disk and assemble the operator summary."""
+    """Read everything from disk and assemble the operator summary.
+
+    v2.0.8-L4: distinguish keystore-missing (None) from keystore-corrupt
+    (KeystoreCorrupt). The SetupState.wallet_address is empty in both
+    cases, but the exception is captured separately so the dashboard
+    can show 'keystore is corrupt, here's how to recover' instead of
+    silently treating the corrupt file as 'no wallet'.
+    """
     cfg = _load_yaml(Path("config/config.yaml"))
     pol = _load_yaml(Path("config/policy.yaml"))
-    ks  = load_keystore_summary()
+    # v2.0.8-L4: catch KeystoreCorrupt separately from missing-file
+    try:
+        ks = load_keystore_summary()
+        ks_error = None
+    except KeystoreCorrupt as e:
+        ks = None
+        ks_error = str(e)
     sig = str(pol.get("signature", "") or "")
     state = SetupState(
         mode=str(cfg.get("mode", "testnet")),
@@ -99,6 +113,7 @@ def load_setup_state() -> SetupState:
         cmc_x402_base=str(cfg.get("cmc", {}).get("x402_base", "https://api.coinmarketcap.com/agent-hub")),
         wallet_address=ks.get("address", "") if ks else "",
         keystore_path=ks.get("path", "") if ks else "",
+        keystore_error=ks_error or "",   # v2.0.8-L4: human-readable if corrupt
         evaluator_address=str(pol.get("evaluator_address", "") or ""),
         policy_signed=sig.startswith("0x") and sig != "0x" + "00" * 65,
         policy_signature=sig,

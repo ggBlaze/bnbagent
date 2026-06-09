@@ -121,20 +121,51 @@ def decrypt_keystore(blob: dict, password: str) -> bytes:
 
 
 def load_keystore_summary() -> dict | None:
-    """Return the wallet address + path if a keystore exists, else None."""
+    """Return the wallet address + path if a keystore exists, else None.
+
+    v2.0.8-L4: distinguish three outcomes:
+      1. file missing → None (caller treats as 'no wallet configured')
+      2. file corrupt → raises KeystoreCorrupt with the reason (caller
+         shows 'keystore is corrupted, here's how to recover')
+      3. file valid → dict with address + path + public_key + version
+
+    Previously a corrupt file was silently treated as 'no wallet',
+    which made recovery confusing (the user sees the keystore in
+    the filesystem but the dashboard says there's no wallet).
+    """
     p = _keystore_path()
     if not p.exists():
         return None
     try:
-        blob = json.loads(p.read_text())
-        return {
-            "address":    blob.get("address"),
-            "path":       str(p),
-            "public_key": blob.get("public_key"),
-            "version":    blob.get("version"),
-        }
-    except Exception:
-        return None
+        raw = p.read_text(encoding="utf-8")
+    except OSError as e:
+        raise KeystoreCorrupt(f"cannot read keystore at {p}: {e}") from e
+    try:
+        blob = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise KeystoreCorrupt(
+            f"keystore at {p} is not valid JSON (line {e.lineno}, col {e.colno}): {e.msg}"
+        ) from e
+    if not isinstance(blob, dict):
+        raise KeystoreCorrupt(
+            f"keystore at {p} is a JSON {type(blob).__name__}, expected a dict"
+        )
+    # validate the minimum shape — addresses are mandatory
+    if "address" not in blob or "encrypted" not in blob:
+        raise KeystoreCorrupt(
+            f"keystore at {p} is missing required fields (address, encrypted)"
+        )
+    return {
+        "address":    blob.get("address"),
+        "path":       str(p),
+        "public_key": blob.get("public_key"),
+        "version":    blob.get("version"),
+    }
+
+
+class KeystoreCorrupt(Exception):
+    """Raised by load_keystore_summary when the keystore file is present
+    but unreadable / unparseable / missing required fields (v2.0.8-L4)."""
 
 
 def unlock_and_get_account(password: str) -> Account:

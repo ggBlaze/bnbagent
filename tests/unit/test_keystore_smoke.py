@@ -11,6 +11,7 @@ This test catches:
   - shadow-imported AES import paths (v2.0.8 hoisted to module level)
   - any future regression where the import path goes back inside a function
 """
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -71,3 +72,64 @@ def test_twak_module_loads_with_pycryptodome():
     import connectors.twak  # noqa: F401
     from Crypto.Cipher import AES  # noqa: F401
     assert True
+
+
+# --- v2.0.8-L4: load_keystore_summary distinguishes missing vs corrupt -----
+
+def test_summary_returns_none_for_missing_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("TWAK_KEYSTORE", str(tmp_path / "nonexistent.json"))
+    from connectors import keystore as ks
+    ks._keystore_path = lambda: tmp_path / "nonexistent.json"
+    assert ks.load_keystore_summary() is None
+
+
+def test_summary_raises_on_corrupt_json(tmp_path, monkeypatch):
+    """L-4 regression: a corrupt JSON file must RAISE KeystoreCorrupt,
+    not silently return None (which made recovery confusing)."""
+    monkeypatch.setenv("TWAK_KEYSTORE", str(tmp_path / "bad.json"))
+    from connectors import keystore as ks
+    p = tmp_path / "bad.json"
+    p.write_text("{not valid json at all,,,,")
+    ks._keystore_path = lambda: p
+    with pytest.raises(ks.KeystoreCorrupt, match="not valid JSON"):
+        ks.load_keystore_summary()
+
+
+def test_summary_raises_on_wrong_top_level_type(tmp_path, monkeypatch):
+    """L-4: a valid JSON but a list at top (not a dict) is corrupt."""
+    monkeypatch.setenv("TWAK_KEYSTORE", str(tmp_path / "list.json"))
+    from connectors import keystore as ks
+    p = tmp_path / "list.json"
+    p.write_text("[1, 2, 3]")
+    ks._keystore_path = lambda: p
+    with pytest.raises(ks.KeystoreCorrupt, match="expected a dict"):
+        ks.load_keystore_summary()
+
+
+def test_summary_raises_on_missing_required_fields(tmp_path, monkeypatch):
+    """L-4: a dict but missing 'address' or 'encrypted' is corrupt."""
+    monkeypatch.setenv("TWAK_KEYSTORE", str(tmp_path / "missing.json"))
+    from connectors import keystore as ks
+    p = tmp_path / "missing.json"
+    p.write_text('{"version": 1, "public_key": "0xabcd"}')
+    ks._keystore_path = lambda: p
+    with pytest.raises(ks.KeystoreCorrupt, match="missing required fields"):
+        ks.load_keystore_summary()
+
+
+def test_summary_returns_dict_for_valid_keystore(tmp_path, monkeypatch):
+    """L-4: a valid keystore returns the full summary dict."""
+    monkeypatch.setenv("TWAK_KEYSTORE", str(tmp_path / "ok.json"))
+    from connectors import keystore as ks
+    p = tmp_path / "ok.json"
+    p.write_text(json.dumps({
+        "address": "0x" + "a" * 40,
+        "encrypted": {"ciphertext": "0x00"},
+        "public_key": "0xabcd",
+        "version": 1,
+    }))
+    ks._keystore_path = lambda: p
+    summary = ks.load_keystore_summary()
+    assert summary["address"] == "0x" + "a" * 40
+    assert summary["path"] == str(p)
+    assert summary["version"] == 1
