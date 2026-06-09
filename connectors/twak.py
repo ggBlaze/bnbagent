@@ -37,6 +37,11 @@ from Crypto.Cipher import AES  # noqa: E402  (hoisted for early failure)
 
 log = logging.getLogger(__name__)
 
+
+class GasPriceTooHigh(Exception):
+    """Raised by TWAKWallet.sign_transaction when the resulting fee would
+    exceed a caller-supplied cap (v2.0.8-H4)."""
+
 Account.enable_unaudited_hdwallet_features()
 
 
@@ -134,8 +139,25 @@ class TWAKWallet:
         signed = Account.sign_message(signable, self.key)
         return "0x" + signed.signature.hex()
 
-    def sign_transaction(self, tx: dict, chain_id: int = 56) -> SignedTx:
-        """Sign an EIP-1559 or legacy tx. Returns raw bytes + hash."""
+    def sign_transaction(self, tx: dict, chain_id: int = 56,
+                         max_gas_price_gwei: float | None = None) -> SignedTx:
+        """Sign an EIP-1559 or legacy tx. Returns raw bytes + hash.
+
+        `max_gas_price_gwei` is an OPTIONAL cap (in gwei) on the gas price
+        we will sign at. If provided, AND if either:
+          (a) the caller did not set a `gasPrice` / `maxFeePerGas` (and we'd
+              default to 5 gwei), or
+          (b) the caller's gas price is below the cap, we leave the price
+              as-is or default it.
+          If the caller's gas price WOULD exceed the cap, we raise
+          GasPriceTooHigh before signing so a stuck-tx in a high-gas
+          window doesn't burn the trade signal.
+
+        This is the v2.0.8-H4 fix. In testnet the cap is ignored
+        (mode=testnet, max_gas_price_gwei=None falls through). On
+        mainnet, the sleeves read max_gas_price_gwei from the
+        user-signed policy and pass it here.
+        """
         # fill defaults
         tx = dict(tx)
         tx.setdefault("chainId", chain_id)
@@ -148,6 +170,15 @@ class TWAKWallet:
         if "maxFeePerGas" not in tx and "gasPrice" not in tx:
             tx["maxFeePerGas"] = 5 * 10**9
             tx["maxPriorityFeePerGas"] = 5 * 10**9
+        # H-4 cap: refuse to sign if the resulting fee exceeds the policy cap.
+        if max_gas_price_gwei is not None:
+            cap_wei = int(max_gas_price_gwei * 10**9)
+            actual = tx.get("gasPrice") or tx.get("maxFeePerGas") or 0
+            if actual > cap_wei:
+                raise GasPriceTooHigh(
+                    f"gas price {actual / 1e9:.2f} gwei exceeds policy cap "
+                    f"{max_gas_price_gwei:.2f} gwei — refusing to sign"
+                )
         # Coerce `to` to a valid checksum address; fall back to zero address
         # if the configured value is malformed (so dev/stub paths still work).
         if "to" in tx and tx["to"]:

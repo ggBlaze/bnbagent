@@ -156,7 +156,18 @@ class TokenModule:
             "nonce": nonce,
             "from": from_addr,
         }
-        signed = wallet.sign_transaction(tx, chain_id=bsc.chain_id)
+        # v2.0.8-H4: honor fees.max_gas_price_gwei if the operator's
+        # policy sets it. The token module reads from the same policy
+        # dict the sleeves do (the dashboard's /api/setup writes it
+        # once and all components share via components['policy']).
+        max_gas_gwei = None
+        policy = self.components.get("policy")
+        if policy is not None:
+            v = (policy.get("fees") or {}).get("max_gas_price_gwei")
+            if v is not None:
+                max_gas_gwei = float(v)
+        signed = wallet.sign_transaction(tx, chain_id=bsc.chain_id,
+                                         max_gas_price_gwei=max_gas_gwei)
         rcpt = bsc.broadcast(signed)
 
         # 4. pin metadata to IPFS

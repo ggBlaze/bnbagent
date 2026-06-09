@@ -138,13 +138,27 @@ class SleeveCMeanRev:
             token_in=usdc_addr, token_out=token_addr, fee=pool_fee,
             recipient=self.wallet.address, amount_in=amount_in, min_out=min_out,
         )
-        tx = self.wallet.sign_transaction({
-            "to": self.cfg["dex"]["pcs_v3_router"],
-            "data": "0x" + calldata.hex(),
-            "value": 0, "gas": self.cfg["gas"]["swap_gas"],
-            "nonce": self.bsc.next_nonce(self.wallet.address),
-            "chainId": self.cfg["chain_id"],
-        })
+        # v2.0.8-H4: honor fees.max_gas_price_gwei. Sleeve C is the
+        # least time-sensitive (6h time stop) so a stuck tx is least
+        # painful here — but the principle is the same. Skip with
+        # gas_too_high_skip.
+        try:
+            tx = self.wallet.sign_transaction(
+                {
+                    "to": self.cfg["dex"]["pcs_v3_router"],
+                    "data": "0x" + calldata.hex(),
+                    "value": 0, "gas": self.cfg["gas"]["swap_gas"],
+                    "nonce": self.bsc.next_nonce(self.wallet.address),
+                    "chainId": self.cfg["chain_id"],
+                },
+                chain_id=self.cfg["chain_id"],
+                max_gas_price_gwei=self._max_gas_gwei(),
+            )
+        except Exception as e:
+            if "gas price" in str(e).lower() and "exceeds" in str(e).lower():
+                log.info(f"Sleeve C {sym}: gas_too_high_skip — {e}")
+                return
+            raise
         self.bsc.broadcast(tx)
 
         pos = Position(
@@ -191,6 +205,11 @@ class SleeveCMeanRev:
 
     def _token_address(self, symbol: str) -> str:
         return token_address(self.cfg, symbol)
+
+    def _max_gas_gwei(self) -> float | None:
+        """v2.0.8-H4: read fees.max_gas_price_gwei from policy."""
+        v = (self.policy.get("fees") or {}).get("max_gas_price_gwei")
+        return float(v) if v is not None else None
 
     def _recent_trades_for(self, sym: str, n: int = 20) -> list[dict]:
         try:

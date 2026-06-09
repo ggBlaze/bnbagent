@@ -229,14 +229,30 @@ class SleeveACarry:
                 token_in=usdc_addr, token_out=token_addr, fee=pool_fee,
                 recipient=self.wallet.address, amount_in=amount_in, min_out=min_out,
             )
-            tx_spot = self.wallet.sign_transaction({
-                "to": self.cfg["dex"]["pcs_v3_router"],
-                "data": "0x" + calldata.hex(),
-                "value": 0,
-                "gas": self.cfg["gas"]["swap_gas"],
-                "nonce": self.bsc.next_nonce(self.wallet.address),
-                "chainId": self.cfg["chain_id"],
-            })
+            # v2.0.8-H4: honor fees.max_gas_price_gwei from the user-signed
+            # policy. Sleeve A is the spot leg of a carry; if BSC gas spikes
+            # and the tx would have to wait 30+ minutes, the funding carry
+            # is already booked by both legs closing in the same tick. So
+            # we wrap the sign in a try/except that logs gas_too_high_skip
+            # and lets the next tick re-evaluate.
+            try:
+                tx_spot = self.wallet.sign_transaction(
+                    {
+                        "to": self.cfg["dex"]["pcs_v3_router"],
+                        "data": "0x" + calldata.hex(),
+                        "value": 0,
+                        "gas": self.cfg["gas"]["swap_gas"],
+                        "nonce": self.bsc.next_nonce(self.wallet.address),
+                        "chainId": self.cfg["chain_id"],
+                    },
+                    chain_id=self.cfg["chain_id"],
+                    max_gas_price_gwei=self._max_gas_gwei(),
+                )
+            except Exception as e:
+                if "gas price" in str(e).lower() and "exceeds" in str(e).lower():
+                    log.info(f"Sleeve A spot {sym}: gas_too_high_skip — {e}")
+                    continue
+                raise
             rcpt_spot = self.bsc.broadcast(tx_spot)
 
             # Open perp short leg
@@ -312,3 +328,12 @@ class SleeveACarry:
 
     def _token_address(self, symbol: str) -> str:
         return token_address(self.cfg, symbol)
+
+    def _max_gas_gwei(self) -> float | None:
+        """Read fees.max_gas_price_gwei from the user-signed policy.
+
+        v2.0.8-H4: if not set, the wallet uses no cap (legacy behavior).
+        If set, sign_transaction refuses to sign above the cap.
+        """
+        v = (self.policy.get("fees") or {}).get("max_gas_price_gwei")
+        return float(v) if v is not None else None
