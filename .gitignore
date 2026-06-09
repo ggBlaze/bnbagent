@@ -16,6 +16,9 @@ data/window-*-summary.json
 # JSON target across machines. Re-generate locally with
 # `python -m scripts.run_both_regimes` and only commit if you intend
 # to update the demo-script table to match.
+# The HTMLs are render-only (a view of the committed JSON) — regenerated
+# by the same script. Don't commit them; they cause churn and merge noise.
+data/reports/*.html
 !data/parquet/.gitkeep
 !data/recordings/.gitkeep
 .coverage
