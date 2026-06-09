@@ -243,6 +243,16 @@ class TokenModule:
         openzeppelin under data/. In the testnet stub we return a
         deterministic small placeholder so the contract-address
         prediction still works.
+
+        v2.0.8-L5: the previous seed was time-based
+        (f"bnbagent:{protocol}:{time.time() // 86400}") so the stub
+        bytecode changed daily. That's fine for production (we never
+        hit the stub path) but in the testnet demo path, two token
+        deploys on different days would produce different bytecodes.
+        The contract address derivation is unaffected (it uses
+        sender || nonce, not the bytecode), but a verifier comparing
+        bytecode across days would see drift. The new seed is a
+        fixed string so the stub is stable across days.
         """
         if protocol in self._init_code_cache:
             return self._init_code_cache[protocol]
@@ -250,8 +260,8 @@ class TokenModule:
             blob = DEFAULT_ERC20_BLOB_PATH.read_bytes()
             self._init_code_cache[protocol] = blob
             return blob
-        # fallback: a deterministic 256-byte stub
-        seed = f"bnbagent:{protocol}:{time.time() // 86400}".encode()
+        # v2.0.8-L5: fixed seed (was time-based) for stable testnet stub.
+        seed = f"bnbagent:{protocol}:stub".encode()
         stub = Web3.keccak(seed) * 4  # 256 bytes
         self._init_code_cache[protocol] = stub
         return stub

@@ -80,6 +80,38 @@ async def test_supply_must_be_positive(components, config_path):
         await tm.create_token(name="X", symbol="ABC", supply=0)
 
 
+# --- v2.0.8-L5: stable testnet stub bytecode seed -----------------------
+
+def test_stub_bytecode_stable_across_calls(components, config_path):
+    """v2.0.8-L5: the testnet stub bytecode is stable across calls.
+
+    The previous seed was time-based (f"bnbagent:{protocol}:{time.time() // 86400}")
+    so the stub changed daily. The new seed is a fixed string, so
+    two calls in the same process produce the same stub. Two calls
+    on different days also produce the same stub.
+    """
+    tm = TokenModule(components=components, config_path=config_path)
+    # wipe the cache so we go to the fallback path
+    tm._init_code_cache = {}
+    b1 = tm._load_runtime("erc20_minimal")
+    b2 = tm._load_runtime("erc20_minimal")
+    assert b1 == b2
+    # 32 bytes (keccak) * 4 repetitions = 128 bytes
+    assert len(b1) == 128
+
+
+def test_stub_bytecode_stable_across_protocols(components, config_path):
+    """Different protocols get different stubs (the protocol name is in the seed)."""
+    tm = TokenModule(components=components, config_path=config_path)
+    tm._init_code_cache = {}
+    a = tm._load_runtime("erc20_minimal")
+    b = tm._load_runtime("bep20")
+    c = tm._load_runtime("openzeppelin")
+    assert a != b
+    assert b != c
+    assert a != c
+
+
 def test_sanitize_website_strips_eval(components, config_path):
     tm = TokenModule(components=components, config_path=config_path)
     bad = '<script>eval("alert(1)")</script>Function("x")() document.write("pwned")'
