@@ -91,8 +91,10 @@ stay open. The buffer is overridable via
 
 ### Test count
 
-194 → 212 (added 18 tests, 14 unit + 4 integration already
-covered the SSE path). All 212 pass.
+194 → 212 → 226. The H1-H4 + M3-M4 commits added 18 tests
+(14 unit + 4 integration). The follow-up L1-L5 + M5-M7 +
+chat-persona-confirm + keystore-smoke commits added 14 more.
+All 226 pass.
 
 ### Files
 
@@ -160,7 +162,7 @@ attributions. Bear 1h has been observed swinging between -0.58% and
 
 ### Verified
 
-- `pytest -q`: 179/179 passing (178 pre-existing + the new
+- `pytest -q`: 179 tests passing (178 pre-existing + the new
   determinism test).
 - `git diff data/reports/` is empty after a fresh
   `python -m scripts.run_both_regimes` — the meta-test
