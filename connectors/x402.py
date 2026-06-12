@@ -225,7 +225,10 @@ def check_balance(
     divide by 1_000_000 to get human-readable USDC).
     """
     ERC20_BALANCE_OF = "0x70a08231"  # keccak("balanceOf(address)")[:4]
-    padded = "0x" + holder[2:].lower().rjust(64, "0")
+    # Concatenate the 4-byte selector with the 32-byte padded address
+    # (the selector is 0x-prefixed; the address arg is NOT, to avoid
+    # producing "0x70a082310xab..." which is not valid hex).
+    padded = holder[2:].lower().rjust(64, "0")
     data = ERC20_BALANCE_OF + padded
 
     last_err: Exception | None = None
