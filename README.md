@@ -11,7 +11,7 @@
 [![BNB Chain](https://img.shields.io/badge/BNB%20Chain-AI%20Agent%20SDK-orange)](https://www.bnbchain.org/en/solutions/ai-agent)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-275%2F275%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-311%2F311%20passing-brightgreen)](tests/)
 [![CI](https://img.shields.io/badge/CI-enforced-blueviolet)](.github/workflows/ci.yml)
 
 ---
@@ -60,6 +60,8 @@ bash bnbagent                         # agent + dashboard on http://localhost:80
 That's it. The dashboard auto-loads; first-time users land in the **Setup wizard** (Network → Wallet → Sign Policy → **Data source** → Ready). After the wizard, the dashboard switches to the **Live** pane. The Setup wizard has a new 'Data source' step (CMC Pro / x402 / Binance).
 
 **v2.1.1: the wizard writes your choices to `config/local.yaml` (gitignored), not the tracked `config/config.yaml`.** The shipped defaults file stays clean; your CMC Pro API key and custom RPCs never accidentally land in a commit. See `core/config_paths.py` for the merge semantics.
+
+**v2.1.2: every runtime write lands in a gitignored file.** The operator-signed `config/policy.yaml`, the Token Module's `agents/token_module.yaml`, and the TWAK keystore at `~/.twak/` are all gitignored. The repo state is reproducible from `git clone` — the only thing that varies between operators is the `local.yaml` shadow and the runtime state in `~/.bnbagent/`. The contract is pinned by `tests/unit/test_repo_cleanliness.py` (36 tests).
 
 | Command | What it does |
 |---|---|
@@ -533,7 +535,7 @@ bnbagent/
 │   ├── metrics.py
 │   └── replay.py
 │
-├── tests/                         ← 275/275 passing (enforced by CI)
+├── tests/                         ← 311/311 passing (enforced by CI)
 │   ├── unit/                      ← ~13 files
 │   ├── integration/               ← 1 file (MCP)
 │   └── fixtures/                  ← llm.py, wallets.py, skills.py
@@ -609,7 +611,7 @@ bnbagent/
 ## 15. Testing
 
 ```bash
-pytest -q                          # 275/275 passing (~3m cold, ~12s unit-only)
+pytest -q                          # 311/311 passing (~3m cold, ~12s unit-only)
 pytest tests/unit/                 # fast unit tests
 pytest tests/integration/          # MCP end-to-end
 pytest tests/unit/test_risk.py -v # 1 file

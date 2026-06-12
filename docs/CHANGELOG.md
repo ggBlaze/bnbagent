@@ -2,6 +2,43 @@
 
 All notable changes to this project. Versioned per the git tag.
 
+## v2.1.2 — repo cleanliness (the other write paths)
+
+CHANGED: config/policy.yaml is now gitignored. The shipped
+         config/policy.yaml was expired (issued/expires from 2024)
+         AND its signature didn't recover to evaluator_address —
+         the agent booted with a "proceeding in dev mode" warning
+         on every run. Rather than ship a stale signed policy,
+         the file is now a gitignored runtime artifact generated
+         on first `bash install.sh` (via `policy_sign --dev`) and
+         overwritten by the Setup wizard's "Sign Policy" step when
+         the operator signs with their TWAK keystore. A new
+         config/policy.yaml.example (tracked, a template with
+         __SIG__/__EVAL__ placeholders) serves as the
+         "what does a policy look like" reference for new readers.
+CHANGED: agents/token_module.yaml is now gitignored. The Token
+         Module's update_config() writes here; without the
+         gitignore entry the file would appear as untracked on
+         first dashboard use and could land in `git add .`
+         commits.
+CHANGED: ~/.twak/ is now gitignored (defense in depth). The TWAK
+         keystore is at ~/.twak/wallet.json by default (outside
+         the repo) and AES-256-GCM-encrypted, but the gitignore
+         entry protects against a future install path that puts
+         it inside the repo.
+ADDED:  tests/unit/test_repo_cleanliness.py (36 contract tests):
+        - 16 tests that the templates / shipped defaults /
+          persona files are tracked
+        - 17 tests that the user-specific state / build outputs
+          are gitignored
+        - 3 tests that the runtime write paths
+          (config/local.yaml, config/policy.yaml,
+          agents/token_module.yaml) are NOT in the tracked set
+        - 1 test that the shipped personas match the pro defaults
+          (catches the v2.0.8-M7 divergence I found last turn
+          before the next stale shipped persona slips through)
+CHANGED: badge 275/275 → 311/311.
+
 ## v2.1.1 — config/local.yaml shadow pattern
 
 CHANGED: The Setup wizard, dashboard data-source endpoints, and

@@ -1,0 +1,87 @@
+# BNB Agent — User Policy template (LOCAL, gitignored after install)
+# -------------------------------------------------------------------
+# This is a TEMPLATE. The real policy.yaml in this directory is
+# gitignored and gets generated on first `bash install.sh` (or first
+# boot if install.sh is skipped). The installer runs:
+#
+#   python -m policy.policy_sign --config config/config.yaml \
+#       --out config/policy.yaml --dev
+#
+# which produces a self-consistent dev policy signed with an ephemeral
+# key (valid for 30 days, safe for evaluation, "proceed in dev mode"
+# at boot). When you're ready to go live, the Setup wizard's
+# "Sign Policy" step overwrites this with a real signature from your
+# TWAK keystore (your operator wallet).
+#
+# Why a template (not a real signed policy) is the right call:
+# - A committed real policy would have a stale signature the moment
+#   the body changes (adding a sleeve, tightening a risk cap, etc.)
+# - A committed real policy would have someone else's ephemeral key
+#   in `evaluator_address` and `signature` — confusing for judges
+# - A template + regenerate-on-install is the convention every dev
+#   tool uses (cookiecutter, kubebuilder, etc.)
+#
+# The shape below mirrors the agent's runtime expectations. The body
+# is read by core/boot.py::load_policy and validated against
+# config/policy.schema.json (the schema is tracked, so a body change
+# here must not break validation).
+#
+# NEVER commit your real config/policy.yaml. It is gitignored for a
+# reason. If you ever do, rotate the wallet and re-sign:
+#   bash install.sh       # if you deleted the file
+#   # OR via the wizard:
+#   # Setup → Sign Policy → enter password → wizard writes
+#   # the new signed policy to config/policy.yaml.
+#
+# Minimal template (matches what policy_sign --dev produces):
+
+version: 1.0.0
+issued_at: __ISSUED__
+expires_at: __EXPIRES__
+evaluator_address: '__EVAL__'
+agent_address:     '__AGENT__'
+global_risk:
+  daily_loss_circuit_breaker_pct: 3.0
+  per_trade_risk_pct:             1.0
+  max_gross_leverage:             2.0
+  max_single_position_pct:       15.0
+  max_daily_trades:             100
+  max_drawdown_pct:              8.0
+  cooldown_after_breach_min:     60
+sleeve_allocations: { A: 0.70, B: 0.20, C: 0.10 }
+sleeves:
+  A:
+    enabled: true
+    venue_selection: highest_abs_funding_7d
+    rebalance_hours: 8
+    fund_floor_pct: 0.005
+    basis_trigger_pct: 0.5
+    max_position_pct: 15.0
+  B:
+    enabled: true
+    volume_spike_mult: 2.0
+    breakout_lookback_h: 4
+    atr_len: 14
+    atr_stop_mult: 2.0
+    tp_pct: 3.0
+    max_hold_min: 240
+    kelly_fraction: 0.25
+    max_position_pct: 10.0
+  C:
+    enabled: true
+    zscore_threshold: 2.5
+    stop_pct: 2.0
+    target_pct: 1.0
+    lookback_h: 1
+    kelly_fraction: 0.25
+    max_position_pct: 5.0
+allowlist:
+  cmc_rank_max: 50
+  bsc_tokens: [WBNB, USDC, CAKE, BTCB, ETH, SOL, XRP, DOGE, ADA, AVAX,
+               LINK, DOT, MATIC, SHIB, LTC, BCH, NEAR, ATOM, UNI, APT]
+  perps_venues: [aster, killex, apollox, mux]
+  dex_routers:  ["0x9A489505a6B3cd73B4D6C8E6B3E8a3e7B9C8d2e1"]
+fees:
+  x402_max_usdc_per_day: "10.00"
+  max_gas_price_gwei:    5
+signature: "__SIG__"

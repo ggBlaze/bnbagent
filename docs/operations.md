@@ -200,3 +200,48 @@ shipped `config.yaml` is never mutated at runtime. This means:
 
 To reset to shipped defaults: `rm config/local.yaml` and re-run
 `bash install.sh` (which re-bootstraps from the example).
+
+## Repo cleanliness contract (v2.1.2)
+
+The principle: **all the user does with the repo does not affect
+the repo development.** Every file the runtime writes at runtime
+must be gitignored. Every template the user copies from must be
+tracked.
+
+Tracked (shipped defaults + templates — these go in commits):
+
+| Path | What it is |
+|---|---|
+| `config/config.yaml` | Shipped runtime defaults (testnet, mock tier, etc.) |
+| `config/local.yaml.example` | Template for the user-state shadow |
+| `config/policy.yaml.example` | Template for the operator-signed policy |
+| `config/policy.schema.json` | JSON schema for `policy.yaml` |
+| `config/allowlist.yaml` | Token + venue allowlist (signed by policy) |
+| `config/perps_venues.yaml` | Perps venue registry |
+| `config/tokens.mainnet.yaml` | Token registry |
+| `agents/providers.yaml` | LLM provider routing (env-var NAMES only) |
+| `agents/personas/{name}.md` | Shipped LLM personas (= pro defaults) |
+| `agents/_pro_defaults/{name}.md` | Pro persona source of truth |
+
+Gitignored (user-specific state + build outputs — these must NEVER
+land in a commit):
+
+| Path | What writes here |
+|---|---|
+| `config/local.yaml` | Setup wizard, dashboard data-source endpoints, boot's `base_address` write (v2.1.1) |
+| `config/policy.yaml` | `policy_sign --dev`, Setup wizard's "Sign Policy" step (v2.1.2) |
+| `agents/token_module.yaml` | Dashboard Token pane via `token_module.update_config()` (v2.1.2) |
+| `~/.twak/wallet.json` | TWAK keystore (AES-256-GCM, password-gated) |
+| `~/.bnbagent/identity.json` | ERC-8004 token + agent address |
+| `~/.bnbagent/setup.json` | Operator summary (read by dashboard) |
+| `~/.bnbagent/personas/{name}.md` | Runtime copy of personas (takes precedence over shipped) |
+| `~/.bnbagent/skills.json` | Enabled-skills state |
+| `data/reports/*.html` | Replay HTMLs (render-only) |
+| `data/parquet/`, `data/recordings/` | Local data caches |
+| `data/jobs-*.json`, `data/window-*-summary.json` | ERC-8183 job state |
+| `.venv/`, `node_modules/`, `dist/`, `build/`, `logs/`, `__pycache__/` | Build/runtime artifacts |
+| `.env`, `.env.local` | Env vars (API keys) |
+
+**Contract test:** `tests/unit/test_repo_cleanliness.py` (36 tests)
+pins the contract. Adding a new runtime write path to a tracked
+file will fail the test on the next CI run.

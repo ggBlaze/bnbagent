@@ -14,7 +14,7 @@ export PYTHONPATH=$PWD
 Run the tests:
 
 ```bash
-pytest -q                        # 275/275 passing
+pytest -q                        # 311/311 passing
 pytest tests/unit/ -v            # verbose unit
 pytest tests/integration/ -v     # MCP end-to-end
 ```
@@ -35,6 +35,7 @@ pytest tests/integration/ -v     # MCP end-to-end
 - **The LLM can only TIGHTEN / VETO / RECOMMEND.** Never loosen. Never bypass. The `agents/advisor.py` `_apply`, `agents/reviewer.py` review, and `agents/chat.py` `_tool_recommend` are the three safety envelopes.
 - **The private key never leaves the host process.** Don't add features that need to send the key over the wire.
 - **All config is externalized to YAML.** Don't hardcode RPC URLs, gas prices, token addresses, or perps venues. The runtime config is split into two files (v2.1.1): `config/config.yaml` (shipped defaults, tracked, immutable at runtime) and `config/local.yaml` (user-specific overrides, gitignored). Read via `core.config_paths.load_config()`, write via `core.config_paths.write_local()`. The shipped file is never mutated at runtime — only `git pull` or a fresh clone can change it.
+- **Every runtime write must land in a gitignored location.** The principle: *all the user does with the repo does not affect the repo development.* Files the runtime creates or mutates (`config/local.yaml`, `config/policy.yaml`, `agents/token_module.yaml`, `~/.twak/`, `~/.bnbagent/`) are gitignored. The contract is pinned by `tests/unit/test_repo_cleanliness.py` — a new tracked write path will fail the test on CI. If you're adding a new write path, also add a test entry to `EXPECTED_GITIGNORED` and `RUNTIME_WRITE_PATHS` in that file.
 - **The dashboard is a single HTML file.** Keep it that way (vendored js is fine; a build step is not). Add `// SPLIT-ME:` comments if a section is getting big — we can split after the contest.
 - **Tests mirror the source layout.** New module under `agents/` → `tests/unit/test_agents_<name>.py`. New connector → `tests/unit/test_<connector>.py`.
 
