@@ -66,7 +66,9 @@ class TestBuildPayment:
     def test_build_payment_header(self):
         wallet = TWAKWallet.from_private_key(EVALUATOR_KEY)
         req = make_requirements()
-        hdr = build_x402_payment_sync(wallet, req, chain_id=56)
+        hdr = build_x402_payment_sync(
+            wallet, req, chain_id=56, token_address=USDC,
+        )
         assert isinstance(hdr, str)
         # round-trip decode
         decoded = base64.b64decode(hdr)
@@ -85,7 +87,9 @@ class TestBuildPayment:
 
         wallet = TWAKWallet.from_private_key(EVALUATOR_KEY)
         req = make_requirements()
-        hdr = build_x402_payment_sync(wallet, req, chain_id=56)
+        hdr = build_x402_payment_sync(
+            wallet, req, chain_id=56, token_address=USDC,
+        )
         payload = json.loads(base64.b64decode(hdr))
         sig = payload["payload"]["signature"]
         auth = payload["payload"]["authorization"]
@@ -113,3 +117,51 @@ class TestBuildPayment:
         signable = encode_typed_data(domain, types, message)
         recovered = Account.recover_message(signable, signature=sig)
         assert recovered.lower() == wallet.address.lower()
+
+
+# --- v2.0 defaults: Base + native USDC + PAYMENT-SIGNATURE ---
+
+def test_default_chain_id_is_base():
+    """After v2.0, the default chain_id must be 8453 (Base), not 56 (BSC)."""
+    from connectors.x402 import _default_chain_id  # type: ignore
+    assert _default_chain_id() == 8453
+
+
+def test_default_token_is_base_usdc():
+    """The default token_address must be the native USDC on Base."""
+    from connectors.x402 import _default_token_address  # type: ignore
+    assert _default_token_address() == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+
+
+def test_decode_payment_requirements_reads_new_header_names():
+    """decode_payment_requirements should accept PAYMENT-REQUIRED (not X-PAYMENT-REQUIRED)."""
+    from connectors.x402 import decode_payment_requirements
+    import base64, json
+    challenge = {
+        "scheme": "exact", "network": "eip155:8453",
+        "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "amount": 10000, "payTo": "0x271189c860DB25bC43173B0335784aD68a680908",
+        "nonce": "0x" + "ab" * 32, "expiresAt": 9999999999,
+    }
+    b64 = base64.b64encode(json.dumps(challenge).encode()).decode()
+    req = decode_payment_requirements(b64)
+    assert req.network == "eip155:8453"
+    assert req.token == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+    assert req.amount == 10000
+
+
+def test_check_balance_returns_decimal():
+    """check_balance() should return a Decimal balance, raising on RPC failure."""
+    from connectors.x402 import check_balance
+    from unittest.mock import patch, MagicMock
+    # Patch _get_web3 to return a fake Web3 whose .eth.call returns 1 USDC raw.
+    fake_w3 = MagicMock()
+    fake_w3.eth.call.return_value = int(1_000_000).to_bytes(32, "big")
+    with patch("connectors.x402._get_web3", return_value=fake_w3):
+        bal = check_balance(
+            rpc_urls=["https://mainnet.base.org"],
+            holder="0x" + "11" * 20,
+            token="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        )
+    assert isinstance(bal, Decimal)
+    assert bal == Decimal(1_000_000)

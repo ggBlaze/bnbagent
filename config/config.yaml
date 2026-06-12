@@ -65,6 +65,17 @@ cmc:
                           AVAX, LINK, DOT, MATIC, SHIB, LTC, BCH, NEAR,
                           ATOM, UNI, APT]
 
+# Data source tier — picked in the Setup wizard
+# One of: "cmc_pro" (paid), "x402" (Base USDC), "binance" (free), "mock" (replay/tests)
+data_source:
+  tier: "mock"
+  cmc_api_key: ""                # populated by the wizard when tier == "cmc_pro"
+  base_rpcs:                     # used by the x402 path for balance polling
+    - https://mainnet.base.org
+    - https://base.publicnode.com
+    - https://1rpc.io/base
+  daily_cap_usdc: 10.0           # x402 daily spend cap
+
 # --- Sleeve tick intervals (seconds) ---
 ticks:
   A: 30
