@@ -71,6 +71,43 @@ def test_post_data_source_base_rpcs_rejects_invalid_url():
     assert r.status_code == 422  # validation error
 
 
+def test_post_data_source_select_cmc_pro_without_key_returns_400(tmp_path, monkeypatch):
+    """Selecting cmc_pro without a key must 400, not silently degrade to mock."""
+    import yaml
+    # Set up a fresh config with tier='cmc_pro' but empty key
+    cfg = {
+        "data_source": {"tier": "cmc_pro", "cmc_api_key": "", "base_rpcs": []},
+    }
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(yaml.safe_dump(cfg))
+    monkeypatch.chdir(tmp_path)  # endpoint reads config/config.yaml relative to cwd
+
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+    with TestClient(app) as client:
+        r = client.post("/api/data-source/select", json={"tier": "cmc_pro"})
+    assert r.status_code == 400, r.text
+    assert "cmc_api_key" in r.json().get("error", "").lower() or "api key" in r.json().get("error", "").lower()
+
+
+def test_post_data_source_select_x402_without_base_address_returns_400(tmp_path, monkeypatch):
+    """Selecting x402 without a Base address must 400, not silently degrade to mock."""
+    import yaml
+    cfg = {
+        "data_source": {"tier": "x402", "cmc_api_key": "", "base_rpcs": ["https://mainnet.base.org"], "base_address": ""},
+    }
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(yaml.safe_dump(cfg))
+    monkeypatch.chdir(tmp_path)
+
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+    with TestClient(app) as client:
+        r = client.post("/api/data-source/select", json={"tier": "x402"})
+    assert r.status_code == 400, r.text
+    assert "base_address" in r.json().get("error", "").lower() or "base address" in r.json().get("error", "").lower()
+
+
 # --- x402 balance polling (v2.1) ---
 
 @respx.mock

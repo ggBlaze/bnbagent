@@ -511,8 +511,11 @@ def build_app() -> FastAPI:
         """Persist the user's data-source choice + hot-swap the live source.
 
         Body: {"tier": "cmc_pro"|"x402"|"binance"|"mock"}
+
+        Returns 400 with a clear error if the chosen tier's prerequisites
+        aren't met (e.g. cmc_pro without a key, x402 without a funded Base
+        wallet). The config is NOT written unless prereqs are satisfied.
         """
-        from urllib.parse import urlparse
         tier = (body.get("tier") or "").strip()
         if tier not in ("cmc_pro", "x402", "binance", "mock"):
             return JSONResponse({"ok": False, "error": f"invalid tier: {tier}"},
@@ -523,7 +526,32 @@ def build_app() -> FastAPI:
             cfg = yaml.safe_load(cfg_path.read_text()) or {}
         else:
             cfg = {}
-        cfg.setdefault("data_source", {})["tier"] = tier
+        ds = cfg.setdefault("data_source", {})
+
+        # Prereq checks — return 400 BEFORE writing config so a bad
+        # selection never lands on disk.
+        if tier == "cmc_pro" and not ds.get("cmc_api_key"):
+            return JSONResponse(
+                {"ok": False,
+                 "error": "cmc_pro requires a CMC API key; POST /api/data-source/cmc-key first"},
+                status_code=400,
+            )
+        if tier == "x402":
+            base_address = ds.get("base_address", "")
+            if not base_address:
+                return JSONResponse(
+                    {"ok": False,
+                     "error": "x402 requires a Base address; set data_source.base_address in config or pass ?address= when polling"},
+                    status_code=400,
+                )
+            if not ds.get("base_rpcs"):
+                return JSONResponse(
+                    {"ok": False,
+                     "error": "x402 requires at least one Base RPC; set data_source.base_rpcs in config"},
+                    status_code=400,
+                )
+
+        ds["tier"] = tier
         # atomic-ish write: write to .tmp, then rename
         tmp = cfg_path.with_suffix(cfg_path.suffix + ".tmp")
         tmp.write_text(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
@@ -539,9 +567,8 @@ def build_app() -> FastAPI:
                 )
                 from connectors.cmc import CMCProClient, CMCX402Client
                 from connectors.binance import BinanceClient
-                ds = cfg["data_source"]
                 wallet = s.get("wallet")
-                if tier == "cmc_pro" and ds.get("cmc_api_key"):
+                if tier == "cmc_pro":
                     new = CMCProClient(api_key=ds["cmc_api_key"])
                 elif tier == "x402" and wallet is not None:
                     new = CMCX402Client(
