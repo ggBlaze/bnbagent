@@ -36,7 +36,10 @@ test = [
     "httpx>=0.27",       # required by mcp + TestClient
     "fastapi>=0.110",    # for dashboard endpoint tests
 ]
-twak = ["@trustwallet/cli"]  # npm-managed, see package.json
+# Note: the Trust Wallet CLI is an npm package and is installed via
+# `npm install` (see package.json). It cannot live in [project.optional-dependencies]
+# because npm names like "@trustwallet/cli" are not valid PEP508 pip specs,
+# and including one here makes the whole pyproject.toml fail to parse.
 
 [project.scripts]
 bnbagent = "core.main:main"
