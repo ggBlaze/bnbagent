@@ -113,28 +113,58 @@ def test_boot_default_tier_is_mock(tmp_path: Path, monkeypatch):
     assert c["data_source"].tier == "mock"
 
 
-def test_boot_writes_base_address_to_config(tmp_path: Path, monkeypatch):
+def test_boot_writes_base_address_to_local_yaml(tmp_path: Path, monkeypatch):
     """Boot writes the wallet's address to data_source.base_address so
     /api/data-source/x402-balance works without a query param.
 
     BSC and Base share the same secp256k1 address format, so
     wallet.address IS the Base address.
+
+    v2.1.1: boot writes to config/local.yaml (the user-state shadow),
+    not the shipped config/config.yaml. The shipped file is treated
+    as immutable at runtime. This test sets up a tmp/config/ fixture
+    and verifies the write lands in tmp/config/local.yaml.
     """
     from core import boot as boot_mod
+    from core import config_paths
 
+    # Point config_paths at our tmp dir for both read and write.
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    cfg_file = cfg_dir / "config.yaml"
+    cfg_file.write_text(yaml.safe_dump({
+        "mode": "replay",
+        "data_source": {"tier": "x402", "base_rpcs": ["https://mainnet.base.org"]},
+        "cmc": {"x402_base": "https://api.coinmarketcap.com/agent-hub", "api_key": ""},
+        "rpcs": ["http://localhost:8545"],
+        "chain_id": 97,
+        "dex": {"pcs_v3_router": "0x" + "11" * 20,
+                "pcs_v3_quoter": "0x" + "22" * 20,
+                "pcs_v3_factory": "0x" + "33" * 20},
+        "tokens": {"bsc_tokens": ["WBNB"]},
+    }))
+    pol = _write_policy(tmp_path)
+    # load_policy() also reads config/policy.schema.json (relative to cwd)
+    # so copy the repo's schema into the tmp dir. Same for perps_venues.yaml
+    # (the perps connector reads it on init).
+    import shutil
+    shutil.copy("config/policy.schema.json", cfg_dir / "policy.schema.json")
+    shutil.copy("config/perps_venues.yaml", cfg_dir / "perps_venues.yaml")
+    shutil.copy("config/allowlist.yaml", cfg_dir / "allowlist.yaml")
     monkeypatch.setattr(boot_mod, "register_identity", lambda *a, **kw: {
         "token_id": 0, "cid": "QmTest", "agent_address": "0x" + "00" * 20,
         "evaluator_address": "0x" + "00" * 20, "version": "1.0.0",
     })
 
-    cfg = _write_config(tmp_path, {"tier": "x402", "base_rpcs": ["https://mainnet.base.org"]})
-    pol = _write_policy(tmp_path)
-    boot(Decimal("100"), policy_path=str(pol), config_path=str(cfg), replay_tape=[])
+    # Use chdir + default path so the shadow pattern is exercised.
+    monkeypatch.chdir(tmp_path)
+    boot(Decimal("100"), policy_path=str(pol), replay_tape=[])
 
-    # Re-read the config from disk; base_address should now be set.
-    new_cfg = yaml.safe_load(cfg.read_text())
-    assert new_cfg["data_source"]["base_address"], (
-        "boot should have written wallet.address to data_source.base_address"
+    # Re-read the merged view from disk; base_address should now be set
+    # (boot wrote it to local.yaml).
+    new_cfg = config_paths.load_config()
+    assert new_cfg["data_source"].get("base_address"), (
+        "boot should have written wallet.address to local.yaml's data_source.base_address"
     )
     # And the wallet address from boot is what got written.
     from connectors.twak import TWAKWallet

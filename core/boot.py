@@ -14,11 +14,21 @@ from connectors import BSCClient, PancakeV3, Perps, ERC8004, ERC8183, IPFSClient
 from connectors.twak import TWAKWallet
 from .portfolio import Portfolio
 from policy.policy_verify import verify_policy
+from .config_paths import load_config as _load_merged_config, write_local, DEFAULT_CONFIG
 
 log = logging.getLogger(__name__)
 
 
 def load_config(path: str = "config/config.yaml") -> dict:
+    """Load the agent's runtime config.
+
+    Backwards-compat shim: if `path` is the default `config/config.yaml`,
+    use the local.yaml shadow pattern (merge `local.yaml` on top of
+    `config.yaml`). Otherwise, read the explicit path verbatim (used
+    by tests that want to point at a fixture file).
+    """
+    if Path(path) == DEFAULT_CONFIG:
+        return _load_merged_config()
     return yaml.safe_load(open(path))
 
 
@@ -138,17 +148,15 @@ def boot(starting_equity: Decimal = Decimal("100"),
     # The /api/data-source/x402-balance endpoint reads this from
     # config; the wizard's x402 step shows it as the funding target.
     # Only writes if the user hasn't set a custom address already.
+    # v2.1.1: write to local.yaml (the user-state shadow), not the
+    # tracked config.yaml. See core/config_paths.py.
     try:
         ds_cfg = cfg.setdefault("data_source", {})
         if not ds_cfg.get("base_address"):
             ds_cfg["base_address"] = wallet.address
-            cfg_path = Path(config_path)
-            if cfg_path.exists():
-                tmp = cfg_path.with_suffix(cfg_path.suffix + ".tmp")
-                tmp.write_text(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
-                tmp.replace(cfg_path)
+            write_local(cfg)
     except Exception as e:
-        log.warning("could not write base_address to config: %s", e)
+        log.warning("could not write base_address to local.yaml: %s", e)
     # Deterministic clock (v2.0.4). In production this is wall clock;
     # in the replay harness it's set to a callable that returns the
     # current tape ts. The portfolio, perps, and sleeves all use the

@@ -79,6 +79,10 @@ from core.setup import (
     import_wallet, sign_current_policy, reset as reset_setup,
     export_env_for_process,
 )
+from core.config_paths import (
+    load_config as _load_merged_config,
+    write_local as _write_local,
+)
 from agents.base import list_persona_names, read_persona_raw, PersonaLoader
 
 
@@ -471,17 +475,11 @@ def build_app() -> FastAPI:
         """
         s = _state()
         router = s.get("components", {}).get("data_source") or s.get("data_source")
-        # Try in-memory config first; fall back to reading config.yaml
-        # from disk so the endpoint works even when no agent is booted
-        # (which is the common case for the test suite).
-        cfg = s.get("config") or {}
-        if not cfg:
-            cfg_path = Path("config/config.yaml")
-            if cfg_path.exists():
-                try:
-                    cfg = yaml.safe_load(cfg_path.read_text()) or {}
-                except Exception:
-                    cfg = {}
+        # Try in-memory config first; fall back to reading the merged
+        # (shipped + local) view from disk so the endpoint works even
+        # when no agent is booted (which is the common case for the
+        # test suite). v2.1.1: uses the local.yaml shadow pattern.
+        cfg = s.get("config") or _load_merged_config()
         ds_cfg = cfg.get("data_source", {}) or {}
         # The Base address for x402 is the agent wallet's EVM address
         # (BSC and Base share the same secp256k1 address format). core/boot.py
@@ -527,11 +525,10 @@ def build_app() -> FastAPI:
             return JSONResponse({"ok": False, "error": f"invalid tier: {tier}"},
                                 status_code=400)
 
-        cfg_path = Path("config/config.yaml")
-        if cfg_path.exists():
-            cfg = yaml.safe_load(cfg_path.read_text()) or {}
-        else:
-            cfg = {}
+        # v2.1.1: read the merged view (shipped + local) so existing
+        # local overrides (cmc_api_key, base_rpcs, base_address set
+        # by previous wizard runs) are visible to the prereq check.
+        cfg = _load_merged_config()
         ds = cfg.setdefault("data_source", {})
 
         # Prereq checks — return 400 BEFORE writing config so a bad
@@ -558,10 +555,10 @@ def build_app() -> FastAPI:
                 )
 
         ds["tier"] = tier
-        # atomic-ish write: write to .tmp, then rename
-        tmp = cfg_path.with_suffix(cfg_path.suffix + ".tmp")
-        tmp.write_text(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
-        tmp.replace(cfg_path)
+        # v2.1.1: write to local.yaml (the user-state shadow), not
+        # the shipped config.yaml. atomic-ish via .tmp + rename inside
+        # the helper.
+        _write_local(cfg)
 
         # Hot-swap the live router if the agent is running
         s = _state()
@@ -592,20 +589,16 @@ def build_app() -> FastAPI:
 
     @app.post("/api/data-source/cmc-key")
     async def data_source_cmc_key(body: dict):
-        """Persist the CMC Pro API key in config/config.yaml."""
+        """Persist the CMC Pro API key in local.yaml (user-state shadow)."""
         api_key = (body.get("api_key") or "").strip()
         if not api_key:
             return JSONResponse({"ok": False, "error": "api_key required"},
                                 status_code=400)
-        cfg_path = Path("config/config.yaml")
-        if cfg_path.exists():
-            cfg = yaml.safe_load(cfg_path.read_text()) or {}
-        else:
-            cfg = {}
+        # v2.1.1: read merged (so we don't drop other local overrides),
+        # mutate, write back to local.yaml.
+        cfg = _load_merged_config()
         cfg.setdefault("data_source", {})["cmc_api_key"] = api_key
-        tmp = cfg_path.with_suffix(cfg_path.suffix + ".tmp")
-        tmp.write_text(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
-        tmp.replace(cfg_path)
+        _write_local(cfg)
         return JSONResponse({"ok": True})
 
     @app.post("/api/data-source/base-rpcs")
@@ -624,15 +617,10 @@ def build_app() -> FastAPI:
             if parsed.scheme not in ("http", "https") or not parsed.netloc:
                 return JSONResponse({"ok": False, "error": f"invalid URL: {u}"},
                                     status_code=422)
-        cfg_path = Path("config/config.yaml")
-        if cfg_path.exists():
-            cfg = yaml.safe_load(cfg_path.read_text()) or {}
-        else:
-            cfg = {}
+        # v2.1.1: read merged, mutate, write to local.yaml.
+        cfg = _load_merged_config()
         cfg.setdefault("data_source", {})["base_rpcs"] = list(rpcs)
-        tmp = cfg_path.with_suffix(cfg_path.suffix + ".tmp")
-        tmp.write_text(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
-        tmp.replace(cfg_path)
+        _write_local(cfg)
         return JSONResponse({"ok": True, "base_rpcs": list(rpcs)})
 
     @app.get("/api/data-source/x402-balance")
@@ -644,14 +632,10 @@ def build_app() -> FastAPI:
         enables the Continue button when balance_usdc >= 0.50.
         """
         from connectors.x402 import check_balance
-        cfg_path = Path("config/config.yaml")
-        if cfg_path.exists():
-            try:
-                cfg = yaml.safe_load(cfg_path.read_text()) or {}
-            except Exception:
-                cfg = {}
-        else:
-            cfg = {}
+        # v2.1.1: use the merged view (shipped + local) so the user
+        # can override base_rpcs in local.yaml without editing the
+        # shipped config.
+        cfg = _load_merged_config()
         ds_cfg = cfg.get("data_source", {}) or {}
         base_rpcs = ds_cfg.get("base_rpcs", [])
         if not base_rpcs:

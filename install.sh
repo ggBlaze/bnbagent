@@ -112,6 +112,20 @@ else
   ok "config/policy.yaml already present (left untouched)"
 fi
 
+# v2.1.1: copy config/local.yaml.example → config/local.yaml if the
+# user-state shadow file doesn't exist yet. The shadow is where the
+# Setup wizard writes (tier choice, CMC Pro API key, custom Base RPCs,
+# base_address). The shipped config/config.yaml is the immutable
+# defaults file. See core/config_paths.py for the merge semantics.
+if [[ ! -f config/local.yaml ]]; then
+  if [[ -f config/local.yaml.example ]]; then
+    cp config/local.yaml.example config/local.yaml
+    ok "config/local.yaml bootstrapped from example (gitignored, your private overrides)"
+  fi
+else
+  ok "config/local.yaml already present (left untouched)"
+fi
+
 mkdir -p logs data data/reports
 
 # --- 4. Sanity check ---------------------------------------------------------

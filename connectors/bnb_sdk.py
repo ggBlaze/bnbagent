@@ -24,6 +24,8 @@ from typing import Any, Iterable
 
 import httpx
 import yaml
+from pathlib import Path
+from core.config_paths import load_config as _load_merged_config, DEFAULT_CONFIG
 from web3 import Web3
 
 from .twak import TWAKWallet, SignedTx
@@ -527,7 +529,13 @@ class ERC8183:
 # --- factory ---
 
 def from_config(path: str = "config/config.yaml", wallet: TWAKWallet | None = None) -> dict:
-    cfg = yaml.safe_load(open(path))
+    # v2.1.1: use the local.yaml shadow pattern when reading the
+    # default config path. Explicit paths (passed by tests or tooling)
+    # are read verbatim.
+    if Path(path) == DEFAULT_CONFIG:
+        cfg = _load_merged_config()
+    else:
+        cfg = yaml.safe_load(open(path))
     bsc = BSCClient(rpcs=cfg["rpcs"], chain_id=cfg["chain_id"], mode=cfg.get("mode", "testnet"))
     pancake = PancakeV3(
         client=bsc,

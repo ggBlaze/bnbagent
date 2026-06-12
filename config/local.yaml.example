@@ -1,0 +1,35 @@
+# BNB Agent — user-specific runtime overrides (LOCAL, gitignored)
+# --------------------------------------------------------------
+# This file is your private override layer. The shipped defaults live in
+# config/config.yaml (tracked in git). The agent reads the deep-merged
+# view of both — keys here override the same keys in config.yaml; lists
+# here replace lists there. You can leave this file empty and the agent
+# will run entirely on the shipped defaults.
+#
+# The Setup wizard writes here when you pick a tier, enter a CMC Pro API
+# key, or set a custom Base RPC list. Boot also writes here on first
+# boot to record your wallet's Base address (for x402 funding detection).
+#
+# NEVER commit this file. It is .gitignored for a reason. If you ever
+# accidentally do, rotate the CMC Pro API key (POST /api/data-source/cmc-key
+# with a new key) and `git rm --cached config/local.yaml`.
+#
+# Minimal shape — leave everything commented out to run on shipped defaults:
+#
+# mode: mainnet
+# chain_id: 56
+# rpcs:
+#   - https://bsc-dataseed.binance.org
+#   - https://bsc-dataseed.defibit.io
+# data_source:
+#   tier: x402                          # cmc_pro | x402 | binance | mock
+#   cmc_api_key: ""                     # populated by the wizard for tier=cmc_pro
+#   base_rpcs:                          # x402 needs at least one
+#     - https://mainnet.base.org
+#     - https://base.publicnode.com
+#     - https://1rpc.io/base
+#   daily_cap_usdc: 10.0
+#   base_address: ""                    # auto-populated by boot from wallet
+#
+# Uncomment + edit any of the above to override. Re-run `bash bnbagent`
+# to apply.

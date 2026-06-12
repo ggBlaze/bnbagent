@@ -74,13 +74,17 @@ def test_post_data_source_base_rpcs_rejects_invalid_url():
 def test_post_data_source_select_cmc_pro_without_key_returns_400(tmp_path, monkeypatch):
     """Selecting cmc_pro without a key must 400, not silently degrade to mock."""
     import yaml
-    # Set up a fresh config with tier='cmc_pro' but empty key
+    # v2.1.1: endpoint now reads via the local.yaml shadow pattern
+    # (core.config_paths.load_config), which resolves `config/config.yaml`
+    # + `config/local.yaml` relative to cwd. Lay the fixture out in
+    # tmp_path/config/ to match the helper's resolution.
     cfg = {
         "data_source": {"tier": "cmc_pro", "cmc_api_key": "", "base_rpcs": []},
     }
-    cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text(yaml.safe_dump(cfg))
-    monkeypatch.chdir(tmp_path)  # endpoint reads config/config.yaml relative to cwd
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump(cfg))
+    monkeypatch.chdir(tmp_path)
 
     from fastapi.testclient import TestClient
     from dashboard.backend.main import app
@@ -96,8 +100,9 @@ def test_post_data_source_select_x402_without_base_address_returns_400(tmp_path,
     cfg = {
         "data_source": {"tier": "x402", "cmc_api_key": "", "base_rpcs": ["https://mainnet.base.org"], "base_address": ""},
     }
-    cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text(yaml.safe_dump(cfg))
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump(cfg))
     monkeypatch.chdir(tmp_path)
 
     from fastapi.testclient import TestClient

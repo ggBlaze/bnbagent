@@ -4,10 +4,22 @@ The dashboard's "Setup" wizard writes through this module. The agent's boot
 sequence reads from the same files. Single source of truth on disk.
 
 State on disk:
-  config/config.yaml      — main runtime config (RPCs, chain, CMC, mode)
+  config/config.yaml      — shipped defaults (tracked in git, immutable
+                            at runtime). Mode, chain, RPCs, token registry,
+                            data_source defaults. See config/config.yaml.
+  config/local.yaml       — user-specific overrides (gitignored). Tier
+                            choice, CMC Pro API key, custom Base RPCs +
+                            address, anything the Setup wizard persists.
+                            See config/local.yaml.example for the shape
+                            and core/config_paths.py for the merge
+                            semantics (deep-merge, local wins).
   config/policy.yaml      — signed User Policy
   ~/.twak/wallet.json     — encrypted wallet keystore
   ~/.bnbagent/setup.json  — operator-friendly summary (what the dashboard reads)
+
+The wizard reads the merged view via core.config_paths.load_config() and
+writes back via core.config_paths.write_local(). The shipped config.yaml
+is never mutated at runtime.
 """
 from __future__ import annotations
 
@@ -27,6 +39,12 @@ from connectors.keystore import (
     unlock_and_get_account, KeystoreCorrupt,
 )
 from policy.policy_sign import sign_policy
+from .config_paths import (
+    load_config as _load_merged_config,
+    write_local,
+    DEFAULT_CONFIG,
+    LOCAL_CONFIG,
+)
 
 
 # --- on-disk summary -------------------------------------------------------
@@ -94,8 +112,13 @@ def load_setup_state() -> SetupState:
     cases, but the exception is captured separately so the dashboard
     can show 'keystore is corrupt, here's how to recover' instead of
     silently treating the corrupt file as 'no wallet'.
+
+    v2.1.1: use the local.yaml shadow pattern. Read the merged view
+    of (shipped config.yaml) + (user-specific local.yaml) so the
+    dashboard's Step 1 reflects whatever the user actually configured
+    in the wizard, not just the shipped defaults.
     """
-    cfg = _load_yaml(Path("config/config.yaml"))
+    cfg = _load_merged_config()
     pol = _load_yaml(Path("config/policy.yaml"))
     # v2.0.8-L4: catch KeystoreCorrupt separately from missing-file
     try:
@@ -129,7 +152,12 @@ def set_runtime_config(
     mode: str, chain_id: int, rpcs: list[str],
     cmc_api_key: str = "", cmc_x402_base: str | None = None,
 ) -> dict:
-    """Update config/config.yaml. Validates types. Returns the merged cfg."""
+    """Update the runtime config. Validates types. Returns the merged cfg.
+
+    v2.1.1: writes to local.yaml (the user-state shadow), not the
+    shipped config.yaml. The shipped file is treated as immutable at
+    runtime; only `git pull` / a fresh clone can change it.
+    """
     if mode not in ("testnet", "mainnet", "replay"):
         raise ValueError(f"invalid mode: {mode}")
     if chain_id not in (56, 97):
@@ -140,8 +168,11 @@ def set_runtime_config(
         if not r.startswith(("http://", "https://")):
             raise ValueError(f"invalid RPC URL: {r}")
 
-    path = Path("config/config.yaml")
-    cfg = _load_yaml(path)
+    # Read the merged view (shipped + local) so we don't clobber any
+    # existing local overrides (e.g. data_source.tier from a prior
+    # wizard run). Then mutate the in-memory dict and write it back
+    # as the new local.yaml.
+    cfg = _load_merged_config()
     cfg["mode"] = mode
     cfg["chain_id"] = int(chain_id)
     cfg["rpcs"] = list(rpcs)
@@ -150,7 +181,7 @@ def set_runtime_config(
         cmc["api_key"] = cmc_api_key
     if cmc_x402_base:
         cmc["x402_base"] = cmc_x402_base
-    _save_yaml(path, cfg)
+    write_local(cfg)
     return cfg
 
 

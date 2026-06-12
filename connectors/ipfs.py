@@ -60,7 +60,13 @@ class IPFSClient:
 
 def from_config(path: str = "config/config.yaml") -> IPFSClient:
     import yaml
-    cfg = yaml.safe_load(open(path))
+    from pathlib import Path
+    from core.config_paths import load_config as _load_merged_config, DEFAULT_CONFIG
+    # v2.1.1: shadow pattern on the default path; explicit paths verbatim.
+    if Path(path) == DEFAULT_CONFIG:
+        cfg = _load_merged_config()
+    else:
+        cfg = yaml.safe_load(open(path))
     return IPFSClient(
         api=os.environ.get("IPFS_API", "/ip4/127.0.0.1/tcp/5001"),
         mode=cfg.get("mode", "testnet"),

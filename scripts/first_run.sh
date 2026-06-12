@@ -61,8 +61,11 @@ from connectors.bnb_sdk import BSCClient, ERC8004
 from connectors.ipfs import IPFSClient
 from connectors.twak import TWAKWallet
 from identity.register import register_agent
+from core.config_paths import load_config as _load_merged_config
 import yaml
-cfg = yaml.safe_load(open('config/config.yaml'))
+# v2.1.1: read the merged view (shipped + local) so this sanity check
+# sees the user's local overrides (mode, tier, RPCs).
+cfg = _load_merged_config()
 bsc = BSCClient(cfg['rpcs'], cfg['chain_id'], cfg.get('mode', 'testnet'))
 e8 = ERC8004(bsc, '0x' + '80'+'04'+'0'*36)
 ipfs = IPFSClient(mode='testnet')

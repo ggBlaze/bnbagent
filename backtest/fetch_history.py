@@ -19,6 +19,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from connectors.cmc import CMCClient
+from core.config_paths import load_config as _load_merged_config
 
 log = logging.getLogger(__name__)
 
@@ -27,7 +28,12 @@ async def fetch_all(out_dir: str = "data/parquet", symbols: list[str] | None = N
                     time_period: str = "hour", count: int = 24 * 90):
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    cfg = yaml.safe_load(open("config/config.yaml"))
+    # v2.1.1: read the merged view (shipped + local) so the user's
+    # local CMC Pro API key override is picked up. This script is
+    # dead code — the live replay uses core.boot + DataSourceRouter,
+    # not this. The legacy CMCClient shim + 404 URL are tracked as
+    # a v2.1.0 P1 ("fix or remove in v2.2").
+    cfg = _load_merged_config()
     cmc = CMCClient(x402_base=cfg["cmc"]["x402_base"], api_key=cfg["cmc"]["api_key"],
                     mode=cfg.get("mode", "testnet"))
     symbols = symbols or cfg["cmc"]["basket_symbols"][:20]

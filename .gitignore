@@ -35,6 +35,11 @@ logs/
 # Agent identity (contains wallet + ERC-8004 token)
 .bnbagent/
 
+# User-specific runtime overrides (Setup wizard writes here, never tracked).
+# The shipped defaults live in config/config.yaml; this file is the shadow
+# layer. See core/config_paths.py for the merge semantics.
+config/local.yaml
+
 # IDE
 .vscode/
 .idea/
