@@ -2,6 +2,51 @@
 
 All notable changes to this project. Versioned per the git tag.
 
+## v2.1.3 — UI gaps in the dashboard (LLM key + Personas + Token form)
+
+Blaze (2026-06-12, 07:07 CST) flagged three real UI gaps in the
+dashboard that the v2.1.0/v2.1.1/v2.1.2 series didn't address. All
+fixed in this release.
+
+ADDED:  POST /api/llm/key + POST /api/llm/test. The LLM provider
+        keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY,
+        OAI_KEY) used to require a manual edit of .env + an agent
+        restart. Now there's a Config pane section with a masked
+        key field, a Set button, and a Test button. The endpoint
+        writes/updates the env var in .env (gitignored, atomic-ish)
+        and the test endpoint reads .env directly (not os.environ,
+        so the user can verify their key BEFORE restarting the
+        agent — the in-process router has env vars cached from boot).
+        The Set response is honest about the restart requirement.
+ADDED:  Tests for the dotenv helpers (11 tests) + the LLM key
+        endpoint (8 tests): replaces/appends, preserves comments +
+        unrelated lines, atomic write, special chars in API keys,
+        missing/invalid/valid key detection, oai_compat requires
+        OAI_BASE, local provider is n/a.
+ADDED:  Personas section in the Config pane. Lists all 4 personas
+        (advisor / reviewer / chat / token_module) with their
+        status (pro default vs diverged) and View / Edit / Reset
+        links. The runtime copy lives at ~/.bnbagent/personas/
+        (gitignored, takes precedence over the shipped copy in
+        agents/personas/). The chat persona keeps its existing
+        view/edit links in the Chat pane too — minimal disruption.
+ADDED:  Inline form fields for token name + symbol in the Token
+        Module pane. The old code used window.prompt() dialogs (bad
+        UX). The new form has dedicated <input> fields, validation
+        (3-5 uppercase chars for symbol, non-empty for name), and
+        a prominent network notice that updates in real-time when
+        the user changes the Network dropdown:
+        - Green for testnet: "BSC Testnet (chain 97, free, recommended)"
+        - Red for mainnet: "BSC MAINNET — real BNB, IRREVERSIBLE"
+CHANGED: agents/_pro_defaults/chat.md + agents/personas/chat.md
+         now point the chat LLM at the new Config pane → LLM API
+         key section (the old instruction said "Setup → re-enter
+         the API key" but Setup never had an LLM step; the pro
+         default was lying to the user).
+CHANGED: Chat banner copy now says "open the Config pane → LLM API
+         key section" (was: "add a key in .env and restart").
+CHANGED: badge 311/311 → 330/330.
+
 ## v2.1.2 — repo cleanliness (the other write paths)
 
 CHANGED: config/policy.yaml is now gitignored. The shipped

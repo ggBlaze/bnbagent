@@ -94,6 +94,57 @@ def _state() -> dict:
     return DASHBOARD_STATE or {}
 
 
+# v2.1.3: dotenv helpers for the LLM API key UI. The keys are env vars
+# referenced by $VAR substitution in agents/providers.yaml; the dashboard
+# writes them to .env (gitignored). Atomic-ish via .tmp + rename so a
+# crash mid-write doesn't leave a half-written file.
+_DOTENV_PATH = Path(".env")
+
+
+def _get_env_var_from_dotenv(name: str) -> str:
+    """Read an env var from .env directly (not from os.environ).
+
+    Why: the in-process router has env vars cached from boot. If the
+    user just set a key in .env and hasn't restarted, os.environ still
+    has the old value. Reading .env directly lets the /api/llm/test
+    endpoint verify the user's new key without requiring a restart.
+    """
+    if not _DOTENV_PATH.exists():
+        return ""
+    for line in _DOTENV_PATH.read_text().splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s.startswith(f"{name}="):
+            return s.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
+def _set_env_var_in_dotenv(name: str, value: str) -> None:
+    """Set or replace an env var in .env. Atomic-ish (.tmp + rename).
+
+    Preserves comments + ordering of unrelated lines. If `name` is not
+    in the file yet, appends it. The value is written as-is (no
+    quoting/escaping) — we strip user input at the API layer.
+    """
+    lines = _DOTENV_PATH.read_text().splitlines() if _DOTENV_PATH.exists() else []
+    found = False
+    out: list[str] = []
+    for line in lines:
+        s = line.strip()
+        if s and not s.startswith("#") and s.split("=", 1)[0].strip() == name:
+            out.append(f"{name}={value}")
+            found = True
+        else:
+            out.append(line)
+    if not found:
+        out.append(f"{name}={value}")
+    _DOTENV_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _DOTENV_PATH.with_suffix(_DOTENV_PATH.suffix + ".tmp")
+    tmp.write_text("\n".join(out) + "\n")
+    tmp.replace(_DOTENV_PATH)
+
+
 def _stats() -> dict:
     return _state().get("stats", {})
 
@@ -834,6 +885,145 @@ def build_app() -> FastAPI:
             doc["agents"][agent_name] = agent_cfg
         cfg_path.write_text(_yaml.safe_dump(doc, sort_keys=False))
         return JSONResponse({"ok": True, "note": "restart the agent to apply"})
+
+    # v2.1.3: LLM API key UI. The keys come from env vars (referenced by
+    # $VAR substitution in agents/providers.yaml). The dashboard lets the
+    # user set + verify them via .env (gitignored). The in-process router
+    # has the env vars cached from boot, so a key change requires an
+    # agent restart — but the user can "Test" the key (reads .env directly,
+    # not os.environ) to confirm it's correct before restarting.
+    LLM_PROVIDER_ENV_VARS = {
+        "anthropic":  "ANTHROPIC_API_KEY",
+        "openai":     "OPENAI_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+        "oai_compat": "OAI_KEY",
+        # local: no key needed
+    }
+
+    @app.post("/api/llm/key")
+    async def llm_key_set(body: dict):
+        provider = (body.get("provider") or "").strip()
+        key = (body.get("key") or "").strip()
+        # The shipped providers.yaml lists 5 providers; "local" has no
+        # key, so we accept it but refuse the key field if present.
+        all_providers = set(LLM_PROVIDER_ENV_VARS) | {"local"}
+        if provider not in all_providers:
+            return JSONResponse(
+                {"ok": False, "error": f"unknown provider: {provider}. choose from {sorted(all_providers)}"},
+                status_code=400,
+            )
+        if provider == "local":
+            return JSONResponse({
+                "ok": False, "error": "local provider has no key; it's a local-LLM base URL only",
+            }, status_code=400)
+        if not key:
+            return JSONResponse({"ok": False, "error": "key required"}, status_code=400)
+        env_var = LLM_PROVIDER_ENV_VARS[provider]
+        try:
+            _set_env_var_in_dotenv(env_var, key)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": f"failed to write .env: {e}"}, status_code=500)
+        return JSONResponse({
+            "ok": True,
+            "provider": provider,
+            "env_var": env_var,
+            "restart_required": True,
+            "note": f"Saved to .env ({env_var}). Restart the agent (Ctrl+C then 'bash bnbagent') to apply.",
+        })
+
+    @app.post("/api/llm/test")
+    async def llm_key_test(body: dict):
+        provider = (body.get("provider") or "").strip()
+        all_providers = set(LLM_PROVIDER_ENV_VARS) | {"local"}
+        if provider not in all_providers:
+            return JSONResponse(
+                {"ok": False, "error": f"unknown provider: {provider}"},
+                status_code=400,
+            )
+        if provider == "local":
+            return JSONResponse({
+                "ok": True, "provider": provider, "status": "n/a",
+                "note": "local provider has no key",
+            })
+        env_var = LLM_PROVIDER_ENV_VARS[provider]
+        try:
+            key = _get_env_var_from_dotenv(env_var) or ""
+        except Exception as e:
+            return JSONResponse({"ok": True, "provider": provider, "status": "error", "note": f"read failed: {e}"})
+        if not key:
+            return JSONResponse({
+                "ok": True, "provider": provider, "status": "missing",
+                "note": f"{env_var} is not set in .env",
+            })
+        # Tiny test call to the provider's auth endpoint.
+        import httpx
+        try:
+            if provider == "openrouter":
+                r = httpx.get(
+                    "https://openrouter.ai/api/v1/models",
+                    headers={"Authorization": f"Bearer {key}"},
+                    timeout=10,
+                )
+            elif provider == "anthropic":
+                # 401 = bad key, 400 with "credit" / "billing" = valid key but no quota.
+                # We treat 401 as invalid, anything else as a pass on the auth check.
+                r = httpx.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": key,
+                        "anthropic-version": "2023-06-01",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "claude-3-5-haiku-latest",
+                        "max_tokens": 1,
+                        "messages": [{"role": "user", "content": "hi"}],
+                    },
+                    timeout=10,
+                )
+                if r.status_code == 401:
+                    return JSONResponse({
+                        "ok": True, "provider": provider, "status": "invalid",
+                        "note": "401 from anthropic — key is wrong or revoked",
+                    })
+            elif provider == "openai":
+                r = httpx.get(
+                    "https://api.openai.com/v1/models",
+                    headers={"Authorization": f"Bearer {key}"},
+                    timeout=10,
+                )
+            elif provider == "oai_compat":
+                base = _get_env_var_from_dotenv("OAI_BASE") or ""
+                if not base:
+                    return JSONResponse({
+                        "ok": True, "provider": provider, "status": "missing-base",
+                        "note": "OAI_BASE is not set in .env",
+                    })
+                r = httpx.get(
+                    f"{base.rstrip('/')}/models",
+                    headers={"Authorization": f"Bearer {key}"},
+                    timeout=10,
+                )
+            else:
+                return JSONResponse({
+                    "ok": True, "provider": provider, "status": "unknown",
+                    "note": f"no test path for {provider}",
+                })
+            r.raise_for_status()
+            return JSONResponse({
+                "ok": True, "provider": provider, "status": "valid",
+                "note": "key verified",
+            })
+        except httpx.HTTPStatusError as e:
+            return JSONResponse({
+                "ok": True, "provider": provider, "status": "invalid",
+                "note": f"{e.response.status_code} from provider: {e.response.text[:120]}",
+            })
+        except Exception as e:
+            return JSONResponse({
+                "ok": True, "provider": provider, "status": "error",
+                "note": f"verification failed: {e}",
+            })
 
     # ---------------------------------------------------------- tokens (stub)
     @app.get("/api/tokens/config")

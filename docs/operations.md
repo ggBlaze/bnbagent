@@ -245,3 +245,77 @@ land in a commit):
 **Contract test:** `tests/unit/test_repo_cleanliness.py` (36 tests)
 pins the contract. Adding a new runtime write path to a tracked
 file will fail the test on the next CI run.
+
+## Dashboard UI (v2.1.3)
+
+The dashboard has 7 panes: **Setup**, **Live**, **Chat**, **Tokens**,
+**Config**, **Logs**, **Replay**. The Config pane is the operator's
+control room after the Setup wizard completes.
+
+### LLM API key (Config pane → "LLM API key" section)
+
+The shipped `agents/providers.yaml` references 5 providers via env
+var substitution (`$ANTHROPIC_API_KEY`, `$OPENAI_API_KEY`,
+`$OPENROUTER_API_KEY`, `$OAI_KEY`, `$LOCAL_LLM_BASE` for the
+`local` provider which has no key). To set or change a key:
+
+1. Open the **Config** pane → scroll to "LLM API key".
+2. Pick the provider from the dropdown.
+3. Paste the key into the masked field.
+4. Click **Set** — this writes the env var to `.env` (gitignored,
+   atomic-ish `.tmp` + rename).
+5. Click **Test** — this reads `.env` directly (not `os.environ`,
+   so the result reflects what the NEXT boot will see) and makes a
+   tiny auth call to the provider. Status shows:
+   - `valid` — provider accepted the key
+   - `missing` — env var is not in `.env`
+   - `missing-base` — `OAI_KEY` is set but `OAI_BASE` is not (for
+     `oai_compat` only)
+   - `invalid` — provider rejected the key
+6. **Restart the agent** for the change to take effect in-process
+   (the LLMRouter has env vars cached from boot):
+   - Press Ctrl+C in the terminal where `bash bnbagent` is running
+   - Run `bash bnbagent` again
+   - The chat banner should turn green and the agent should start
+     responding
+
+### Personas (Config pane → "Personas" section)
+
+The 4 personas (`advisor`, `reviewer`, `chat`, `token_module`) are
+Markdown files with YAML frontmatter. Each row in the Personas
+section shows:
+
+- The persona's name
+- Status: `pro default` (green) or `diverged from pro` (amber)
+- A sha256 prefix so you can tell if your runtime copy is the
+  same as the shipped one
+- **View** — opens a new window with the markdown body
+- **Edit** — opens a `prompt()` with the body for inline editing
+- **Reset to pro** — overwrites your runtime copy at
+  `~/.bnbagent/personas/{name}.md` with the pro default
+
+The runtime copy takes precedence over the shipped copy, so editing
+the runtime file gives you a "private override" without touching
+the tracked repo. The chat persona also has View/Edit/Reset links
+in the Chat pane (kept for discoverability).
+
+### Token Module (Tokens pane)
+
+The form has inline fields for everything the deploy needs:
+
+- **Network** (dropdown) — Testnet / Mainnet
+- **Protocol** (dropdown) — ERC-20 minimal / BEP-20 / OpenZeppelin
+- **Token name** (text) — e.g. "Mooncoin", max 64 chars
+- **Symbol** (text) — 3-5 uppercase chars, e.g. "MOON"
+- **Total supply** (number) — default 1,000,000,000
+- **Decimals** (number) — 0-18, default 18
+- **Generate a landing-page website** (checkbox + theme textarea)
+
+A prominent network notice at the top of the form updates in
+real-time when the Network dropdown changes:
+
+- 🟢 Green for testnet: "BSC Testnet (chain 97, free, recommended)"
+- 🟥 Red for mainnet: "⚠️ BSC MAINNET — real BNB, IRREVERSIBLE"
+
+Mainnet deploys still ask the user to type the symbol to confirm
+(the symbol is the canonical on-chain identifier).

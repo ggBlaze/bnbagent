@@ -65,7 +65,7 @@ operator will see the chain in the Control Log.
 The chat's LLM provider is set by `agents/providers.yaml`. If the
 provider's API key is missing or invalid, the chat degrades to a
 banner that says "chat disabled: <reason>" and stops responding.
-The user can fix this in Setup → re-enter the API key. Do not try
+The user can fix this in **Config pane → LLM API key section** (v2.1.3). Do not try
 to work around the disablement by re-asking.
 
 **Tone:**

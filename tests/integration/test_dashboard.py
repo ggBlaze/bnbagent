@@ -178,3 +178,120 @@ def test_export_mnemonic_returns_phrase_with_correct_password(monkeypatch):
     body = r.json()
     assert "mnemonic" in body
     assert body["mnemonic"] == test_mnemonic
+
+
+# --- LLM API key UI (v2.1.3) -----------------------------------------------
+
+def test_post_llm_key_writes_to_dotenv(tmp_path, monkeypatch):
+    """Setting a provider key writes (or replaces) the env var in .env."""
+    import os
+    # Use a fresh tmp dir so we don't clobber the real .env
+    monkeypatch.chdir(tmp_path)
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+    with TestClient(app) as client:
+        r = client.post("/api/llm/key", json={"provider": "openrouter", "key": "sk-test-123"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["provider"] == "openrouter"
+    assert body["env_var"] == "OPENROUTER_API_KEY"
+    assert body["restart_required"] is True
+    # Read back from .env
+    dotenv = (tmp_path / ".env").read_text()
+    assert "OPENROUTER_API_KEY=sk-test-123" in dotenv
+
+
+def test_post_llm_key_replaces_existing(tmp_path, monkeypatch):
+    """Calling set twice with the same provider replaces, not appends."""
+    monkeypatch.chdir(tmp_path)
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+    with TestClient(app) as client:
+        client.post("/api/llm/key", json={"provider": "openai", "key": "sk-first"})
+        r2 = client.post("/api/llm/key", json={"provider": "openai", "key": "sk-second"})
+    assert r2.status_code == 200
+    dotenv = (tmp_path / ".env").read_text()
+    # Only one entry for OPENAI_API_KEY, and it's the latest.
+    assert dotenv.count("OPENAI_API_KEY=") == 1
+    assert "OPENAI_API_KEY=sk-second" in dotenv
+    assert "sk-first" not in dotenv
+
+
+def test_post_llm_key_preserves_other_env_vars(tmp_path, monkeypatch):
+    """Setting a key doesn't clobber unrelated entries in .env."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "# my config\n"
+        "FOO=bar\n"
+        "OPENROUTER_API_KEY=old-key\n"
+        "BAZ=qux\n"
+    )
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+    with TestClient(app) as client:
+        r = client.post("/api/llm/key", json={"provider": "openrouter", "key": "new-key"})
+    assert r.status_code == 200
+    dotenv = (tmp_path / ".env").read_text()
+    assert "# my config" in dotenv
+    assert "FOO=bar" in dotenv
+    assert "BAZ=qux" in dotenv
+    assert "OPENROUTER_API_KEY=new-key" in dotenv
+    assert "old-key" not in dotenv
+
+
+def test_post_llm_key_rejects_unknown_provider(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+    with TestClient(app) as client:
+        r = client.post("/api/llm/key", json={"provider": "made-up", "key": "x"})
+    assert r.status_code == 400
+    assert "unknown provider" in r.json()["error"].lower()
+
+
+def test_post_llm_key_rejects_empty_key(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+    with TestClient(app) as client:
+        r = client.post("/api/llm/key", json={"provider": "openrouter", "key": ""})
+    assert r.status_code == 400
+    assert "key required" in r.json()["error"].lower()
+
+
+def test_post_llm_test_reports_missing(tmp_path, monkeypatch):
+    """Test reads .env directly, not os.environ. Missing key = 'missing' status."""
+    monkeypatch.chdir(tmp_path)
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+    with TestClient(app) as client:
+        r = client.post("/api/llm/test", json={"provider": "openrouter"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "missing"
+    assert "OPENROUTER_API_KEY" in body["note"]
+
+
+def test_post_llm_test_local_is_na(tmp_path, monkeypatch):
+    """The 'local' provider has no key — /api/llm/test returns n/a status."""
+    monkeypatch.chdir(tmp_path)
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+    with TestClient(app) as client:
+        r = client.post("/api/llm/test", json={"provider": "local"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "n/a"
+
+
+def test_post_llm_test_oai_compat_requires_base(tmp_path, monkeypatch):
+    """oai_compat needs OAI_BASE in .env or test returns missing-base."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("OAI_KEY=sk-test-123\n")
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+    with TestClient(app) as client:
+        r = client.post("/api/llm/test", json={"provider": "oai_compat"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "missing-base"
+    assert "OAI_BASE" in r.json()["note"]

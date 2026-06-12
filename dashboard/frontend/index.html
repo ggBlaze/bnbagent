@@ -922,6 +922,62 @@ body::before {
         <div class="kv"><span class="k">Base RPCs</span><span class="v" id="ds-active-rpcs">—</span></div>
         <button type="button" class="btn" id="ds-change-button" style="margin-top:10px;" onclick="dsChangeOpen()">Change data source</button>
       </section>
+
+      <!-- v2.1.3: LLM API key UI. The keys come from env vars (referenced
+           by $VAR substitution in agents/providers.yaml). The dashboard
+           writes them to .env (gitignored) + verifies with a tiny test
+           call. After saving, the user must restart the agent for the
+           change to take effect (the in-process router has env vars
+           cached from boot). -->
+      <section class="panel" style="margin-top:14px;">
+        <h4>LLM API key <span class="meta">for chat / advisor / reviewer / token_module</span></h4>
+        <div style="display:grid; grid-template-columns: 200px 1fr; gap: 16px; align-items:end;">
+          <div class="field">
+            <label>Provider</label>
+            <select id="llm-provider">
+              <option value="openrouter">OpenRouter (default)</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
+              <option value="oai_compat">OAI-compatible (custom base URL)</option>
+              <option value="local">Local (no key)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>API key <span class="mono" id="llm-env-var" style="color:var(--fg-dimmer); margin-left:6px;">—</span></label>
+            <div style="display:flex; gap:8px;">
+              <input id="llm-key" type="password" placeholder="sk-…" autocomplete="off" style="flex:1;" />
+              <button type="button" class="btn primary" onclick="llmKeySet()">Set</button>
+              <button type="button" class="btn" onclick="llmKeyTest()">Test</button>
+            </div>
+            <div id="llm-status-line" class="hint" style="font:400 10px/1.4 'Inter'; color:var(--fg-dim); margin-top:6px;">
+              No key set.
+            </div>
+          </div>
+        </div>
+        <div id="llm-result" style="margin-top:10px;"></div>
+      </section>
+
+      <!-- v2.1.3: Personas section. Lists all 4 personas (advisor /
+           reviewer / chat / token_module) with view / edit / reset
+           links. The chat persona also has links in the Chat pane;
+           this is the canonical list. The runtime copy lives at
+           ~/.bnbagent/personas/{name}.md (gitignored, takes precedence
+           over the shipped one in agents/personas/). -->
+      <section class="panel" style="margin-top:14px;">
+        <h4>Personas <span class="meta">system prompts for the LLM agents</span></h4>
+        <p style="font:400 11px/1.5 'Inter'; color:var(--fg-dim); margin: 0 0 14px;">
+          Each persona is a <code class="mono" style="color:var(--accent);">.md</code> file
+          with YAML frontmatter. The runtime copy lives at
+          <code class="mono" style="color:var(--accent);">~/.bnbagent/personas/</code>
+          (gitignored) and takes precedence over the shipped one in
+          <code class="mono" style="color:var(--accent);">agents/personas/</code>.
+          "diverged" means your runtime copy differs from the pro default
+          in <code class="mono" style="color:var(--accent);">agents/_pro_defaults/</code>.
+        </p>
+        <div id="persona-list">
+          <div class="line dim">loading…</div>
+        </div>
+      </section>
     </div>
 
     <!-- Logs pane (hidden) -->
@@ -985,12 +1041,14 @@ body::before {
           metadata, <strong style="color:var(--blue);">BNB SDK</strong> broadcasts
           the contract creation.
         </p>
+        <!-- v2.1.3: prominent network notice that updates on dropdown change -->
+        <div id="tok-network-notice" class="banner ok" style="margin: 0 0 18px;">…</div>
         <div class="field-row">
           <div class="field">
             <label>Network</label>
             <select id="tok-network">
-              <option value="testnet">BSC Testnet (free, recommended)</option>
-              <option value="mainnet">BSC Mainnet (real BNB, irreversible)</option>
+              <option value="testnet">BSC Testnet (chain 97, free, recommended)</option>
+              <option value="mainnet">BSC Mainnet (chain 56, real BNB, irreversible)</option>
             </select>
           </div>
           <div class="field">
@@ -1000,6 +1058,17 @@ body::before {
               <option value="bep20">BEP-20 (alias)</option>
               <option value="openzeppelin">OpenZeppelin (audited, heavier)</option>
             </select>
+          </div>
+        </div>
+        <!-- v2.1.3: inline form fields for name + symbol (replaces prompt() dialogs) -->
+        <div class="field-row">
+          <div class="field">
+            <label>Token name <span style="color:var(--fg-dimmer);">(e.g. "Mooncoin")</span></label>
+            <input id="tok-name" type="text" maxlength="64" placeholder="Mooncoin" />
+          </div>
+          <div class="field">
+            <label>Symbol <span style="color:var(--fg-dimmer);">(3–5 uppercase chars, e.g. "MOON")</span></label>
+            <input id="tok-symbol" type="text" maxlength="5" pattern="[A-Za-z0-9]{3,5}" placeholder="MOON" style="text-transform:uppercase;" />
           </div>
         </div>
         <div class="field-row">
@@ -1021,7 +1090,7 @@ body::before {
         </div>
         <div class="actions" style="margin-top:16px;">
           <div style="font:400 11px/1.4 'Inter'; color:var(--fg-dim);">
-            Mainnet deploys require a confirmation dialog.
+            Testnet deploys are free and reversible (no contract owner). Mainnet deploys require a confirmation dialog.
           </div>
           <button class="btn primary" onclick="deployToken()">Deploy now</button>
         </div>
@@ -1305,6 +1374,9 @@ function showPane(p) {
   if (p === 'setup') wizardLoad();
   if (p === 'chat') loadChatPersona();
   if (p === 'config') refreshConfigPane();
+  if (p === 'config') loadPersonaList();
+  if (p === 'config') llmKeyRefreshStatus();
+  if (p === 'tokens') refreshTokenNotice();
 }
 
 async function refreshConfigPane() {
@@ -1912,7 +1984,7 @@ async function loadChatPersona() {
   } else {
     banner.style.display = '';
     banner.className = 'banner warn';
-    banner.textContent = 'chat: LLM not configured — add a key in .env (e.g. OPENROUTER_API_KEY) and restart the agent.';
+    banner.textContent = 'chat: LLM not configured — open the Config pane → "LLM API key" section to set one.';
   }
   if (meta) {
     const a = s.agents.advisor, r = s.agents.reviewer;
@@ -1947,20 +2019,245 @@ $('chat-reset-persona').addEventListener('click', async (e) => {
 });
 
 /* ============================================================
+   v2.1.3: LLM API key UI (Config pane)
+   ============================================================ */
+const LLM_PROVIDER_LABELS = {
+  openrouter: 'OpenRouter',
+  anthropic:  'Anthropic',
+  openai:     'OpenAI',
+  oai_compat: 'OAI-compatible (custom base URL)',
+  local:      'Local (no key)',
+};
+const LLM_PROVIDER_ENV_VARS = {
+  openrouter: 'OPENROUTER_API_KEY',
+  anthropic:  'ANTHROPIC_API_KEY',
+  openai:     'OPENAI_API_KEY',
+  oai_compat: 'OAI_KEY',
+  local:      '',
+};
+
+function llmKeyOnProviderChange() {
+  const prov = $('llm-provider').value;
+  const env = LLM_PROVIDER_ENV_VARS[prov] || '';
+  $('llm-env-var').textContent = env ? `env: ${env}` : 'no env var';
+  $('llm-key').value = '';
+  $('llm-key').disabled = (prov === 'local');
+  llmKeyRefreshStatus();
+}
+
+async function llmKeyRefreshStatus() {
+  // Read the env var directly via /api/llm/test (status: 'missing' vs 'valid')
+  const prov = $('llm-provider').value;
+  const line = $('llm-status-line');
+  if (prov === 'local') {
+    line.textContent = 'Local provider — no key needed. Set $LOCAL_LLM_BASE in .env to point at your local LLM.';
+    line.style.color = 'var(--fg-dim)';
+    return;
+  }
+  const r = await jpost('/api/llm/test', { provider: prov });
+  if (!r || !r.status) {
+    line.textContent = 'Could not read key status (endpoint offline?).';
+    line.style.color = 'var(--red)';
+    return;
+  }
+  const status = r.status;
+  const env = LLM_PROVIDER_ENV_VARS[prov];
+  if (status === 'valid') {
+    line.textContent = `✓ ${env} is set in .env and verified. Restart the agent to apply in-process.`;
+    line.style.color = 'var(--green)';
+  } else if (status === 'missing') {
+    line.textContent = `No key set. Enter your ${LLM_PROVIDER_LABELS[prov]} key above and click Set.`;
+    line.style.color = 'var(--fg-dim)';
+  } else if (status === 'missing-base') {
+    line.textContent = `${env} is set but $OAI_BASE is missing. Set $OAI_BASE in .env for oai_compat to work.`;
+    line.style.color = 'var(--accent-2)';
+  } else if (status === 'invalid') {
+    line.textContent = `✗ ${env} is set but the provider rejected it. ${r.note || ''}`;
+    line.style.color = 'var(--red)';
+  } else {
+    line.textContent = `Status: ${status}. ${r.note || ''}`;
+    line.style.color = 'var(--fg-dim)';
+  }
+}
+
+async function llmKeySet() {
+  const prov = $('llm-provider').value;
+  const key = $('llm-key').value;
+  const result = $('llm-result');
+  result.innerHTML = '';
+  if (prov === 'local') {
+    result.innerHTML = bannerHtml('info', 'Local provider has no key. Set $LOCAL_LLM_BASE in .env to point at your local LLM.');
+    return;
+  }
+  if (!key) {
+    result.innerHTML = bannerHtml('error', 'Enter a key in the field first.');
+    return;
+  }
+  const r = await jpost('/api/llm/key', { provider: prov, key });
+  if (r && r.ok) {
+    result.innerHTML = bannerHtml('ok', `✓ ${r.note || 'Saved.'}`);
+    $('llm-key').value = '';
+    llmKeyRefreshStatus();
+  } else {
+    result.innerHTML = bannerHtml('error', r && r.error ? r.error : 'failed to save key');
+  }
+}
+
+async function llmKeyTest() {
+  const prov = $('llm-provider').value;
+  const result = $('llm-result');
+  result.innerHTML = bannerHtml('info', 'Testing…');
+  const r = await jpost('/api/llm/test', { provider: prov });
+  if (!r) {
+    result.innerHTML = bannerHtml('error', 'Test failed (endpoint offline?)');
+    return;
+  }
+  if (r.status === 'valid') {
+    result.innerHTML = bannerHtml('ok', `✓ ${r.note || 'key verified'}`);
+  } else if (r.status === 'missing') {
+    result.innerHTML = bannerHtml('info', `No key set yet. Enter one and click Set.`);
+  } else if (r.status === 'missing-base') {
+    result.innerHTML = bannerHtml('warn', r.note || 'OAI_BASE missing');
+  } else {
+    result.innerHTML = bannerHtml('error', `✗ ${r.note || r.status}`);
+  }
+  llmKeyRefreshStatus();
+}
+
+// Wire up the provider dropdown
+$('llm-provider').addEventListener('change', llmKeyOnProviderChange);
+
+/* ============================================================
+   v2.1.3: Personas UI (Config pane) — list all 4 with view / edit / reset
+   ============================================================ */
+async function loadPersonaList() {
+  const list = $('persona-list');
+  if (!list) return;
+  list.innerHTML = '<div class="line dim">loading…</div>';
+  const namesR = await jget('/api/agent/personas');
+  if (!namesR || !Array.isArray(namesR.names)) {
+    list.innerHTML = '<div class="line dim">—</div>';
+    return;
+  }
+  const rows = await Promise.all(namesR.names.map(async (name) => {
+    const p = await jget(`/api/agent/personas/${name}`);
+    if (!p || p.error) return `<div class="line dim">${name}: failed to load</div>`;
+    const status = p.diverged
+      ? `<span class="mono" style="color:var(--accent-2);">diverged from pro</span>`
+      : `<span class="mono" style="color:var(--green);">pro default</span>`;
+    const sha = (p.sha256 || '').slice(0, 12);
+    return `
+      <div class="persona-row" style="display:flex; gap:14px; align-items:center; padding:8px 0; border-top:1px solid var(--line);">
+        <div style="flex:0 0 120px; font:600 12px/1 'JetBrains Mono'; color:var(--accent);">${name}</div>
+        <div style="flex:0 0 180px; font:400 11px/1 'Inter';">${status}</div>
+        <div style="flex:0 0 110px; font:400 10px/1 'JetBrains Mono'; color:var(--fg-dimmer);">sha ${sha}…</div>
+        <div style="flex:1; display:flex; gap:8px; justify-content:flex-end;">
+          <button type="button" class="btn" onclick="personaView('${name}')">View</button>
+          <button type="button" class="btn" onclick="personaEdit('${name}')">Edit</button>
+          <button type="button" class="btn" onclick="personaReset('${name}')">Reset to pro</button>
+        </div>
+      </div>
+    `;
+  }));
+  list.innerHTML = rows.join('');
+}
+
+async function personaView(name) {
+  const p = await jget(`/api/agent/personas/${name}`);
+  if (!p || p.error) { alert('persona not loaded: ' + (p && p.error || '?')); return; }
+  // Open a read-only window with the markdown body. For 'chat' the
+  // chat-pane also has view/edit links; both paths converge on the
+  // same backend endpoint.
+  const w = window.open('', '_blank', 'width=720,height=640');
+  if (!w) { alert('popup blocked'); return; }
+  w.document.write(`<title>${name} persona</title><pre style="font:400 12px/1.5 'JetBrains Mono'; white-space:pre-wrap; padding:18px; background:#fafafa; color:#222;">${escapeHtml(p.system)}</pre>`);
+  w.document.close();
+}
+
+async function personaEdit(name) {
+  const p = await jget(`/api/agent/personas/${name}`);
+  if (!p || p.error) { alert('persona not loaded: ' + (p && p.error || '?')); return; }
+  const newBody = prompt(`Edit ${name} persona (.md body — frontmatter preserved):`, p.system);
+  if (newBody === null) return;
+  const r = await jpost(`/api/agent/personas/${name}`, { body: newBody, version: p.version });
+  if (r && r.ok) {
+    loadPersonaList();
+    if (name === 'chat') loadChatPersona();
+  } else {
+    alert('save failed: ' + (r && r.error || '?'));
+  }
+}
+
+async function personaReset(name) {
+  if (!confirm(`Reset ${name} persona to the pro default? This overwrites your runtime copy at ~/.bnbagent/personas/${name}.md.`)) return;
+  const r = await jpost(`/api/agent/personas/${name}/reset`, {});
+  if (r && r.ok) {
+    loadPersonaList();
+    if (name === 'chat') loadChatPersona();
+  } else {
+    alert('reset failed: ' + (r && r.error || '?'));
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+/* ============================================================
+   v2.1.3: Token pane — inline form fields for name + symbol,
+           prominent network notice that updates on dropdown change.
+   ============================================================ */
+function refreshTokenNotice() {
+  const net = $('tok-network').value;
+  const notice = $('tok-network-notice');
+  if (!notice) return;
+  if (net === 'mainnet') {
+    notice.style.display = '';
+    notice.className = 'banner error';
+    notice.innerHTML = `⚠️ <strong>BSC Mainnet</strong> — this deploys a real ERC-20 contract on chain 56, costs real BNB, and is <strong>IRREVERSIBLE</strong>. You'll be asked to type the symbol to confirm.`;
+  } else if (net === 'testnet') {
+    notice.style.display = '';
+    notice.className = 'banner ok';
+    notice.innerHTML = `🟢 <strong>BSC Testnet</strong> (chain 97) — free, recommended for first run.`;
+  } else {
+    notice.style.display = '';
+    notice.className = 'banner info';
+    notice.innerHTML = `Replay mode — no live network.`;
+  }
+}
+
+$('tok-network').addEventListener('change', refreshTokenNotice);
+
+function validateTokenForm() {
+  const name = ($('tok-name').value || '').trim();
+  const symbol = ($('tok-symbol').value || '').trim().toUpperCase();
+  const supply = parseInt($('tok-supply').value || '0', 10);
+  const errs = [];
+  if (!name) errs.push('name is required');
+  if (!symbol) errs.push('symbol is required');
+  else if (!/^[A-Z0-9]{3,5}$/.test(symbol)) errs.push('symbol must be 3-5 uppercase letters/digits');
+  if (!Number.isFinite(supply) || supply < 1) errs.push('total supply must be a positive integer');
+  return { name, symbol, supply, errs };
+}
+
+/* ============================================================
    Tokens pane (TokenModule)
    ============================================================ */
 async function deployToken() {
   const network = $('tok-network').value;
   const protocol = $('tok-protocol').value;
-  const supply = parseInt($('tok-supply').value || '0', 10);
   const decimals = parseInt($('tok-decimals').value || '18', 10);
-  const name = prompt(`Name your token (e.g. "Mooncoin"):`) || '';
-  const symbol = (prompt(`Symbol (3-5 uppercase chars, e.g. "MOON"):`) || '').toUpperCase();
-
-  if (!name || !symbol || !supply) {
-    alert('name, symbol, and supply are required');
+  // v2.1.3: read from inline form fields (was prompt() dialogs).
+  // validateTokenForm() trims + uppercases + validates the pattern.
+  const v = validateTokenForm();
+  if (v.errs.length) {
+    const out = $('tok-result');
+    out.innerHTML = `<div class="banner error">${v.errs.map(e => `• ${e}`).join('<br>')}</div>`;
     return;
   }
+  const { name, symbol, supply } = v;
   let confirmMainnet = false;
   if (network === 'mainnet') {
     confirmMainnet = confirm(
