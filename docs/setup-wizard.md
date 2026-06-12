@@ -7,10 +7,11 @@ a fresh install and is also reachable from the **Setup** tab.
 ## What the wizard does
 
 ```
-Step 1: Network        pick testnet / mainnet / replay; set RPC URLs; CMC key
+Step 1: Network        pick testnet / mainnet / replay; set RPC URLs
 Step 2: Wallet         generate a new wallet OR import an existing private key
 Step 3: Sign policy    unlock the wallet and sign config/policy.yaml (EIP-191)
 Step 4: Data source    pick CMC Pro / x402 on Base / Binance fallback
+                       (CMC Pro key input lives here, alongside the tier choice)
 Step 5: Done           summary + link to the Live dashboard
 ```
 
