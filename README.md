@@ -59,6 +59,8 @@ bash bnbagent                         # agent + dashboard on http://localhost:80
 
 That's it. The dashboard auto-loads; first-time users land in the **Setup wizard** (Network → Wallet → Sign Policy → **Data source** → Ready). After the wizard, the dashboard switches to the **Live** pane. The Setup wizard has a new 'Data source' step (CMC Pro / x402 / Binance).
 
+**v2.1.1: the wizard writes your choices to `config/local.yaml` (gitignored), not the tracked `config/config.yaml`.** The shipped defaults file stays clean; your CMC Pro API key and custom RPCs never accidentally land in a commit. See `core/config_paths.py` for the merge semantics.
+
 | Command | What it does |
 |---|---|
 | `bash bnbagent` | start the agent + dashboard, Ctrl+C stops both |

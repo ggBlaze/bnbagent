@@ -19,14 +19,23 @@ Behind the scenes:
 
 | Step | API endpoint | What it writes |
 |---|---|---|
-| 1 | `POST /api/setup/config`   | `config/config.yaml` |
+| 1 | `POST /api/setup/config`   | `config/local.yaml` (user-state shadow) |
 | 2 | `POST /api/setup/wallet` or `/api/setup/wallet/import` | `~/.twak/wallet.json` (AES-256-GCM, PBKDF2 200k) |
 | 3 | `POST /api/setup/sign`     | `config/policy.yaml` (signature + evaluator address) |
-| 4 | `POST /api/setup/data-source` | `config/config.yaml` → `data_source.*` |
+| 4 | `POST /api/setup/data-source` | `config/local.yaml` → `data_source.*` |
 | 5 | — (summary)                  | none |
 
 After step 4, `/api/setup/checklist` returns `{"complete": true, "missing": []}`
 and the **Setup** tab stops showing the "setup required" badge.
+
+**v2.1.1: the wizard writes to `config/local.yaml` (the user-state shadow),
+not `config/config.yaml` (the shipped defaults).** The shipped
+`config.yaml` is treated as immutable at runtime — only `git pull`
+or a fresh clone changes it. The wizard's user-specific state
+(mode choice, RPCs, tier, CMC Pro API key, custom Base RPCs) lives
+in `local.yaml` which is gitignored. See `core/config_paths.py` for
+the merge semantics and `config/local.yaml.example` for the file
+shape.
 
 ## v2.0 extras in the wizard
 
@@ -78,8 +87,10 @@ the agent's market-data calls:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-The 3-way radio persists to `config/config.yaml` under `data_source.kind`.
-The x402 status box polls `connectors/x402.py::check_balance()` over the
+The 3-way radio persists to `config/local.yaml` under
+`data_source.tier` (the user-state shadow; see v2.1.1 in the
+"Behind the scenes" table above). The x402 status box polls
+`connectors/x402.py::check_balance()` over the
 3 default Base RPCs and refreshes every 5s — when the operator sends USDC
 to the agent's Base address, the balance updates in real time and the
 **Save & Next** button enables. The user can also add or remove Base RPCs

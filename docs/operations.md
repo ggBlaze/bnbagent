@@ -168,3 +168,35 @@ The MCP server reads the agent's in-memory `DASHBOARD_STATE` via Python
 imports. In production you'd run them as sibling processes sharing a bus
 (or in the same process). For the contest demo, start the agent first
 (`bash bnbagent`), then start the MCP server in another terminal.
+
+## Config file resolution (v2.1.1)
+
+The agent reads the runtime config from a **two-file shadow**:
+
+1. `config/config.yaml` (tracked, immutable at runtime) — the shipped
+   defaults. Updated only by `git pull` or a fresh clone.
+2. `config/local.yaml` (gitignored) — the user-specific overrides.
+   Created on first `bash install.sh` by copying
+   `config/local.yaml.example`. Written by the Setup wizard, the
+   dashboard data-source endpoints, and `core/boot.py` (the
+   `base_address` auto-write).
+
+Read resolution: `core/config_paths.py::load_config()` returns the
+deep-merge of both — keys in `local.yaml` override the same keys in
+`config.yaml`; lists in `local.yaml` replace lists in `config.yaml`.
+Lists do NOT deep-merge (e.g. setting `rpcs:` in `local.yaml`
+replaces the entire list, doesn't append).
+
+Write resolution: every runtime write goes to `local.yaml`. The
+shipped `config.yaml` is never mutated at runtime. This means:
+
+- The CMC Pro API key is safe from accidental commit (the file
+  holding it is gitignored).
+- A `git pull` that updates `config.yaml` will not clobber your
+  local overrides — the merge happens at read time, not at
+  install time.
+- The working tree stays clean across wizard interactions; only
+  the `config/config.yaml` defaults file is tracked.
+
+To reset to shipped defaults: `rm config/local.yaml` and re-run
+`bash install.sh` (which re-bootstraps from the example).

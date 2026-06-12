@@ -2,6 +2,37 @@
 
 All notable changes to this project. Versioned per the git tag.
 
+## v2.1.1 — config/local.yaml shadow pattern
+
+CHANGED: The Setup wizard, dashboard data-source endpoints, and
+         core/boot.py no longer write to the tracked
+         config/config.yaml. All user-specific state (tier choice,
+         CMC Pro API key, custom Base RPCs, the base_address boot
+         auto-writes) now lives in config/local.yaml, which is
+         gitignored. config/config.yaml is the shipped defaults
+         file, immutable at runtime. See core/config_paths.py for
+         the merge semantics. See config/local.yaml.example for
+         the file shape and the security rationale (the CMC Pro
+         API key was at risk of accidental commit before this
+         refactor).
+
+ADDED:  config/local.yaml.example (tracked, copied to
+        config/local.yaml on first `bash install.sh`).
+ADDED:  core/config_paths.py: load_config() (deep-merge), write_local()
+        (atomic-ish), ensure_local_example_copied() (bootstrap).
+ADDED:  tests/unit/test_config_paths.py (15 tests: shipped-only /
+        local-only / both / nested-override / list-replace /
+        round-trip / write-atomics / ensure-copies-example /
+        ensure-skips-when-exists / ensure-noop-without-example).
+CHANGED: badge 260/260 → 275/275.
+CHANGED: install.sh copies local.yaml.example on first install.
+CHANGED: tests/unit/test_boot.py and tests/integration/test_dashboard.py
+         updated to use the new tmp_path/config/config.yaml layout.
+         The pre-refactor prereq-400 tests were false positives
+         (the endpoint fell through to cfg={} because the fixture
+         was at the wrong path); now they actually exercise the
+         merged-view prereq check.
+
 ## v2.1.0 — 3-tier CMC data source
 
 ADDED: 3-tier data-source selection (CMC Pro / x402 on Base / Binance
