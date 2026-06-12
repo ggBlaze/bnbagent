@@ -1,0 +1,50 @@
+{
+  "fear_and_greed": {
+    "data": {
+      "value": 54,
+      "value_classification": "Greed",
+      "timestamp": "2026-06-11T00:00:00Z",
+      "time_until_update": "8h"
+    },
+    "status": {"error_code": 0}
+  },
+  "global_metrics": {
+    "data": {
+      "quote": {
+        "USD": {
+          "total_market_cap": 2500000000000.0,
+          "total_volume_24h": 80000000000.0,
+          "btc_dominance": 52.3,
+          "eth_dominance": 17.1
+        }
+      }
+    },
+    "status": {"error_code": 0}
+  },
+  "cmc_rank_map": {
+    "BTC": 1, "ETH": 2, "USDT": 3, "BNB": 4, "SOL": 5,
+    "USDC": 6, "XRP": 7, "DOGE": 8, "ADA": 9, "AVAX": 10,
+    "TRX": 11, "LINK": 12, "DOT": 13, "MATIC": 14, "SHIB": 15,
+    "LTC": 16, "BCH": 17, "NEAR": 18, "ATOM": 19, "UNI": 20,
+    "APT": 21, "CAKE": 22, "WBNB": 23, "WBTC": 24, "DAI": 25,
+    "OP": 26, "ARB": 27, "FTM": 28, "INJ": 29, "TIA": 30,
+    "SEI": 31, "RNDR": 32, "PEPE": 33, "WIF": 34, "BONK": 35,
+    "MEME": 36, "FLOKI": 37, "JUP": 38, "PYTH": 39, "JTO": 40,
+    "STRK": 41, "BLUR": 42, "ENS": 43, "AAVE": 44, "MKR": 45,
+    "CRV": 46, "SNX": 47, "COMP": 48, "LDO": 49, "RPL": 50
+  },
+  "dex_listings": [
+    {"name": "PancakeSwap", "chain": "BSC", "24h_volume": 1200000000.0},
+    {"name": "Uniswap", "chain": "Ethereum", "24h_volume": 900000000.0},
+    {"name": "SushiSwap", "chain": "Ethereum", "24h_volume": 150000000.0},
+    {"name": "Biswap", "chain": "BSC", "24h_volume": 80000000.0},
+    {"name": "ApeSwap", "chain": "BSC", "24h_volume": 25000000.0}
+  ],
+  "exchange_listings": [
+    {"name": "Binance", "24h_volume": 15000000000.0, "country": "Global"},
+    {"name": "Coinbase", "24h_volume": 3500000000.0, "country": "US"},
+    {"name": "OKX", "24h_volume": 2800000000.0, "country": "Global"},
+    {"name": "Bybit", "24h_volume": 2200000000.0, "country": "Global"},
+    {"name": "Kraken", "24h_volume": 900000000.0, "country": "US"}
+  ]
+}
