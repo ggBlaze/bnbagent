@@ -205,7 +205,15 @@ class CMCX402Client(_LedgerMixin):
             self._record(method, path, params, Decimal("0"), 402)
             raise
 
-        cost = Decimal("0.01")
+        # Parse the actual amount from the 402 challenge so the ledger is
+        # accurate even if CMC prices a future endpoint at a different
+        # amount than $0.01. USDC has 6 decimals, so 10000 raw = $0.01.
+        from .x402 import decode_payment_requirements
+        try:
+            req = decode_payment_requirements(resp.headers.get("PAYMENT-REQUIRED", ""))
+            cost = Decimal(req.amount) / Decimal(10 ** 6)
+        except Exception:
+            cost = Decimal("0.01")  # safe fallback if the challenge is unparseable
         self._x402_spend_today_usdc += cost
         headers["PAYMENT-SIGNATURE"] = payment_hdr
         resp2 = await self._client.request(method, url, params=params, headers=headers)

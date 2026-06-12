@@ -58,6 +58,41 @@ def test_x402_first_request_returns_payment_challenge():
         pass
 
 
+def test_x402_ledger_cost_uses_req_amount():
+    """The ledger cost must come from req.amount in the 402 challenge, not a hardcoded 0.01."""
+    import base64, json
+    # amount=50000 = 0.05 USDC (USDC has 6 decimals)
+    challenge_payload = {
+        "scheme": "exact",
+        "network": "eip155:8453",
+        "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "amount": 50000,  # 0.05 USDC, not the default 10000
+        "payTo": "0x271189c860DB25bC43173B0335784aD68a680908",
+        "nonce": "0x" + "ab" * 32,
+        "expiresAt": 9999999999,
+    }
+    b64 = base64.b64encode(json.dumps(challenge_payload).encode()).decode()
+
+    with respx.mock:
+        respx.get(
+            "https://pro-api.coinmarketcap.com/x402/v3/cryptocurrency/quotes/latest"
+        ).mock(side_effect=[
+            Response(402, headers={"PAYMENT-REQUIRED": b64}),
+            Response(200, json={"data": {"BTC": {"quote": {"USD": {"price": 50000.0}}}}}),
+        ])
+
+        client = CMCX402Client(
+            wallet=_fake_wallet(),
+            base_rpcs=["https://mainnet.base.org"],
+        )
+        result = asyncio.run(client.quotes_latest(["BTC"]))
+    assert result["data"]["BTC"]["quote"]["USD"]["price"] == 50000.0
+    # The ledger should reflect 0.05 USDC (50000 raw / 1e6), not 0.01
+    assert client.spend_today == Decimal("0.05"), (
+        f"expected 0.05 USDC from req.amount=50000, got {client.spend_today}"
+    )
+
+
 def _b64_challenge() -> str:
     import base64, json
     payload = {
