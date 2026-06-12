@@ -531,7 +531,7 @@ bnbagent/
 │   ├── metrics.py
 │   └── replay.py
 │
-├── tests/                         ← 253/253 passing (enforced by CI)
+├── tests/                         ← 258/258 passing (enforced by CI)
 │   ├── unit/                      ← ~13 files
 │   ├── integration/               ← 1 file (MCP)
 │   └── fixtures/                  ← llm.py, wallets.py, skills.py
@@ -607,7 +607,7 @@ bnbagent/
 ## 15. Testing
 
 ```bash
-pytest -q                          # 253/253 passing (~3m cold, ~12s unit-only)
+pytest -q                          # 258/258 passing (~3m cold, ~12s unit-only)
 pytest tests/unit/                 # fast unit tests
 pytest tests/integration/          # MCP end-to-end
 pytest tests/unit/test_risk.py -v # 1 file
