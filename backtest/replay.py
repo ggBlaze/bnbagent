@@ -355,7 +355,7 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
     eq_curve = equity_curve_from_trades(float(equity), list(portfolio.closed_trades))
     metrics = report(eq_curve, list(portfolio.closed_trades), starting_equity=float(equity))
     # Surface the breach count + the kill-switch flag in the JSON so the
-    # bnbagent.sh launcher can decide exit code. Without this, --replay
+    # bnbagent launcher can decide exit code. Without this, --replay
     # always returns 0 from a successful Python invocation even if the
     # agent blew through its risk gates.
     metrics["breaches"] = len(breaches)

@@ -1,6 +1,6 @@
-"""Test the replay breach gate that drives the bnbagent.sh exit code.
+"""Test the replay breach gate that drives the bnbagent exit code.
 
-bnbagent.sh reads the JSON sidecar and exits 1 if sharpe < 0 OR
+bnbagent reads the JSON sidecar and exits 1 if sharpe < 0 OR
 max_drawdown_pct > 8 OR breaches > 0. We lock that gate logic here
 so a tweak to the threshold (or the JSON shape) is caught at test time,
 not in CI.
