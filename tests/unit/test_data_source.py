@@ -132,6 +132,23 @@ def test_mock_client_fear_and_greed():
     assert fg["data"]["value_classification"] in ("Fear", "Neutral", "Greed")
 
 
+def test_mock_ohlcv_matches_strategy_shape():
+    """Mock ohlcv must wrap the candles in a 'quotes' key per symbol.
+
+    Strategies (sleeve_a_carry.py:142) read payload['quotes'] — if the
+    mock returns a bare list, the strategy silently falls back to its
+    vol-fallback. This test asserts the wrapper shape.
+    """
+    import asyncio
+    client = MockClient()
+    result = asyncio.run(client.ohlcv_historical(["BTC", "ETH"], count=3))
+    for sym in ("BTC", "ETH"):
+        payload = result["data"][sym]
+        assert isinstance(payload, dict), f"{sym} payload should be dict, got {type(payload)}"
+        assert "quotes" in payload
+        assert len(payload["quotes"]) == 3
+
+
 # --- Tier identification ---
 
 def test_each_client_reports_its_tier():

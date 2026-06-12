@@ -136,8 +136,13 @@ class MockClient:
         self, symbols: list[str], time_period: str = "hour",
         count: int = 24, convert: str = "USD",
     ) -> dict:
+        # Wrap in the same shape CMCProClient returns, so strategies
+        # that read `payload["quotes"]` (e.g. sleeve_a_carry.py) work in mock mode.
         candles = [{"close": 1.0, "high": 1.0, "low": 1.0, "open": 1.0} for _ in range(count)]
-        return {"data": {s: candles for s in symbols}, "status": {"error_code": 0, "note": "mock"}}
+        return {
+            "data": {s: {"quotes": candles} for s in symbols},
+            "status": {"error_code": 0, "note": "mock"},
+        }
 
     async def cmc_rank_map(self) -> dict[str, int]:
         return self._data.get("cmc_rank_map", {})
