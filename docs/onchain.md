@@ -102,3 +102,16 @@ spec, a budget, and an evaluator.
   metadata is uploaded to IPFS via the agent's existing IPFS client.
   Judges and other agents can fetch the token's metadata from
   `ipfs://<cid>` and verify the deploy params + tx hash.
+
+## x402 settlement (v2.1.0 — moved to Base)
+
+The TokenModule's metadata-enrichment call still uses x402, but the
+settlement chain moved from BNB Chain to **Base** in v2.1.0. Each
+metadata-enrichment call costs $0.01 USDC and settles natively on
+Base (chain 8453) via the Circle-issued USDC contract at
+`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`. The retry header is
+now `PAYMENT-SIGNATURE` (the v2.0 header was `X-PAYMENT`).
+
+For full x402 details (the 402-challenge flow, the 3 default Base RPCs,
+the daily spend cap, the EIP-3009 signing path) see
+[`docs/x402.md`](x402.md).

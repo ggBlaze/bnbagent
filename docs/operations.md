@@ -43,6 +43,46 @@ The agent never re-signs the policy on a dashboard edit — the on-disk
 `policy.yaml` is still the source of truth. Dashboard edits are a **runtime
 override** that is logged in `/api/control-log` and visible in the right rail.
 
+### Data source card (v2.1.0)
+
+The Config pane now includes a **Data source** card showing the
+currently-selected market data source. It is sourced from
+`/api/data-source` and refreshes every 5s.
+
+```
+┌─ Data source ──────────────────────────────────────┐
+│  Active: x402 on Base                              │
+│  Daily spend: $0.04 / $10.00                       │
+│  Last call: 3 calls ago (POST /v1/quotes/latest)   │
+│  Base USDC balance: 4.21 USDC                      │
+│                                                    │
+│  [ Change data source ]                            │
+└────────────────────────────────────────────────────┘
+```
+
+Clicking **Change data source** opens a modal with the same 3-way radio
+from the Setup wizard (CMC Pro / x402 on Base / Binance). The selection
+persists to `config/config.yaml` → `data_source.kind`; the agent picks
+it up on the next heartbeat. To switch to a Pro API key, paste the key
+in the modal — it's stored as `data_source.cmc_api_key` and exported as
+`CMC_API_KEY` at boot.
+
+## Data source banner (Live pane, v2.1.0)
+
+A persistent banner across the top of the **Live** pane shows the active
+data source and its health. It is also sourced from `/api/data-source`.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Data source: x402 on Base   |   3 calls/min   |   $0.04 / $10   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+The banner's color reflects health: acid-lime (healthy), amber (≥ 80% of
+daily cap), red (degraded — fallback in use). When the active source is
+degraded and a fallback is in use, the banner shows the fallback name in
+parentheses (e.g. "x402 on Base (fallback: Binance)").
+
 ## Chat pane (Layer 3)
 
 - Send a message in the input box; the LLM streams a response.

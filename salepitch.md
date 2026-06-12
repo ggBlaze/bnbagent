@@ -6,7 +6,9 @@
 >
 > Three strategies, one risk engine, zero per-transaction taps. The agent is delta-neutral by construction (70% in funding carry, 20% in momentum, 10% in mean-reversion) and every order is gated by a versioned, EIP-191-signed **User Policy** that you sign **once**. A 5% daily-loss circuit breaker, a 1% per-trade risk cap, and a 2× leverage cap are baked in — and judges can verify the on-disk policy still recovers to your address.
 >
-> The agent **pays CMC $0.01 per data call** in USDC via x402 — every microcharge is on the dashboard with a BscScan link. The agent **signs every BSC transaction with TWAK** (AES-256-GCM keystore, keys never leave the host). The agent **registers its own identity NFT on BNB Chain via ERC-8004** and **escrows its own PnL deliverables via ERC-8183 jobs** that you, the user, evaluate.
+> The agent **pays CMC $0.01 per data call** in USDC via x402 — every microcharge is on the dashboard with a BaseScan link. The agent **signs every BSC transaction with TWAK** (AES-256-GCM keystore, keys never leave the host). The agent **registers its own identity NFT on BNB Chain via ERC-8004** and **escrows its own PnL deliverables via ERC-8183 jobs** that you, the user, evaluate.
+>
+> The data-source layer is a **3-tier selector** (CMC Pro / x402 on Base / Binance fallback) chosen in the Setup wizard and switchable from the Config pane. x402 settles on **Base (chain 8453)** with native USDC, with a daily cap and a persistent banner on the Live pane that turns amber at 80% of the cap. The Wallet step has a one-click **Export secret phrase** button (password-gated, rate-limited) for migrating the keystore to Trust Wallet or MetaMask.
 >
 > A **3-layer LLM agent team** (advisor + reviewer + chat) overlays the deterministic engine with hard safety envelopes. The advisor can only **TIGHTEN** risk. The reviewer can only **VETO** a trade. The chat can only **RECOMMEND** a policy change. None of these layers can loosen the user's signed policy, override the circuit breaker, or bypass the mainnet confirmation guard. The LLM is the co-pilot that can only ever pull the brake harder.
 >

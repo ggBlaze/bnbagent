@@ -168,8 +168,23 @@ go to Setup → re-sign the policy with their wallet password.
 
 - EIP-3009 `transferWithAuthorization` has a `validBefore` timestamp and a `nonce`. Replay is prevented by the nonce; expiry by `validBefore`.
 - The agent signs with `validAfter = now - 60s` and `validBefore = req.expiresAt` (from the server's 402 response).
-- The USDC contract is the native Circle-issued USDC on BSC (`0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d`) — supports EIP-3009 natively.
+- The USDC contract is the native Circle-issued USDC on **Base** (chain 8453) at `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` — supports EIP-3009 natively. (v2.0 used the BSC USDC; v2.1.0 moved to Base per CMC's x402 spec.)
+- The retry header is `PAYMENT-SIGNATURE` (v2.0 used `X-PAYMENT`).
 - Daily spend is capped by `policy.fees.x402_max_usdc_per_day` (default $10). The agent refuses any CMC call that would exceed the cap.
+
+## Secret-phrase export endpoint (v2.1.0)
+
+The `/api/wallet/export-mnemonic` endpoint returns the TWAK mnemonic if
+the correct password is provided in the request body. Mitigations:
+
+  - Password is required in the request body; the endpoint refuses to
+    operate with a missing or empty password.
+  - The password is never logged, persisted, or returned in any other
+    response. The mnemonic is returned once and forgotten.
+  - The endpoint is rate-limited at 1 request/minute per IP.
+  - The endpoint is only reachable through the dashboard's Wallet
+    wizard step, which requires the Setup wizard to be complete.
+  - The phrase is removed from the DOM when the modal is closed.
 
 ---
 

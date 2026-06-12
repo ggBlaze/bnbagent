@@ -2,6 +2,24 @@
 
 All notable changes to this project. Versioned per the git tag.
 
+## v2.1.0 — 3-tier CMC data source
+
+ADDED: 3-tier data-source selection (CMC Pro / x402 on Base / Binance
+       fallback) via the Setup wizard + a 'Change data source' button
+       in the Config pane.
+ADDED: Persistent data-source banner in the Live pane.
+ADDED: Secret-phrase export button in the Wallet step +
+       /api/wallet/export-mnemonic endpoint.
+ADDED: Base RPC config (3 defaults, add/remove, rotation) in the
+       x402 wizard step.
+CHANGED: x402 now settles on Base (chain 8453) with native USDC at
+         0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. The retry
+         header is now PAYMENT-SIGNATURE (was X-PAYMENT).
+FIXED:   The 404 on https://api.coinmarketcap.com/agent-hub — the
+         correct x402 base is https://pro-api.coinmarketcap.com/x402.
+CHANGED: The CMC integration is now a MarketDataSource Protocol with
+         4 concrete clients behind a DataSourceRouter.
+
 ## v2.0.8 — 2026-06-08 — Security hardening (H1-H4 + M3 + M4)
 
 **Security.** A focused security review of the wallet, BSC RPC, gas,

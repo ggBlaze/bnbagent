@@ -11,7 +11,7 @@
 [![BNB Chain](https://img.shields.io/badge/BNB%20Chain-AI%20Agent%20SDK-orange)](https://www.bnbchain.org/en/solutions/ai-agent)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-226%2F226%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-253%2F253%20passing-brightgreen)](tests/)
 [![CI](https://img.shields.io/badge/CI-enforced-blueviolet)](.github/workflows/ci.yml)
 
 ---
@@ -57,7 +57,7 @@ export OPENROUTER_API_KEY=sk-or-...   # any one of 5 supported providers (option
 bash bnbagent                         # agent + dashboard on http://localhost:8000
 ```
 
-That's it. The dashboard auto-loads; first-time users land in the **Setup wizard** (Network → Wallet → Sign Policy → Ready). After the wizard, the dashboard switches to the **Live** pane.
+That's it. The dashboard auto-loads; first-time users land in the **Setup wizard** (Network → Wallet → Sign Policy → **Data source** → Ready). After the wizard, the dashboard switches to the **Live** pane. The Setup wizard has a new 'Data source' step (CMC Pro / x402 / Binance).
 
 | Command | What it does |
 |---|---|
@@ -223,7 +223,7 @@ agent → EIP-3009 sign USDC transferWithAuthorization
 agent → X-PAYMENT header (base64) → retry → 200 OK
 ```
 
-Settlement is on BNB Chain via `USDC.transferWithAuthorization` with <200ms finality. The dashboard shows the full microcharge ledger (`/api/cmc-charges`) with BscScan-deep-linkable tx hashes. Daily spend is capped by `policy.fees.x402_max_usdc_per_day` (default $10).
+Settlement is on **Base (chain 8453)** via native USDC `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` with the x402 exact-EVM scheme. The retry header is `PAYMENT-SIGNATURE`. The dashboard shows the full microcharge ledger (`/api/cmc-charges`) with BaseScan-deep-linkable tx hashes. Daily spend is capped by `policy.fees.x402_max_usdc_per_day` (default $10).
 
 ### L2 — Trust Wallet Agent Kit (TWAK)
 
@@ -381,7 +381,7 @@ Single-page app (vanilla HTML/CSS/JS, no build step, no framework, ~1800 lines) 
 
 | Pane | Source | Refresh | Purpose |
 |---|---|---|---|
-| **Setup** | `setup` files | — | First-time user wizard (Network → Wallet → Sign Policy → Ready) |
+| **Setup** | `setup` files | — | First-time user wizard (Network → Wallet → Sign Policy → Data source → Ready) |
 | **Live** | `/api/stats`, `/api/equity-series` | 1.5s | Hero strip (equity, PnL, DD, Sharpe), SVG equity chart, sleeve cards, x402 ledger, TWAK txs, identity, jobs, trades |
 | **Chat** | `/api/chat`, `/api/agent/advisor`, `/api/agent/reviewer` | per message | Talk to the LLM; persona modal; recent decisions table |
 | **Tokens** | `/api/tokens/*` | — | Token Module config form + deploy button + result card with explorer link + website download |
@@ -441,6 +441,7 @@ See [`.env.example`](.env.example) for the full list. All optional.
 | `WARPCAST_KEY`            | —      | farcaster_post skill |
 | `WEBHOOK_URL`             | —      | webhook_dispatch skill |
 | `CMC_API_KEY`             | —      | optional Pro API key (x402 otherwise) |
+| `BASE_RPCS`               | `https://mainnet.base.org,https://base.publicnode.com,https://1rpc.io/base` | comma-separated Base mainnet RPC URLs (x402 funding detection polls all of them in rotation) |
 
 ---
 
@@ -530,7 +531,7 @@ bnbagent/
 │   ├── metrics.py
 │   └── replay.py
 │
-├── tests/                         ← 226/226 passing (enforced by CI)
+├── tests/                         ← 253/253 passing (enforced by CI)
 │   ├── unit/                      ← ~13 files
 │   ├── integration/               ← 1 file (MCP)
 │   └── fixtures/                  ← llm.py, wallets.py, skills.py
@@ -586,7 +587,7 @@ bnbagent/
 | [`docs/POLICY_CHANGELOG.md`](docs/POLICY_CHANGELOG.md) | Per-version policy change log — every relaxation of a safety threshold with the rationale, the backtest tape, and the worst-case DD observed. v2.0.8-M1. |
 | [`docs/install.md`](docs/install.md) | One-command install + every env var |
 | [`docs/operations.md`](docs/operations.md) | Dashboard pane reference + kill switch + control log |
-| [`docs/setup-wizard.md`](docs/setup-wizard.md) | The 4-step Setup wizard (Network → Wallet → Sign Policy → Ready) |
+| [`docs/setup-wizard.md`](docs/setup-wizard.md) | The 5-step Setup wizard (Network → Wallet → Sign Policy → Data source → Ready) |
 | [`docs/agents.md`](docs/agents.md) | The 3-LLM agent team in depth (advisor / reviewer / chat) |
 | [`docs/TOKEN_MODULE.md`](docs/TOKEN_MODULE.md) | Token deploy + landing-page generation + mainnet guard |
 | [`docs/SKILLS.md`](docs/SKILLS.md) | Skills registry + 6 built-ins + the cmc_global_filter pause rule |
@@ -606,7 +607,7 @@ bnbagent/
 ## 15. Testing
 
 ```bash
-pytest -q                          # 226/226 passing (~3m cold, ~12s unit-only)
+pytest -q                          # 253/253 passing (~3m cold, ~12s unit-only)
 pytest tests/unit/                 # fast unit tests
 pytest tests/integration/          # MCP end-to-end
 pytest tests/unit/test_risk.py -v # 1 file
