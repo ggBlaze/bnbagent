@@ -59,11 +59,10 @@ cmc:
   x402_base: https://api.coinmarketcap.com/agent-hub
   api_base:  https://pro-api.coinmarketcap.com
   api_key: ""                                # leave empty for x402-only mode
-  basket_symbols: [BTC, ETH, SOL, XRP, DOGE, ADA, AVAX, LINK, DOT, MATIC,
-                   SHIB, LTC, BCH, NEAR, ATOM, UNI, APT, CAKE, WBNB, USDC]
-  dex_universe_symbols: [WBNB, CAKE, BTCB, ETH, SOL, XRP, DOGE, ADA,
-                          AVAX, LINK, DOT, MATIC, SHIB, LTC, BCH, NEAR,
-                          ATOM, UNI, APT]
+  basket_symbols: [ETH, USDC, USDT, DAI, XRP, DOGE, ADA, AVAX, LINK, DOT,
+                   INJ, SHIB, LTC, BCH, ATOM, UNI, AAVE, CAKE, FIL, TUSD]
+  dex_universe_symbols: [CAKE, ETH, XRP, DOGE, ADA, AVAX, LINK, DOT,
+                          INJ, SHIB, LTC, BCH, ATOM, UNI, AAVE]
 
 # Data source tier — picked in the Setup wizard
 # One of: "cmc_pro" (paid), "x402" (Base USDC), "binance" (free), "mock" (replay/tests)

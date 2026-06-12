@@ -77,8 +77,8 @@ sleeves:
     max_position_pct: 5.0
 allowlist:
   cmc_rank_max: 50
-  bsc_tokens: [WBNB, USDC, CAKE, BTCB, ETH, SOL, XRP, DOGE, ADA, AVAX,
-               LINK, DOT, MATIC, SHIB, LTC, BCH, NEAR, ATOM, UNI, APT]
+  bsc_tokens: [USDC, USDT, DAI, ETH, XRP, DOGE, ADA, AVAX, LINK, DOT,
+               INJ, SHIB, LTC, BCH, ATOM, UNI, AAVE, CAKE, FIL, TUSD]
   perps_venues: [aster, killex, apollox, mux]
   dex_routers:  ["0x9A489505a6B3cd73B4D6C8E6B3E8a3e7B9C8d2e1"]
 fees:

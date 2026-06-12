@@ -1,0 +1,27 @@
+{
+  "_comment": "BNB HACK 2026 Track 1 eligible BEP-20 token universe. Source: https://dorahacks.io/hackathon/bnbhack-twt-cmc/detail (the competition detail page publishes the fixed 149-token list verbatim). Source snapshot: 2026-06-12 14:48 UTC. Trades outside this list do not count. core/eligibility.py loads this file and core/eligibility.py::filter_universe() must be applied to every trade universe before execution. If the contest page updates the list, update this file and bump _schema_version. Tests in tests/unit/test_eligibility.py pin the file to the source page and check that every token in our config (basket_symbols, dex_universe_symbols, bsc_tokens) is a subset of this list.",
+  "_schema_version": "2026-06-12.1",
+  "_contest_contract": "0x212c61b9b72c95d95bf29cf032f5e5635629aed5",
+  "_contest_window": "2026-06-22T00:00:00Z to 2026-06-28T23:59:59Z",
+  "_contest_rules_url": "https://dorahacks.io/hackathon/bnbhack-twt-cmc/detail",
+  "tokens": [
+    "ETH", "USDT", "USDC", "XRP", "TRX", "DOGE", "ZEC", "ADA", "LINK", "BCH",
+    "DAI", "TON", "USD1", "USDe", "M", "LTC", "AVAX", "SHIB", "XAUt", "WLFI",
+    "H", "DOT", "UNI", "ASTER", "DEXE", "USDD", "ETC", "AAVE", "ATOM", "U",
+    "STABLE", "FIL", "INJ", "\u5e01\u5b89\u4eba\u751f", "NIGHT", "FET", "TUSD",
+    "BONK", "PENGU", "CAKE", "SIREN", "LUNC", "ZRO", "KITE", "FDUSD", "BEAT",
+    "PIEVERSE", "BTT", "NFT", "EDGE", "FLOKI", "LDO", "B", "FF", "PENDLE",
+    "NEX", "STG", "AXS", "TWT", "HOME", "RAY", "COMP", "GWEI", "XCN", "GENIUS",
+    "XPL", "BAT", "SKYAI", "APE", "IP", "SFP", "TAG", "NXPC", "AB", "SAHARA",
+    "1INCH", "CHEEMS", "BANANAS31", "RIVER", "MYX", "RAVE", "SNX", "FORM",
+    "LAB", "HTX", "USDf", "CTM", "BDX", "SLX", "UB", "DUCKY", "FRAX", "BILL",
+    "WFI", "KOGE", "ALE", "FRXUSD", "USDF", "GOMINING", "VCNT", "GUA", "DUSD",
+    "SMILEK", "0G", "BEAM", "MY", "SOON", "REAL", "Q", "AIOZ", "ZIG", "YFI",
+    "TAC", "lisUSD", "CYS", "ZAMA", "TRIA", "HUMA", "PLUME", "ZIL", "XPR",
+    "ZETA", "BabyDoge", "NILA", "ROSE", "VELO", "UAI", "BRETT", "OPEN", "BSB",
+    "TOSHI", "BAS", "ACH", "AXL", "LUR", "ELF", "KAVA", "APR", "IRYS", "EURI",
+    "XUSD", "BARD", "DUSK", "SUSHI", "PEAQ", "COAI", "BDCA", "XAUM"
+  ],
+  "_duplicate_in_source": ["SLX"],
+  "_duplicate_note": "The DoraHacks page lists SLX twice. We keep a single entry above. If the contest judges see the SLX token count as 149 (counting the dup), our universe is still a strict subset."
+}

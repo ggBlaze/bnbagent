@@ -11,7 +11,7 @@
 [![BNB Chain](https://img.shields.io/badge/BNB%20Chain-AI%20Agent%20SDK-orange)](https://www.bnbchain.org/en/solutions/ai-agent)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-330%2F330%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-377%2F377%20passing-brightgreen)](tests/)
 [![CI](https://img.shields.io/badge/CI-enforced-blueviolet)](.github/workflows/ci.yml)
 
 ---
@@ -64,6 +64,8 @@ That's it. The dashboard auto-loads; first-time users land in the **Setup wizard
 **v2.1.2: every runtime write lands in a gitignored file.** The operator-signed `config/policy.yaml`, the Token Module's `agents/token_module.yaml`, and the TWAK keystore at `~/.twak/` are all gitignored. The repo state is reproducible from `git clone` — the only thing that varies between operators is the `local.yaml` shadow and the runtime state in `~/.bnbagent/`. The contract is pinned by `tests/unit/test_repo_cleanliness.py` (36 tests).
 
 **v2.1.3: dashboard UI gaps closed.** The Config pane now has an LLM API key section (Set + Test buttons, writes to `.env`, restart-to-apply) and a Personas section listing all 4 personas (View / Edit / Reset). The Token Module has inline `name` + `symbol` form fields (replacing the old `window.prompt()` dialogs) plus a prominent network notice (green for testnet, red for mainnet) that updates when you change the dropdown.
+
+**v2.1.4: BNB HACK 2026 compliance.** The contest page publishes a fixed 149-BEP-20 eligible list, requires on-chain registration before June 22, and demands 1 trade/day for 7 days. This release pins the eligible list (`data/eligible_tokens.json`), filters every trade universe against it (sleeves + risk engine), wraps `npx twak compete register` as a script + MCP tool + dashboard button, and adds a daily trade floor that fires a 0.1%-of-equity rebalance at 23:30 UTC if no sleeve traded that day. 47 new tests, full audit at `docs/compliance.md`.
 
 | Command | What it does |
 |---|---|
@@ -537,7 +539,7 @@ bnbagent/
 │   ├── metrics.py
 │   └── replay.py
 │
-├── tests/                         ← 330/330 passing (enforced by CI)
+├── tests/                         ← 377/377 passing (enforced by CI)
 │   ├── unit/                      ← ~13 files
 │   ├── integration/               ← 1 file (MCP)
 │   └── fixtures/                  ← llm.py, wallets.py, skills.py
@@ -613,7 +615,7 @@ bnbagent/
 ## 15. Testing
 
 ```bash
-pytest -q                          # 330/330 passing (~3m cold, ~12s unit-only)
+pytest -q                          # 377/377 passing (~3m cold, ~12s unit-only)
 pytest tests/unit/                 # fast unit tests
 pytest tests/integration/          # MCP end-to-end
 pytest tests/unit/test_risk.py -v # 1 file

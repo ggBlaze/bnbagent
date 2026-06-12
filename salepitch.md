@@ -158,3 +158,5 @@ Full audit in `docs/audit-2026-06-05.md`.
 - **10** MCP tools exposed — other agents can drive the whole stack
 - **4** persona .md files (pro defaults + user-editable live copies)
 - **5** LLM provider adapters (Anthropic, OpenAI, OpenRouter, OAI-compat, local)
+- **149** BEP-20 eligible tokens (DoraHacks Track 1 list, pinned at `data/eligible_tokens.json`, filter enforced at the sleeve + risk engine level)
+- **30%** drawdown disqualification threshold vs our **5%** daily circuit breaker (6× safer than required)

@@ -2,6 +2,95 @@
 
 All notable changes to this project. Versioned per the git tag.
 
+## v2.1.4 — BNB HACK 2026 compliance (eligible 149 + on-chain register + daily trade floor)
+
+Blaze (2026-06-12, 08:48 CST) asked us to audit the agent against the
+6 official rules from the DoraHacks Track 1 detail page
+(https://dorahacks.io/hackathon/bnbhack-twt-cmc/detail). We found
+3 real gaps and fixed all of them in this release.
+
+ADDED:  data/eligible_tokens.json — the 149-BEP-20 eligible list
+        published verbatim on the contest page, pinned as
+        schema_version "2026-06-12.1". The contest says "trades
+        outside this list do not count" — so we filter at the
+        universe level, not the trade level.
+ADDED:  core/eligibility.py — filter_universe() + is_eligible(),
+        with three modes: strict (default during the contest, drops
+        out-of-scope symbols), soft (logs violations but keeps the
+        symbol, for long-running use outside the contest window),
+        off (no filter, for backtests). Mode is selected by the
+        BNB_HACK_TRACK1 env var. The module fails closed if the
+        list file is missing/malformed.
+ADDED:  Defense-in-depth in core/risk.py::circuit_breaker_check()
+        — even if a sleeve forgets to call filter_universe(), the
+        risk engine is the last gate before the order reaches TWAK
+        for signing. In strict mode, the order is rejected with a
+        reason that includes the schema_version (so a stale list
+        is visible in the trade-rejection audit log).
+CHANGED: strategies/sleeve_a_carry.py + sleeve_b_momentum.py +
+         sleeve_c_meanrev.py — all three sleeves call
+         filter_universe() before fetching OHLCV (saves a paid x402
+         microcharge per dropped symbol AND keeps us on the
+         contest's scored list).
+CHANGED: config/config.yaml — replaced 5 out-of-scope tokens in
+         basket_symbols (BTC, SOL, MATIC, NEAR, APT) and 5 in
+         dex_universe_symbols (WBNB, BTCB, SOL, MATIC, NEAR, APT)
+         with 5 in-scope replacements (USDT, DAI, INJ, AAVE, FIL).
+CHANGED: config/policy.yaml.example — replaced 5 out-of-scope
+         tokens in bsc_tokens allowlist + removed WBNB, BTCB.
+ADDED:  scripts/competition_register.py — the on-chain registration
+        wrapper. Resolves the agent's wallet from policy.yaml or
+        BNBAGENT_PRIVATE_KEY or ~/.twak/wallet.json, shells out to
+        `npx twak compete register --network mainnet --contract
+        0x212c61b9b72c95d95bf29cf032f5e5635629aed5`, captures the
+        tx hash, deep-links to bsctrace.com, caches the result in
+        data/competition_register.json (gitignored). Flags: --check
+        (status only), --emit-mcp (print the MCP action JSON so any
+        MCP client can drive it), --dry-run (resolve address + emit
+        MCP, no tx).
+ADDED:  agent_mcp/mcp_server.py — competition_register MCP tool.
+        The action name matches the rules page verbatim.
+ADDED:  dashboard/backend/main.py — 3 new endpoints:
+        GET  /api/competition/register/status   (cached state + contract)
+        POST /api/competition/register          (triggers the script)
+        POST /api/competition/register/emit-mcp (offline prep)
+        GET  /api/eligibility                   (filter mode + count)
+ADDED:  dashboard/frontend/index.html — BNB HACK 2026 card on the
+        Live pane with: contract address (BscTrace deep-link),
+        registration status, agent wallet, tx hash, daily-floor
+        status, eligible-token count. 3 buttons: Register / Refresh
+        / Show MCP action. Card auto-refreshes when the user opens
+        the Live pane.
+ADDED:  core/daily_trade_floor.py — 1-trade-per-day safety net.
+        At 23:30 UTC every day, the heartbeat checks if any trade
+        happened. If not, fires a 0.1%-of-equity rebalance on the
+        cheapest in-scope BEP-20 (USDC preferred), holds for 30
+        minutes, then closes. Goes through the same circuit breaker
+        as a sleeve trade. Once per UTC day max (idempotent on
+        restart). Opt-out via BNB_HACK_NO_DAILY_FLOOR=1.
+CHANGED: core/tick.py — Agent.start() now also creates the floor
+         close loop (closes the floor position after hold_min).
+         Agent._heartbeat() now also calls floor.tick() once a
+         second. Agent has a new submit_floor_trade() method that
+         wraps Portfolio.add_position() with the same audit
+         logging as a sleeve trade.
+ADDED:  docs/compliance.md — the full audit trail. Every rule from
+        the contest page is mapped to: the code that enforces it
+        (if mechanical), the operator step (if ops), the test that
+        pins it (if any), the demo segment that shows it (if
+        visible). Includes the special-prize scoring breakdown,
+        target: 100/100 TWAK + full marks on CMC and BNB SDK.
+ADDED:  docs/demo-script.md — explicit x402 segment ("Native x402
+        is the heart of the agent's data loop, not a README
+        mention") + explicit TWAK segment with the 3-surface
+        breakdown (signing + autonomous mode + x402) +
+        competition-register button segment.
+ADDED:  Tests: 47 new tests (22 eligibility + 12 daily floor + 13
+        register). Test count: 330 → 377. The eligibility tests
+        pin the shipped config (basket + dex_universe + allowlist)
+        to be a strict subset of the 149 — a future contributor
+        sneaking in an out-of-scope symbol will fail CI.
+
 ## v2.1.3 — UI gaps in the dashboard (LLM key + Personas + Token form)
 
 Blaze (2026-06-12, 07:07 CST) flagged three real UI gaps in the

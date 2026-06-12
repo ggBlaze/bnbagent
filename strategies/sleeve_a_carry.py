@@ -22,6 +22,7 @@ from decimal import Decimal
 from typing import Any
 
 from connectors.bnb_sdk import Perps
+from core.eligibility import filter_universe, is_eligible
 from core.portfolio import Position
 from core.risk import ProposedTrade
 from core.utils import token_address
@@ -133,7 +134,13 @@ class SleeveACarry:
         min_realized_vol_annualized + a default 0.01 buffer.
         """
         try:
-            basket = self.cfg["cmc"]["basket_symbols"][:20]
+            # v2.1.4: filter to BNB HACK 2026 eligible BEP-20 universe.
+            # In strict mode (default during the contest), non-eligible
+            # symbols are dropped silently + logged. The carry sleeve is
+            # a *delta-neutral basket* — we only need enough symbols for
+            # the venue's funding comparison to be meaningful, so losing
+            # a few to eligibility is fine.
+            basket = filter_universe(self.cfg["cmc"]["basket_symbols"][:20])
             ohlc = await self.data_source.ohlcv_historical(
                 basket, time_period="hour", count=24, convert="USD",
             )
@@ -178,7 +185,15 @@ class SleeveACarry:
 
     async def _rebalance(self, equity: Decimal):
         cfg = self.cfg
-        basket = cfg["cmc"]["basket_symbols"][:20]
+        # v2.1.4: filter to BNB HACK 2026 eligible BEP-20 universe
+        # before doing anything that depends on basket size (per-token
+        # notional = equity * 70% / len(basket)). Truncating to [:20]
+        # AFTER filtering would silently drop eligible symbols; do the
+        # filter first, then slice.
+        basket = filter_universe(cfg["cmc"]["basket_symbols"])[:20]
+        if not basket:
+            log.warning("Sleeve A: eligible basket is empty (all symbols filtered). Skipping rebalance.")
+            return
         venue, _ = self.perps.select_venue(basket)
 
         if venue == self.venue and set(basket) == set(self.basket) and self.rows:

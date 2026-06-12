@@ -15,6 +15,17 @@ from typing import Iterable
 log = logging.getLogger(__name__)
 
 
+def _eligibility_schema_version() -> str:
+    """The schema_version of the loaded eligible_tokens.json.
+
+    Lazy import to avoid a circular dep: core.eligibility imports nothing
+    from core.risk, but core.risk only needs the schema version string
+    for the error message, not the whole module.
+    """
+    from core.eligibility import schema_version
+    return schema_version()
+
+
 @dataclass
 class ProposedTrade:
     sleeve: str
@@ -92,11 +103,21 @@ def circuit_breaker_check(
         if lev > p["max_gross_leverage"]:
             return False, f"gross lev {lev:.2f}x > {p['max_gross_leverage']}x"
 
-    # 6) Allowlist (symbol + venue)
+    # 6) Allowlist (symbol + venue) + BNB HACK 2026 eligibility
     if proposed is not None:
         al = policy["allowlist"]
         if proposed.symbol not in al["bsc_tokens"]:
             return False, f"{proposed.symbol} not in allowlist"
+        # v2.1.4: defense-in-depth. Even if a sleeve forgets to call
+        # filter_universe(), the risk engine is the last gate before
+        # the order goes to TWAK for signing. In strict mode (the
+        # default during the contest), this rejects the trade with a
+        # clear reason. In soft mode, it just logs and lets it through.
+        # The sleeves still do the filter at the universe level, so this
+        # is a belt-and-suspenders check.
+        from core.eligibility import is_eligible, _mode as _eligibility_mode
+        if _eligibility_mode() == "strict" and not is_eligible(proposed.symbol):
+            return False, f"{proposed.symbol} not in BNB HACK eligible 149 (schema={_eligibility_schema_version()})"
 
     # 7) Sleeve position cap
     if proposed is not None and proposed.sleeve in policy["sleeves"]:

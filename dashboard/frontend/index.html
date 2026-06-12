@@ -882,6 +882,24 @@ body::before {
           <div id="jobs-list"><div class="kv"><span class="k">no jobs opened</span></div></div>
         </section>
         <section class="panel">
+          <h4>BNB HACK 2026 <span class="meta accent">competition registration</span></h4>
+          <div class="kv"><span class="k">Contract</span>
+            <span class="v" id="comp-contract">0x212c...aed5</span>
+            <a id="comp-contract-link" href="https://bsctrace.com/address/0x212c61b9b72c95d95bf29cf032f5e5635629aed5" target="_blank" style="color:var(--blue);font-size:10px;text-decoration:none;margin-left:6px;">→ BscTrace ↗</a>
+          </div>
+          <div class="kv"><span class="k">Status</span><span class="v" id="comp-status">—</span></div>
+          <div class="kv"><span class="k">Agent wallet</span><span class="v" id="comp-agent">—</span></div>
+          <div class="kv"><span class="k">Tx hash</span><span class="v" id="comp-tx">—</span></div>
+          <div class="kv"><span class="k">Daily floor</span><span class="v" id="comp-floor">—</span></div>
+          <div class="kv"><span class="k">Eligible tokens</span><span class="v" id="comp-eligible">149</span></div>
+          <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
+            <button type="button" class="btn primary" onclick="competitionRegisterNow()">Register on competition contract</button>
+            <button type="button" class="btn" onclick="competitionRefresh()">Refresh</button>
+            <button type="button" class="btn" onclick="competitionEmitMcp()">Show MCP action</button>
+          </div>
+          <div id="comp-result" style="margin-top:8px;"></div>
+        </section>
+        <section class="panel">
           <h4>Recent Trades <span class="meta">closed</span></h4>
           <div class="scroll" style="max-height:160px;">
             <table class="ledger" id="trades">
@@ -1377,6 +1395,66 @@ function showPane(p) {
   if (p === 'config') loadPersonaList();
   if (p === 'config') llmKeyRefreshStatus();
   if (p === 'tokens') refreshTokenNotice();
+  if (p === 'live') competitionRefresh();
+}
+
+/* ============================================================
+   v2.1.4: BNB HACK 2026 competition registration panel (Live pane)
+   ============================================================ */
+async function competitionRefresh() {
+  const s = await jget('/api/competition/register/status');
+  if (!s) return;
+  $('comp-status').textContent = s.registered
+    ? '✓ registered'
+    : (s.error ? `⚠ ${s.error.slice(0, 60)}` : '⚠ not registered');
+  $('comp-status').style.color = s.registered ? 'var(--green)' : 'var(--accent-2)';
+  $('comp-agent').textContent = s.agent_address || '— (sign the policy or set BNBAGENT_PRIVATE_KEY)';
+  const tx = s.tx_hash || '—';
+  $('comp-tx').textContent = tx;
+  if (s.tx_hash) {
+    $('comp-tx').innerHTML = `<a href="${s.bsctrace_url || 'https://bsctrace.com'}" target="_blank" style="color:var(--blue);">${tx.slice(0, 12)}…</a>`;
+  }
+  // Daily floor status
+  const stats = await jget('/api/stats');
+  if (stats && stats.daily_floor) {
+    const f = stats.daily_floor;
+    const stat = f.last_fire_status || 'n/a';
+    const note = f.last_fire_note || '';
+    $('comp-floor').textContent = `${stat} (${f.total_fires} fires / ${f.total_days_covered} days)`;
+    $('comp-floor').title = note;
+  } else {
+    $('comp-floor').textContent = '— (heartbeat not started)';
+  }
+  // Eligible universe
+  const e = await jget('/api/eligibility');
+  if (e) {
+    $('comp-eligible').textContent = `${e.eligible_count} (${e.mode}, schema ${e.schema_version})`;
+    $('comp-eligible').title = `contest eligible BEP-20 universe — source: ${e.list_path}`;
+  }
+}
+
+async function competitionRegisterNow() {
+  const result = $('comp-result');
+  result.innerHTML = '<div class="banner info">Registering… (calls npx twak compete register)</div>';
+  const r = await jpost('/api/competition/register', { network: 'mainnet' });
+  if (r && r.ok) {
+    const txh = (r.result && r.result.tx_hash) || '';
+    const link = (r.result && r.result.bsctrace_url) || 'https://bsctrace.com';
+    result.innerHTML = `<div class="banner ok">✓ Registered. Tx: <a href="${link}" target="_blank" style="color:var(--blue);">${txh.slice(0, 12)}…</a></div>`;
+  } else {
+    const err = (r && r.error) || (r && r.stderr) || 'unknown error';
+    result.innerHTML = `<div class="banner error">✗ ${err.slice(0, 200)}</div>`;
+  }
+  competitionRefresh();
+}
+
+async function competitionEmitMcp() {
+  const r = await jpost('/api/competition/register/emit-mcp', {});
+  if (r && r.error) {
+    $('comp-result').innerHTML = `<div class="banner error">${r.error}</div>`;
+    return;
+  }
+  $('comp-result').innerHTML = `<pre style="font:400 11px/1.4 'JetBrains Mono'; background:#fafafa; padding:10px; border-radius:4px; overflow:auto;">${JSON.stringify(r, null, 2).replace(/</g, '&lt;')}</pre>`;
 }
 
 async function refreshConfigPane() {

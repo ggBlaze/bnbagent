@@ -22,6 +22,7 @@ from typing import Any
 
 import numpy as np
 
+from core.eligibility import filter_universe, is_eligible
 from core.portfolio import Position
 from core.risk import ProposedTrade, kelly_size, cap_by_risk
 from core.utils import token_address
@@ -76,7 +77,11 @@ class SleeveBMomentum:
     async def _scan_signals(self, sleeve_cfg: dict) -> list[tuple[str, float, float]]:
         """Returns [(symbol, atr14, current_price)] for new entries."""
         try:
-            universe = self.cfg["cmc"]["dex_universe_symbols"]
+            # v2.1.4: filter to BNB HACK 2026 eligible BEP-20 universe.
+            # The dex_universe includes WBNB + BTCB (gas-wrapped + BEP-20
+            # BTC) which are NOT in the 149-list. filter_universe drops
+            # them in strict mode (the default during the contest).
+            universe = filter_universe(self.cfg["cmc"]["dex_universe_symbols"])
             ohlc = await self.data_source.ohlcv_historical(
                 universe, time_period="hour", count=24, convert="USD",
             )

@@ -127,6 +127,10 @@ def _build_server():
                  inputSchema={"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),
             Tool(name="bnbagent_disable_skill", description="Disable a Skill by name.",
                  inputSchema={"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),
+            Tool(name="competition_register", description="Register this agent's wallet on the BNB HACK 2026 Track 1 BSC competition contract (0x212c61b9b72c95d95bf29cf032f5e5635629aed5). Required before the live trading window opens on 2026-06-22. The rules page documents this exact MCP action name.",
+                 inputSchema={"type": "object", "properties": {
+                     "network": {"type": "string", "enum": ["mainnet", "testnet"], "default": "mainnet"},
+                 }, "required": []}),
         ]
 
     @server.call_tool()
@@ -227,6 +231,31 @@ def _build_server():
             if not reg:
                 return _json({"error": "skill registry not loaded"})
             return _json(reg.disable(arguments.get("name", "")))
+
+        if name == "competition_register":
+            from scripts.competition_register import main as _register_main, _load_cache
+            network = arguments.get("network", "mainnet")
+            if network not in ("mainnet", "testnet"):
+                return _json({"error": f"network must be mainnet or testnet, got {network!r}"})
+            import io, contextlib
+            out, err = io.StringIO(), io.StringIO()
+            rc = 0
+            try:
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    rc = _register_main(["--network", network])
+            except SystemExit as e:
+                rc = e.code or 0
+            except Exception as e:
+                return _json({"error": f"{type(e).__name__}: {e}",
+                              "stdout": out.getvalue(), "stderr": err.getvalue()})
+            cache = _load_cache()
+            return _json({
+                "ok":       rc == 0,
+                "returncode": rc,
+                "result":   cache,
+                "stdout":   out.getvalue().strip(),
+                "stderr":   err.getvalue().strip(),
+            })
 
         return _json({"error": f"unknown tool: {name}"})
 

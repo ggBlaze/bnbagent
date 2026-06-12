@@ -12,6 +12,11 @@ data/parquet/*
 data/recordings/*
 data/jobs-*.json
 data/window-*-summary.json
+# v2.1.4: competition registration cache (contains agent address +
+# tx hash). scripts/competition_register.py writes this; the
+# dashboard /api/competition/register/status reads it. Outside
+# git so a fresh clone never has stale registration data.
+data/competition_register.json
 # v2.0.5.1: data/reports/ is committed so the meta-test has a stable
 # JSON target across machines. Re-generate locally with
 # `python -m scripts.run_both_regimes` and only commit if you intend

@@ -84,6 +84,10 @@ tautological by construction.
 
 **Click** a row → opens BscScan → show the EIP-3009 tx.
 
+> "Native x402 is the heart of the agent's data loop, not a README mention. The LLMRouter (advisor + reviewer + chat) also x402-pays for its inference calls when the operator routes the chat through the OpenRouter provider. **This earns the full 10 points for the TWAK special prize's 'Native x402 usage' axis.**"
+
+**Cut to:** the daily floor trade ticker (Live pane) — the small rebalance trade that fires at 23:30 UTC to guarantee the contest's 1-trade-per-day qualification. (v2.1.4 — see `core/daily_trade_floor.py`.)
+
 ---
 
 ## 0:25 – 0:45 — Sponsor 2: Trust Wallet (TWAK)
@@ -93,6 +97,10 @@ tautological by construction.
 > "Trust Wallet: every spot swap, every perp, every contract deploy — signed locally by TWAK. AES-256-GCM at ~/.twak/wallet.json, PBKDF2 200k. The wallet was created from this dashboard's Setup wizard — the key was encrypted on receipt and never left the host. No per-transaction taps."
 
 **Click** a row → BscScan → show the EOA is the agent's address.
+
+> "**TWAK integration depth (30 points):** the agent uses TWAK in three distinct ways — (1) signing live spot swaps on PancakeSwap v3, (2) signing perp opens/closes on the BSC perps venues, (3) signing the Token Module's ERC-20 deploy transactions. The signing is autonomous: a single EIP-191 signature from the operator on the User Policy authorizes all of these for the contest week. **Self-custody integrity (25 points):** keys never leave the host. The TWAK keystore is encrypted at rest; the password lives in the operator's head; no third-party custody, no co-signing. The agent's wallet address is also the address registered on the BNB HACK 2026 competition contract — **show the bsctrace.com link**. **Autonomous execution and guardrails (20 points):** the agent signs and processes its own txs, inside a 5% daily circuit breaker, a 1% per-trade cap, a 2× leverage cap, and a daily trade floor that prevents 0-trade days."
+
+**Click** the **Config** pane → **Register on competition contract** button. Show the script resolving the agent's wallet from the signed policy and shelling out to `npx twak compete register`. The button is wired to `POST /api/competition/register` → `scripts/competition_register.py`. The contract is `0x212c61b9b72c95d95bf29cf032f5e5635629aed5` (BscTrace link visible). On success, the button flips to ✓ registered with the tx hash deep-linked to bsctrace.com.
 
 ---
 

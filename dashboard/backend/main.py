@@ -61,7 +61,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -316,6 +316,93 @@ def build_app() -> FastAPI:
             "version":        ident.get("version"),
             "8004scan_url":   f"https://www.8004scan.io/agents/{ident.get('agent_address', '')}",
         })
+
+    # --- v2.1.4: BNB HACK 2026 Track 1 on-chain competition registration ---
+    # The rules page (https://dorahacks.io/hackathon/bnbhack-twt-cmc/detail)
+    # requires every Track 1 participant to register on the BSC
+    # competition contract before the live window opens on 2026-06-22.
+    # These endpoints wrap `python -m scripts.competition_register`.
+
+    @app.get("/api/competition/register/status")
+    async def competition_register_status():
+        """Return the cached registration state, plus the contract address."""
+        from scripts.competition_register import COMPETITION_CONTRACT, _load_cache
+        cache = _load_cache()
+        return JSONResponse({
+            "contract":          COMPETITION_CONTRACT,
+            "bsctrace_url":      f"https://bsctrace.com/address/{COMPETITION_CONTRACT}",
+            "rules_url":         "https://dorahacks.io/hackathon/bnbhack-twt-cmc/detail",
+            "registered":        bool(cache.get("ok")),
+            "tx_hash":           cache.get("tx_hash"),
+            "agent_address":     cache.get("agent_address"),
+            "network":           cache.get("network"),
+            "timestamp":         cache.get("timestamp"),
+            "error":             cache.get("stderr") if not cache.get("ok") else None,
+        })
+
+    @app.post("/api/competition/register")
+    async def competition_register(payload: dict = Body(default_factory=dict)):
+        """Trigger `npx twak compete register` via the script wrapper.
+
+        Body: {"network": "mainnet"} (default "mainnet")
+        Returns the script's JSON output.
+        """
+        from scripts.competition_register import main as register_main
+        network = (payload or {}).get("network", "mainnet")
+        if network not in ("mainnet", "testnet"):
+            return JSONResponse({"error": f"network must be mainnet or testnet, got {network!r}"})
+        argv = ["--network", network]
+        # Capture stdout/stderr
+        import io, contextlib
+        out_buf, err_buf = io.StringIO(), io.StringIO()
+        rc = 0
+        try:
+            with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+                rc = register_main(argv)
+        except SystemExit as e:
+            rc = e.code or 0
+        except Exception as e:
+            return JSONResponse({
+                "ok": False,
+                "error": f"{type(e).__name__}: {e}",
+                "stdout": out_buf.getvalue(),
+                "stderr": err_buf.getvalue(),
+            })
+        # Try to parse the script's JSON output (it prints the result dict).
+        out_text = out_buf.getvalue().strip()
+        parsed = None
+        if out_text.startswith("{"):
+            try:
+                import json as _json
+                parsed = _json.loads(out_text)
+            except Exception:
+                pass
+        return JSONResponse({
+            "ok":      rc == 0,
+            "returncode": rc,
+            "result":  parsed,
+            "stdout":  out_text,
+            "stderr":  err_buf.getvalue(),
+        })
+
+    @app.post("/api/competition/register/emit-mcp")
+    async def competition_register_emit_mcp():
+        """Print the MCP `competition_register` action the user can drive
+        from any MCP client (Claude Code, Goose, Cursor, etc.). Useful
+        for the demo video — shows the agent is reachable as an MCP
+        server, not just a CLI.
+        """
+        from scripts.competition_register import _resolve_agent_address, _emit_mcp_action, COMPETITION_CONTRACT
+        addr = _resolve_agent_address()
+        if not addr:
+            return JSONResponse({"error": "could not resolve agent_address (sign the policy or set BNBAGENT_PRIVATE_KEY)"})
+        return JSONResponse(_emit_mcp_action(addr, "mainnet"))
+
+    @app.get("/api/eligibility")
+    async def eligibility_status():
+        """The BNB HACK 2026 eligible 149 BEP-20 universe + the filter mode."""
+        from core.eligibility import report
+        return JSONResponse(report())
 
     @app.get("/api/jobs")
     async def jobs():

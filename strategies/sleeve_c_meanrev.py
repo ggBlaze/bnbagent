@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 
+from core.eligibility import filter_universe, is_eligible
 from core.portfolio import Position
 from core.risk import ProposedTrade, kelly_size, cap_by_risk
 from core.utils import token_address
@@ -59,7 +60,10 @@ class SleeveCMeanRev:
 
     async def _scan_signals(self, sleeve_cfg: dict) -> list[tuple[str, float, float]]:
         try:
-            universe = self.cfg["cmc"]["basket_symbols"][:20]
+            # v2.1.4: filter to BNB HACK 2026 eligible BEP-20 universe
+            # before fetching OHLCV. Saves a paid x402 microcharge per
+            # dropped symbol AND keeps us on the contest's scored list.
+            universe = filter_universe(self.cfg["cmc"]["basket_symbols"])[:20]
             ohlc = await self.data_source.ohlcv_historical(
                 universe, time_period="hour", count=24 * 7, convert="USD",
             )
