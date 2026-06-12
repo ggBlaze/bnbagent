@@ -10,7 +10,7 @@ from decimal import Decimal
 import jsonschema
 import yaml
 
-from connectors import CMCClient, BSCClient, PancakeV3, Perps, ERC8004, ERC8183, IPFSClient
+from connectors import BSCClient, PancakeV3, Perps, ERC8004, ERC8183, IPFSClient
 from connectors.twak import TWAKWallet
 from .portfolio import Portfolio
 from policy.policy_verify import verify_policy
@@ -35,14 +35,15 @@ def init_wallet() -> TWAKWallet:
     return w
 
 
-def init_cmc(cfg: dict, wallet: TWAKWallet, replay_tape: list | None = None) -> CMCClient:
-    return CMCClient(
-        x402_base=cfg["cmc"]["x402_base"],
-        api_key=cfg["cmc"].get("api_key", ""),
-        mode=cfg.get("mode", "testnet"),
-        wallet=wallet,
-        replay_tape=replay_tape,
-    )
+def init_data_source(cfg: dict, wallet: TWAKWallet | None = None, replay_tape: list | None = None) -> "DataSourceRouter":
+    """Construct the DataSourceRouter from config['data_source'].
+
+    Default tier is 'mock' (replay/tests). The router's from_config factory
+    picks CMCProClient / CMCX402Client / BinanceClient / MockClient based on
+    the tier and the wallet/key availability.
+    """
+    from connectors.data_source import DataSourceRouter
+    return DataSourceRouter.from_config(cfg, wallet=wallet)
 
 
 def init_bsc(cfg: dict) -> dict:
@@ -128,7 +129,7 @@ def boot(starting_equity: Decimal = Decimal("100"),
 
     wallet = init_wallet()
     policy["agent_address"] = wallet.address
-    cmc = init_cmc(cfg, wallet, replay_tape=replay_tape)
+    data_source = init_data_source(cfg, wallet=wallet, replay_tape=replay_tape)
     bs = init_bsc(cfg)
     ipfs = init_ipfs(cfg)
     # Deterministic clock (v2.0.4). In production this is wall clock;
@@ -147,7 +148,7 @@ def boot(starting_equity: Decimal = Decimal("100"),
         "config": cfg,
         "policy": policy,
         "wallet": wallet,
-        "cmc": cmc,
+        "data_source": data_source,
         "bsc": bs["bsc"],
         "pancake": bs["pancake"],
         "perps": bs["perps"],

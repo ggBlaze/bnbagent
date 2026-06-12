@@ -39,7 +39,7 @@ class SleeveBMomentum:
         self.cfg = components["config"]
         self.policy = components["policy"]
         self.wallet = components["wallet"]
-        self.cmc = components["cmc"]
+        self.data_source = components["data_source"]
         self.pancake = components["pancake"]
         self.bsc = components["bsc"]
         self.agent = agent
@@ -77,7 +77,7 @@ class SleeveBMomentum:
         """Returns [(symbol, atr14, current_price)] for new entries."""
         try:
             universe = self.cfg["cmc"]["dex_universe_symbols"]
-            ohlc = await self.cmc.ohlcv_historical(
+            ohlc = await self.data_source.ohlcv_historical(
                 universe, time_period="hour", count=24, convert="USD",
             )
         except Exception as e:
@@ -211,7 +211,7 @@ class SleeveBMomentum:
         atr_len = int(sleeve_cfg["atr_len"])
         for sym, pos in list(self.positions.items()):
             try:
-                quote = await self.cmc.quotes_latest([sym])
+                quote = await self.data_source.quotes_latest([sym])
                 px = Decimal(str(quote["data"][sym]["quote"]["USD"]["price"]))
             except Exception as e:
                 log.warning(f"Sleeve B monitor {sym}: cmc fail {e}")
@@ -228,7 +228,7 @@ class SleeveBMomentum:
             entry_atr = self.entry_atr.get(sym)
             if entry_atr and entry_atr > 0:
                 try:
-                    ohlc = await self.cmc.ohlcv_historical(
+                    ohlc = await self.data_source.ohlcv_historical(
                         [sym], time_period="hour", count=atr_len + 1, convert="USD",
                     )
                     candles = (ohlc.get("data") or {}).get(sym, {}).get("quotes", [])

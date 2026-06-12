@@ -290,7 +290,7 @@ class ChatAgent:
     def _system_state_block(self) -> str:
         pf = self.components.get("portfolio")
         policy = self.components.get("policy") or {}
-        cmc = self.components.get("cmc")
+        cmc = self.components.get("data_source")
         return (
             "\n\nLIVE STATE (read-only snapshot for grounding):\n"
             f"- equity: {float(pf.equity()) if pf else 'n/a'}\n"

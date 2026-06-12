@@ -106,7 +106,7 @@ async def test_x_sentiment_returns_cmc_fallback_score(tmp_path, monkeypatch):
     class FakeCMC:
         async def quotes_latest(self, symbols, convert="USD"):
             return {"data": {s: {"quote": {"USD": {"percent_change_24h": 5.0}}} for s in symbols}}
-    ctx = SkillContext(event="tick", components={"cmc": FakeCMC()})
+    ctx = SkillContext(event="tick", components={"data_source": FakeCMC()})
     out = await s.run(ctx)
     assert out["source"] == "cmc_fallback"
     assert -1.0 <= out["score"] <= 1.0

@@ -43,7 +43,7 @@ def components():
     return {
         "portfolio": pf,
         "policy": _build_policy(),
-        "cmc": type("C", (), {"_x402_spend_today_usdc": Decimal("0.47")})(),
+        "data_source": type("C", (), {"_x402_spend_today_usdc": Decimal("0.47")})(),
         "dashboard_state": {"control_log": []},
     }
 

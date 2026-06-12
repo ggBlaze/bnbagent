@@ -91,7 +91,7 @@ async def run(args):
     DASHBOARD_STATE.update({
         "config": cfg, "policy": policy,
         "components": {k: v for k, v in components.items()
-                        if k in ("cmc", "bsc", "pancake", "perps", "erc8004", "erc8183", "ipfs",
+                        if k in ("data_source", "bsc", "pancake", "perps", "erc8004", "erc8183", "ipfs",
                                  "identity", "llm_router", "advisor", "reviewers", "chat_agent",
                                  "skill_registry", "token_module")},
         "positions_view": [],

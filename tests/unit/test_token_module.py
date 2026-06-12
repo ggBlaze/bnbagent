@@ -27,7 +27,7 @@ def components(wallet, bsc_client, tmp_path):
     return {
         "wallet": wallet,
         "bsc": bsc_client,
-        "cmc": None,
+        "data_source": None,
         "ipfs": None,
     }
 

@@ -108,7 +108,7 @@ class StrategyAdvisor:
              "reason": t.get("reason")}
             for t in closed
         ]
-        cmc = self.components.get("cmc")
+        cmc = self.components.get("data_source")
         x402_spend = float(getattr(cmc, "_x402_spend_today_usdc", 0)) if cmc else 0.0
         sleeve_exp = portfolio.sleeve_exposures() if portfolio else {}
         return {

@@ -29,7 +29,7 @@ class XSentimentSkill:
         pass
 
     async def run(self, ctx: SkillContext, **kwargs) -> dict:
-        cmc = (ctx.components or {}).get("cmc")
+        cmc = (ctx.components or {}).get("data_source") or (ctx.components or {}).get("cmc")
         if cmc is None:
             return {"skipped": True, "reason": "no CMC client"}
         if os.environ.get("X_BEARER_TOKEN"):

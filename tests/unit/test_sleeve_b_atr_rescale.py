@@ -54,7 +54,7 @@ def _make_components() -> dict:
         "config": cfg,
         "policy": policy,
         "wallet": MagicMock(),
-        "cmc": MagicMock(),
+        "data_source": MagicMock(),
         "pancake": MagicMock(),
         "bsc": MagicMock(),
         "portfolio": portfolio,
@@ -95,13 +95,13 @@ async def test_vol_spike_widens_stop():
     assert original_stop == pytest.approx(96.0)
 
     # current price: at 95.5 (just below original stop, NOT triggering yet)
-    s.cmc.quotes_latest = AsyncMock(return_value={
+    s.data_source.quotes_latest = AsyncMock(return_value={
         "data": {"BTC": {"quote": {"USD": {"price": 95.5}}}}
     })
     # current candles: ATR has doubled to 4.0
     candles = [{"high": 100 + i*0.5, "low": 100 - i*0.5, "close": 100 + i*0.1, "open": 100}
                for i in range(15)]
-    s.cmc.ohlcv_historical = AsyncMock(return_value={
+    s.data_source.ohlcv_historical = AsyncMock(return_value={
         "data": {"BTC": {"quotes": candles}}
     })
 
@@ -111,7 +111,7 @@ async def test_vol_spike_widens_stop():
 
     # We don't expect an exit because the widened stop should be at or
     # below 95.5 (no fill).
-    s.cmc.ohlcv_historical = AsyncMock(return_value={
+    s.data_source.ohlcv_historical = AsyncMock(return_value={
         "data": {"BTC": {"quotes": candles}}
     })
     # Patch _atr to a known doubling
@@ -138,10 +138,10 @@ async def test_vol_spike_clamps_to_max_loss_pct():
     pos = _build_open_position(s, "BTC", entry_px, entry_atr)
     # max_loss_pct is 5.0 → floor stop at 95.0
 
-    s.cmc.quotes_latest = AsyncMock(return_value={
+    s.data_source.quotes_latest = AsyncMock(return_value={
         "data": {"BTC": {"quote": {"USD": {"price": 96.0}}}}
     })
-    s.cmc.ohlcv_historical = AsyncMock(return_value={
+    s.data_source.ohlcv_historical = AsyncMock(return_value={
         "data": {"BTC": {"quotes": [{"open": 100, "high": 105, "low": 95, "close": 100}] * 15}}
     })
     # Spike ATR to 8x → raw new stop = 100 - 2*8 = 84, but floor is 95.
@@ -165,10 +165,10 @@ async def test_no_rescale_when_vol_stable():
     pos = _build_open_position(s, "BTC", entry_px, entry_atr)
     original_stop = float(pos.stop_price)
 
-    s.cmc.quotes_latest = AsyncMock(return_value={
+    s.data_source.quotes_latest = AsyncMock(return_value={
         "data": {"BTC": {"quote": {"USD": {"price": 100.5}}}}
     })
-    s.cmc.ohlcv_historical = AsyncMock(return_value={
+    s.data_source.ohlcv_historical = AsyncMock(return_value={
         "data": {"BTC": {"quotes": [{"open": 100, "high": 101, "low": 99, "close": 100}] * 15}}
     })
     s._atr = MagicMock(return_value=2.0)   # exactly entry, no spike

@@ -41,7 +41,7 @@ def _make_components() -> dict:
         "config": cfg,
         "policy": policy,
         "wallet": MagicMock(),
-        "cmc": MagicMock(),
+        "data_source": MagicMock(),
         "pancake": MagicMock(),
         "perps": MagicMock(),
         "bsc": MagicMock(),

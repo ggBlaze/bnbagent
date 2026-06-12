@@ -202,8 +202,13 @@ class TokenModule:
     # --- internals ------------------------------------------------------
 
     async def _enrich_metadata(self, name: str, symbol: str) -> dict:
-        cmc = self.components.get("cmc")
+        cmc = self.components.get("data_source") or self.components.get("cmc")
         if cmc is None:
+            return {"name": name, "symbol": symbol, "enriched": False}
+        # DataSourceRouter doesn't expose the raw .call() method; only fall
+        # back to it if the resolved object still has that legacy interface
+        # (i.e. the old CMCClient shim is still wired in, e.g. for tests).
+        if not hasattr(cmc, "call"):
             return {"name": name, "symbol": symbol, "enriched": False}
         try:
             # If the symbol already exists on CMC, return its info (logged

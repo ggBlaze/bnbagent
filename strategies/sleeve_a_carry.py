@@ -51,7 +51,7 @@ class SleeveACarry:
         self.cfg = components["config"]
         self.policy = components["policy"]
         self.wallet = components["wallet"]
-        self.cmc = components["cmc"]
+        self.data_source = components["data_source"]
         self.pancake = components["pancake"]
         self.perps: Perps = components["perps"]
         self.bsc = components["bsc"]
@@ -134,7 +134,7 @@ class SleeveACarry:
         """
         try:
             basket = self.cfg["cmc"]["basket_symbols"][:20]
-            ohlc = await self.cmc.ohlcv_historical(
+            ohlc = await self.data_source.ohlcv_historical(
                 basket, time_period="hour", count=24, convert="USD",
             )
             import numpy as np
@@ -238,7 +238,7 @@ class SleeveACarry:
 
             # Open spot leg on PancakeSwap
             try:
-                quote_data = await self.cmc.quotes_latest([sym])
+                quote_data = await self.data_source.quotes_latest([sym])
                 spot_price = Decimal(str(quote_data["data"][sym]["quote"]["USD"]["price"]))
             except Exception as e:
                 log.warning(f"cmc quote failed for {sym}: {e}")

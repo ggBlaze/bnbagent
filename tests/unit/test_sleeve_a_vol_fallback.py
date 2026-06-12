@@ -30,7 +30,7 @@ def _make_sleeve(policy: dict) -> SleeveACarry:
         components={
             "config": cfg,
             "policy": full_policy,
-            "wallet": None, "cmc": None, "pancake": None,
+            "wallet": None, "data_source": None, "pancake": None,
             "perps": None, "bsc": None, "ipfs": None,
             "agent": None, "portfolio": None,
         },
@@ -96,7 +96,7 @@ class TestVolFallback:
             async def ohlcv_historical(self, *a, **kw):
                 raise RuntimeError("CMC is down")
 
-        s.cmc = BrokenCMC()
+        s.data_source = BrokenCMC()
         v = asyncio.run(s._realized_vol_annualized())
         # not 0.0 (the v2.0.7 broken behavior) — should be the fallback
         assert v != 0.0
@@ -112,6 +112,6 @@ class TestVolFallback:
             async def ohlcv_historical(self, *a, **kw):
                 return {"data": {}}  # no symbols
 
-        s.cmc = EmptyCMC()
+        s.data_source = EmptyCMC()
         v = asyncio.run(s._realized_vol_annualized())
         assert v == pytest.approx(0.06)

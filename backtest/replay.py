@@ -186,7 +186,7 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
     # override mode at runtime: replay stub is sufficient because we patch the CMC client below
     policy = components["policy"]
     portfolio: Portfolio = components["portfolio"]
-    cmc = components["cmc"]
+    data_source = components["data_source"]
 
     # build a candle index: sym -> list of (ts, candle)
     candles_by_sym: dict[str, list[dict]] = {}
@@ -238,9 +238,9 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
             out["data"][sym] = {"quotes": quotes}
         return out
 
-    cmc.quotes_latest = fake_quotes
-    cmc.ohlcv_historical = fake_ohlc
-    cmc.call = lambda *a, **kw: asyncio.sleep(0)  # no-op
+    data_source.quotes_latest = fake_quotes
+    data_source.ohlcv_historical = fake_ohlc
+    data_source.call = lambda *a, **kw: asyncio.sleep(0)  # no-op
 
     # drive sleeves (pass the deterministic clock from boot so every
     # time.time() read inside the strategy is reproducible)

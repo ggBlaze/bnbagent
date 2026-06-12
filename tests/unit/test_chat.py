@@ -26,7 +26,7 @@ def _build_components(policy=None):
         "portfolio": pf,
         "policy": policy or {"version": "1.0.0", "global_risk": {"per_trade_risk_pct": 1.0},
                               "evaluator_address": "0x" + "a" * 40},
-        "cmc": type("C", (), {"_x402_spend_today_usdc": Decimal("0.10")})(),
+        "data_source": type("C", (), {"_x402_spend_today_usdc": Decimal("0.10")})(),
     }
 
 

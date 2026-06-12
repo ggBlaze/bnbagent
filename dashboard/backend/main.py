@@ -198,7 +198,7 @@ def build_app() -> FastAPI:
     @app.get("/api/cmc-charges")
     async def cmc_charges():
         s = _state()
-        cmc = s.get("components", {}).get("cmc")
+        cmc = s.get("components", {}).get("data_source") or s.get("components", {}).get("cmc")
         if cmc and hasattr(cmc, "calls"):
             return JSONResponse(cmc.calls)
         return JSONResponse([])

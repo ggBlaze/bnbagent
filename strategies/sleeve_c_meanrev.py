@@ -30,7 +30,7 @@ class SleeveCMeanRev:
         self.cfg = components["config"]
         self.policy = components["policy"]
         self.wallet = components["wallet"]
-        self.cmc = components["cmc"]
+        self.data_source = components["data_source"]
         self.pancake = components["pancake"]
         self.bsc = components["bsc"]
         self.agent = agent
@@ -60,7 +60,7 @@ class SleeveCMeanRev:
     async def _scan_signals(self, sleeve_cfg: dict) -> list[tuple[str, float, float]]:
         try:
             universe = self.cfg["cmc"]["basket_symbols"][:20]
-            ohlc = await self.cmc.ohlcv_historical(
+            ohlc = await self.data_source.ohlcv_historical(
                 universe, time_period="hour", count=24 * 7, convert="USD",
             )
         except Exception as e:
@@ -176,7 +176,7 @@ class SleeveCMeanRev:
         max_hold = 6 * 3600
         for sym, pos in list(self.positions.items()):
             try:
-                quote = await self.cmc.quotes_latest([sym])
+                quote = await self.data_source.quotes_latest([sym])
                 px = Decimal(str(quote["data"][sym]["quote"]["USD"]["price"]))
             except Exception as e:
                 log.warning(f"Sleeve C monitor {sym}: cmc fail {e}")
