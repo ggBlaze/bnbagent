@@ -483,6 +483,10 @@ def build_app() -> FastAPI:
                 except Exception:
                     cfg = {}
         ds_cfg = cfg.get("data_source", {}) or {}
+        # The Base address for x402 is the agent wallet's EVM address
+        # (BSC and Base share the same secp256k1 address format). core/boot.py
+        # writes it to data_source.base_address on every boot.
+        base_address = ds_cfg.get("base_address", "")
         if router is not None:
             base_rpcs = ds_cfg.get("base_rpcs", [])
             # Prefer the live source's status (x402 carries base_rpcs there);
@@ -497,6 +501,7 @@ def build_app() -> FastAPI:
                 "tier": router.tier,
                 "status": router.status,
                 "base_rpcs": base_rpcs,
+                "base_address": base_address,
             })
         # No live router — return whatever the config file says
         tier = ds_cfg.get("tier", "mock")
@@ -504,6 +509,7 @@ def build_app() -> FastAPI:
             "tier": tier,
             "status": {"tier": tier, "note": "no agent running"},
             "base_rpcs": ds_cfg.get("base_rpcs", []),
+            "base_address": base_address,
         })
 
     @app.post("/api/data-source/select")

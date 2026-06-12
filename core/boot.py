@@ -132,6 +132,23 @@ def boot(starting_equity: Decimal = Decimal("100"),
     data_source = init_data_source(cfg, wallet=wallet, replay_tape=replay_tape)
     bs = init_bsc(cfg)
     ipfs = init_ipfs(cfg)
+
+    # Plumb the Base address for x402. BSC and Base share the same
+    # secp256k1 address format, so wallet.address IS the Base address.
+    # The /api/data-source/x402-balance endpoint reads this from
+    # config; the wizard's x402 step shows it as the funding target.
+    # Only writes if the user hasn't set a custom address already.
+    try:
+        ds_cfg = cfg.setdefault("data_source", {})
+        if not ds_cfg.get("base_address"):
+            ds_cfg["base_address"] = wallet.address
+            cfg_path = Path(config_path)
+            if cfg_path.exists():
+                tmp = cfg_path.with_suffix(cfg_path.suffix + ".tmp")
+                tmp.write_text(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
+                tmp.replace(cfg_path)
+    except Exception as e:
+        log.warning("could not write base_address to config: %s", e)
     # Deterministic clock (v2.0.4). In production this is wall clock;
     # in the replay harness it's set to a callable that returns the
     # current tape ts. The portfolio, perps, and sleeves all use the

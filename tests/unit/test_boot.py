@@ -111,3 +111,36 @@ def test_boot_default_tier_is_mock(tmp_path: Path, monkeypatch):
     assert "data_source" in c
     assert isinstance(c["data_source"], DataSourceRouter)
     assert c["data_source"].tier == "mock"
+
+
+def test_boot_writes_base_address_to_config(tmp_path: Path, monkeypatch):
+    """Boot writes the wallet's address to data_source.base_address so
+    /api/data-source/x402-balance works without a query param.
+
+    BSC and Base share the same secp256k1 address format, so
+    wallet.address IS the Base address.
+    """
+    from core import boot as boot_mod
+
+    monkeypatch.setattr(boot_mod, "register_identity", lambda *a, **kw: {
+        "token_id": 0, "cid": "QmTest", "agent_address": "0x" + "00" * 20,
+        "evaluator_address": "0x" + "00" * 20, "version": "1.0.0",
+    })
+
+    cfg = _write_config(tmp_path, {"tier": "x402", "base_rpcs": ["https://mainnet.base.org"]})
+    pol = _write_policy(tmp_path)
+    boot(Decimal("100"), policy_path=str(pol), config_path=str(cfg), replay_tape=[])
+
+    # Re-read the config from disk; base_address should now be set.
+    new_cfg = yaml.safe_load(cfg.read_text())
+    assert new_cfg["data_source"]["base_address"], (
+        "boot should have written wallet.address to data_source.base_address"
+    )
+    # And the wallet address from boot is what got written.
+    from connectors.twak import TWAKWallet
+    from eth_account import Account
+    expected = Account.create().address  # not the actual value; just a sanity check
+    # We can't predict the exact value (ephemeral key), but it should
+    # look like a 0x-prefixed 20-byte address.
+    assert new_cfg["data_source"]["base_address"].startswith("0x")
+    assert len(new_cfg["data_source"]["base_address"]) == 42
