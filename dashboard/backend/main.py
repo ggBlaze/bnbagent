@@ -25,6 +25,10 @@ Endpoints
   POST /api/setup/sign         sign the current policy with the wallet's password
   GET  /api/setup/checklist    returns { complete: bool, missing: [...] }
   POST /api/setup/reset        wipe all operator state
+  GET  /api/data-source        active data source tier + status
+  POST /api/data-source/select persist + hot-swap the data source
+  POST /api/data-source/cmc-key persist CMC Pro API key
+  POST /api/data-source/base-rpcs persist Base RPC list
   POST /api/chat               non-streamed chat
   POST /api/chat/tool          dispatch a tool call (used by dashboard)
   GET  /api/chat/tools         list available tools
@@ -452,6 +456,149 @@ def build_app() -> FastAPI:
     async def setup_reset():
         r = reset_setup()
         return JSONResponse({"ok": True, **r})
+
+    # ------------------------------------------------------------- data source
+    @app.get("/api/data-source")
+    async def data_source_get():
+        """Return the active data source tier + status.
+
+        Graceful fallback: if no router is loaded (e.g. the dashboard
+        was started before the agent booted), we still return a
+        tier/status payload by reading config/config.yaml directly,
+        so the frontend never has to special-case a missing router.
+        """
+        s = _state()
+        router = s.get("components", {}).get("data_source") or s.get("data_source")
+        # Try in-memory config first; fall back to reading config.yaml
+        # from disk so the endpoint works even when no agent is booted
+        # (which is the common case for the test suite).
+        cfg = s.get("config") or {}
+        if not cfg:
+            cfg_path = Path("config/config.yaml")
+            if cfg_path.exists():
+                try:
+                    cfg = yaml.safe_load(cfg_path.read_text()) or {}
+                except Exception:
+                    cfg = {}
+        ds_cfg = cfg.get("data_source", {}) or {}
+        if router is not None:
+            base_rpcs = ds_cfg.get("base_rpcs", [])
+            # Prefer the live source's status (x402 carries base_rpcs there);
+            # fall back to config.
+            try:
+                src_status = router.source.status or {}
+            except Exception:
+                src_status = {}
+            if "base_rpcs" in src_status:
+                base_rpcs = src_status["base_rpcs"]
+            return JSONResponse({
+                "tier": router.tier,
+                "status": router.status,
+                "base_rpcs": base_rpcs,
+            })
+        # No live router — return whatever the config file says
+        tier = ds_cfg.get("tier", "mock")
+        return JSONResponse({
+            "tier": tier,
+            "status": {"tier": tier, "note": "no agent running"},
+            "base_rpcs": ds_cfg.get("base_rpcs", []),
+        })
+
+    @app.post("/api/data-source/select")
+    async def data_source_select(body: dict):
+        """Persist the user's data-source choice + hot-swap the live source.
+
+        Body: {"tier": "cmc_pro"|"x402"|"binance"|"mock"}
+        """
+        from urllib.parse import urlparse
+        tier = (body.get("tier") or "").strip()
+        if tier not in ("cmc_pro", "x402", "binance", "mock"):
+            return JSONResponse({"ok": False, "error": f"invalid tier: {tier}"},
+                                status_code=400)
+
+        cfg_path = Path("config/config.yaml")
+        if cfg_path.exists():
+            cfg = yaml.safe_load(cfg_path.read_text()) or {}
+        else:
+            cfg = {}
+        cfg.setdefault("data_source", {})["tier"] = tier
+        # atomic-ish write: write to .tmp, then rename
+        tmp = cfg_path.with_suffix(cfg_path.suffix + ".tmp")
+        tmp.write_text(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
+        tmp.replace(cfg_path)
+
+        # Hot-swap the live router if the agent is running
+        s = _state()
+        router = s.get("components", {}).get("data_source") or s.get("data_source")
+        if router is not None:
+            try:
+                from connectors.data_source import (
+                    DataSourceRouter, MockClient,
+                )
+                from connectors.cmc import CMCProClient, CMCX402Client
+                from connectors.binance import BinanceClient
+                ds = cfg["data_source"]
+                wallet = s.get("wallet")
+                if tier == "cmc_pro" and ds.get("cmc_api_key"):
+                    new = CMCProClient(api_key=ds["cmc_api_key"])
+                elif tier == "x402" and wallet is not None:
+                    new = CMCX402Client(
+                        wallet=wallet,
+                        base_rpcs=ds.get("base_rpcs"),
+                    )
+                elif tier == "binance":
+                    new = BinanceClient()
+                else:
+                    new = MockClient()
+                router.set_source(new)
+            except Exception as e:
+                log.warning("data_source: hot-swap failed: %s", e)
+        return JSONResponse({"ok": True, "tier": tier})
+
+    @app.post("/api/data-source/cmc-key")
+    async def data_source_cmc_key(body: dict):
+        """Persist the CMC Pro API key in config/config.yaml."""
+        api_key = (body.get("api_key") or "").strip()
+        if not api_key:
+            return JSONResponse({"ok": False, "error": "api_key required"},
+                                status_code=400)
+        cfg_path = Path("config/config.yaml")
+        if cfg_path.exists():
+            cfg = yaml.safe_load(cfg_path.read_text()) or {}
+        else:
+            cfg = {}
+        cfg.setdefault("data_source", {})["cmc_api_key"] = api_key
+        tmp = cfg_path.with_suffix(cfg_path.suffix + ".tmp")
+        tmp.write_text(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
+        tmp.replace(cfg_path)
+        return JSONResponse({"ok": True})
+
+    @app.post("/api/data-source/base-rpcs")
+    async def data_source_base_rpcs(body: dict):
+        """Persist the Base RPC list. Each URL must be a valid http(s) URL."""
+        rpcs = body.get("base_rpcs")
+        if not isinstance(rpcs, list) or not rpcs:
+            return JSONResponse({"ok": False, "error": "base_rpcs must be a non-empty list"},
+                                status_code=422)
+        if len(rpcs) > 5:
+            return JSONResponse({"ok": False, "error": "max 5 base_rpcs"},
+                                status_code=422)
+        from urllib.parse import urlparse
+        for u in rpcs:
+            parsed = urlparse(u)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                return JSONResponse({"ok": False, "error": f"invalid URL: {u}"},
+                                    status_code=422)
+        cfg_path = Path("config/config.yaml")
+        if cfg_path.exists():
+            cfg = yaml.safe_load(cfg_path.read_text()) or {}
+        else:
+            cfg = {}
+        cfg.setdefault("data_source", {})["base_rpcs"] = list(rpcs)
+        tmp = cfg_path.with_suffix(cfg_path.suffix + ".tmp")
+        tmp.write_text(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
+        tmp.replace(cfg_path)
+        return JSONResponse({"ok": True, "base_rpcs": list(rpcs)})
 
     # --------------------------------------------------------------------- ws
     @app.websocket("/ws")

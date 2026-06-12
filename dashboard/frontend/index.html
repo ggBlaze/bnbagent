@@ -416,6 +416,47 @@ body::before {
   display: grid; place-items: center; font-size: 24px; margin: 0 auto 12px;
 }
 
+/* === data source wizard step + banner + Config card ==== */
+.ds-radio-group { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 12px; }
+.ds-radio {
+  display: flex; flex-direction: column; gap: 4px;
+  background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 6px;
+  padding: 14px 16px; cursor: pointer; transition: all .15s;
+}
+.ds-radio:hover { border-color: var(--accent); }
+.ds-radio input[type="radio"] { width: auto; margin-right: 8px; }
+.ds-radio-hint { color: var(--fg-dim); font: 400 11px/1.4 'Inter'; }
+.ds-radio-detail {
+  margin-top: 10px; padding: 12px;
+  background: var(--bg-1); border: 1px solid var(--line); border-radius: 6px;
+}
+.ds-radio-detail input[type="text"] {
+  width: 100%; background: var(--bg-2); border: 1px solid var(--line-2); color: var(--fg);
+  font: 500 12px/1.4 'JetBrains Mono'; padding: 8px 10px; border-radius: 4px;
+  margin-top: 4px;
+}
+.ds-radio-detail input[type="text"]:focus { outline: none; border-color: var(--accent); }
+.ds-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 6px 0; font: 400 12px/1.4 'Inter';
+}
+.ds-row .muted { color: var(--fg-dim); }
+.ds-row code { font: 500 11px/1 'JetBrains Mono'; color: var(--accent); }
+.ds-rpc-row {
+  display: flex; gap: 6px; align-items: center; margin: 4px 0;
+}
+.ds-rpc-row input { flex: 1; }
+.ds-rpc-row .ds-remove { padding: 4px 8px; }
+.ds-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px;
+  background: rgba(125,211,252,0.06); border: 1px solid rgba(125,211,252,0.2);
+  border-radius: 4px; font: 500 11px/1.4 'Inter';
+  color: var(--blue); margin: 0 0 14px;
+}
+.ds-banner .ds-banner-tier { color: var(--accent); font-weight: 600; }
+.ds-banner button { margin-left: auto; }
+
 </style>
 </head>
 <body>
@@ -487,9 +528,10 @@ body::before {
 
         <div class="steps">
           <div class="step active" id="stp-1"><div class="num">1</div><div>Network</div></div>
-          <div class="step"        id="stp-2"><div class="num">2</div><div>Wallet</div></div>
-          <div class="step"        id="stp-3"><div class="num">3</div><div>Sign Policy</div></div>
-          <div class="step"        id="stp-4"><div class="num">4</div><div>Ready</div></div>
+          <div class="step"        id="stp-2"><div class="num">2</div><div>Data source</div></div>
+          <div class="step"        id="stp-3"><div class="num">3</div><div>Wallet</div></div>
+          <div class="step"        id="stp-4"><div class="num">4</div><div>Sign Policy</div></div>
+          <div class="step"        id="stp-5"><div class="num">5</div><div>Ready</div></div>
         </div>
 
         <!-- Step 1: Network -->
@@ -523,8 +565,73 @@ body::before {
           </div>
         </div>
 
-        <!-- Step 2: Wallet -->
-        <div class="wizard-step" id="step-2">
+        <!-- Step 2: Data source -->
+        <div class="wizard-step" id="step-data-source">
+          <h3 style="font:600 16px/1.2 'Inter'; margin: 0 0 4px;">Pick a data source</h3>
+          <p style="font:400 12px/1.5 'Inter'; color:var(--fg-dim); margin: 0 0 18px;">
+            How should the agent get market data? You can change this later from
+            the Config pane.
+          </p>
+          <div class="ds-radio-group">
+            <label class="ds-radio">
+              <div>
+                <input type="radio" name="ds-tier" value="cmc_pro" id="ds-radio-cmc_pro">
+                <strong>CoinMarketCap Pro API</strong>
+                <span class="ds-radio-hint">Paid. Best coverage. You need an API key.</span>
+              </div>
+              <div class="ds-radio-detail" id="ds-detail-cmc_pro" hidden>
+                <input type="text" id="ds-cmc-key" placeholder="CMC Pro API key">
+                <div class="hint" style="font:400 10px/1.4 'JetBrains Mono'; color:var(--fg-dimmer); margin-top:6px;">
+                  <a href="https://pro.coinmarketcap.com/signup" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none;">Get one ↗</a>
+                </div>
+              </div>
+            </label>
+
+            <label class="ds-radio">
+              <div>
+                <input type="radio" name="ds-tier" value="x402" id="ds-radio-x402">
+                <strong>x402 (pay-per-request, USDC on Base)</strong>
+                <span class="ds-radio-hint">No key. ~$0.01 per call, capped at $10/day.</span>
+              </div>
+              <div class="ds-radio-detail" id="ds-detail-x402" hidden>
+                <div class="ds-row">
+                  <span class="muted">Your Base address:</span>
+                  <code id="ds-base-address">0x…</code>
+                </div>
+                <div class="ds-row muted">Chain: Base (8453) · Required: 1.00 USDC</div>
+                <div style="margin-top:8px;">
+                  <span class="muted" style="font:400 11px/1.4 'Inter';">Base RPC URLs (for USDC balance polling):</span>
+                  <div id="ds-base-rpcs-list"></div>
+                  <button type="button" class="btn" id="ds-add-base-rpc" style="margin-top:6px; padding:6px 10px; font-size:10px;">+ Add RPC URL</button>
+                </div>
+              </div>
+            </label>
+
+            <label class="ds-radio">
+              <div>
+                <input type="radio" name="ds-tier" value="binance" id="ds-radio-binance">
+                <strong>Binance public API</strong>
+                <span class="ds-radio-hint">Free. Prices + OHLCV only. CMC-only fields will be mocked.</span>
+              </div>
+            </label>
+
+            <label class="ds-radio">
+              <div>
+                <input type="radio" name="ds-tier" value="mock" id="ds-radio-mock">
+                <strong>Mock (offline)</strong>
+                <span class="ds-radio-hint">No network. Reads from data/cmc_mock.json. Good for tests.</span>
+              </div>
+            </label>
+          </div>
+          <div id="ds-result"></div>
+          <div class="actions">
+            <button class="btn" onclick="wizardBack(1)">← Back</button>
+            <button class="btn primary" id="ds-continue" onclick="dsContinue()">Continue →</button>
+          </div>
+        </div>
+
+        <!-- Step 3: Wallet -->
+        <div class="wizard-step" id="step-3">
           <h3 style="font:600 16px/1.2 'Inter'; margin: 0 0 4px;">Create or import a wallet</h3>
           <p style="font:400 12px/1.5 'Inter'; color:var(--fg-dim); margin: 0 0 18px;">
             The wallet is encrypted with AES-256-GCM at <code style="color:var(--accent);">~/.twak/wallet.json</code>
@@ -559,8 +666,8 @@ body::before {
           </div>
         </div>
 
-        <!-- Step 3: Sign Policy -->
-        <div class="wizard-step" id="step-3">
+        <!-- Step 4: Sign Policy -->
+        <div class="wizard-step" id="step-4">
           <h3 style="font:600 16px/1.2 'Inter'; margin: 0 0 4px;">Sign the User Policy</h3>
           <p style="font:400 12px/1.5 'Inter'; color:var(--fg-dim); margin: 0 0 18px;">
             The policy is the <strong style="color:var(--fg);">only</strong> thing you sign.
@@ -590,8 +697,8 @@ body::before {
           </div>
         </div>
 
-        <!-- Step 4: Done -->
-        <div class="wizard-step" id="step-4">
+        <!-- Step 5: Done -->
+        <div class="wizard-step" id="step-5">
           <div class="complete-card">
             <div class="check">✓</div>
             <h3 style="font:600 18px/1.2 'Inter'; margin:0 0 4px; color:var(--green);">Setup Complete</h3>
@@ -612,6 +719,13 @@ body::before {
 
     <!-- Live pane (default) -->
     <div id="pane-live">
+
+      <!-- DATA SOURCE BANNER (persistent) -->
+      <div id="ds-banner" class="ds-banner">
+        [DATA] <span class="ds-banner-tier" id="ds-banner-tier">—</span>
+        <span id="ds-banner-extra" class="muted"></span>
+        <button type="button" class="btn" id="ds-banner-change" onclick="dsChangeOpen()">change</button>
+      </div>
 
       <!-- HERO STRIP -->
       <div class="hero">
@@ -727,6 +841,14 @@ body::before {
             <button onclick="applyConfig()" style="margin-top:10px; background:var(--accent); border:none; color:var(--bg); padding:8px 14px; border-radius:4px; font:600 11px 'Inter'; text-transform:uppercase; letter-spacing:.14em; cursor:pointer;">Apply</button>
           </div>
         </div>
+      </section>
+
+      <section class="panel" style="margin-top:14px;">
+        <h4>Data source <span class="meta">where market data comes from</span></h4>
+        <div class="kv"><span class="k">Active tier</span><span class="v accent" id="ds-active-tier">—</span></div>
+        <div class="kv"><span class="k">Status</span><span class="v" id="ds-active-status">—</span></div>
+        <div class="kv"><span class="k">Base RPCs</span><span class="v" id="ds-active-rpcs">—</span></div>
+        <button type="button" class="btn" id="ds-change-button" style="margin-top:10px;" onclick="dsChangeOpen()">Change data source</button>
       </section>
     </div>
 
@@ -1096,6 +1218,8 @@ async function refresh() {
       el.classList.toggle('on', on);
     });
   }
+  // data-source banner (cheap; the interval handles the steady-state)
+  dsBannerTick();
 }
 
 /* === pane switching ============================================== */
@@ -1108,6 +1232,17 @@ function showPane(p) {
   else stopLogStream();
   if (p === 'setup') wizardLoad();
   if (p === 'chat') loadChatPersona();
+  if (p === 'config') refreshConfigPane();
+}
+
+async function refreshConfigPane() {
+  // populate the Data source card on the Config pane
+  const s = await jget('/api/data-source');
+  if (!s) return;
+  const t = $('ds-active-tier');   if (t) t.textContent = s.tier;
+  const st = $('ds-active-status'); if (st) st.textContent = s.status && (s.status.note || s.status.tier || '');
+  const r = $('ds-active-rpcs');
+  if (r) r.textContent = (s.base_rpcs && s.base_rpcs.length) ? s.base_rpcs.length + ' configured' : '—';
 }
 
 /* === setup wizard ================================================ */
@@ -1133,27 +1268,35 @@ async function wizardLoad() {
   // pre-fill form with existing values
   $('wiz-mode').value = s.mode || 'testnet';
   $('wiz-rpcs').value = (s.rpcs || []).join('\n');
-  // if setup is already complete, jump to step 4
+  // if setup is already complete, jump to step 5 (Ready)
   if (s.is_complete) {
     renderFinalSummary(s);
-    gotoStep(4);
+    gotoStep(5);
   } else {
     // jump to first incomplete step
     if (!s.wallet_address) gotoStep(1);
-    else if (!s.evaluator_address || !s.policy_signed) gotoStep(2);
+    else if (!s.evaluator_address || !s.policy_signed) gotoStep(3);
     else gotoStep(1);
   }
-  // populate step-3 evaluator field
+  // populate step-4 evaluator field
   $('wiz-eval').value = s.evaluator_address || '';
+  // pre-fill the data source step
+  dsInit();
 }
 
 function gotoStep(n) {
   WIZ.step = n;
-  for (let i = 1; i <= 4; i++) {
-    $(`step-${i}`).classList.toggle('active', i === n);
+  // Map step indices to DOM ids (the data-source step is a one-off
+  // slot that doesn't share the step-N pattern).
+  const idFor = i => i === 2 ? 'step-data-source' : `step-${i}`;
+  for (let i = 1; i <= 5; i++) {
+    const el = $(idFor(i));
+    if (el) el.classList.toggle('active', i === n);
     const stp = $(`stp-${i}`);
-    stp.classList.toggle('active', i === n);
-    stp.classList.toggle('done', i < n);
+    if (stp) {
+      stp.classList.toggle('active', i === n);
+      stp.classList.toggle('done', i < n);
+    }
   }
 }
 
@@ -1184,7 +1327,7 @@ async function wizardNext(from) {
       alert('config error: ' + r.error);
       return;
     }
-    gotoStep(2);
+    gotoStep(2);   // advance to Data source
   }
 }
 
@@ -1256,7 +1399,7 @@ async function wizardSign() {
   setTimeout(async () => {
     const s = await jget('/api/setup');
     renderFinalSummary(s);
-    gotoStep(4);
+    gotoStep(5);   // advance to Ready
     checkSetupBadge();
   }, 1000);
 }
@@ -1295,6 +1438,153 @@ async function checkSetupBadge() {
   const s = await jget('/api/setup/checklist');
   const badge = $('setup-badge');
   if (badge) badge.style.display = s.complete ? 'none' : '';
+}
+
+/* === data source wizard step ===================================== */
+let _dsBaseRpcs = [];
+let _dsInited = false;
+
+async function dsInit() {
+  // populate the data-source step from the current state
+  const s = await jget('/api/data-source');
+  // pre-check the active tier
+  const tier = (s && s.tier) || 'mock';
+  const radio = $('ds-radio-' + tier);
+  if (radio) radio.checked = true;
+  // populate base RPCs
+  _dsBaseRpcs = Array.isArray(s.base_rpcs) && s.base_rpcs.length
+    ? [...s.base_rpcs]
+    : ['https://mainnet.base.org'];
+  dsRenderRpcs();
+  // populate the base address from the setup summary
+  const setup = await jget('/api/setup');
+  const addr = setup && setup.wallet_address;
+  const addrEl = $('ds-base-address');
+  if (addrEl) addrEl.textContent = addr || '0x… (create wallet first)';
+  // wire radio change + add RPC button (only once)
+  if (!_dsInited) {
+    document.querySelectorAll('input[name="ds-tier"]').forEach(r => {
+      r.addEventListener('change', dsRadioChange);
+    });
+    $('ds-add-base-rpc').addEventListener('click', () => {
+      if (_dsBaseRpcs.length >= 5) return;
+      _dsBaseRpcs.push('');
+      dsRenderRpcs();
+    });
+  }
+  dsRadioChange();
+  _dsInited = true;
+}
+
+function dsRenderRpcs() {
+  const list = $('ds-base-rpcs-list');
+  if (!list) return;
+  list.innerHTML = '';
+  _dsBaseRpcs.forEach((url, idx) => {
+    const row = document.createElement('div');
+    row.className = 'ds-rpc-row';
+    row.innerHTML = `
+      <input type="text" value="${(url || '').replace(/"/g, '&quot;')}" placeholder="https://…" />
+      <button type="button" class="btn ds-remove" data-idx="${idx}">×</button>
+    `;
+    row.querySelector('input').addEventListener('input', (e) => {
+      _dsBaseRpcs[idx] = e.target.value.trim();
+    });
+    row.querySelector('button').addEventListener('click', () => {
+      _dsBaseRpcs.splice(idx, 1);
+      dsRenderRpcs();
+    });
+    list.appendChild(row);
+  });
+}
+
+function dsRadioChange() {
+  const checked = document.querySelector('input[name="ds-tier"]:checked');
+  const tier = checked ? checked.value : null;
+  // hide all detail panels
+  ['cmc_pro', 'x402'].forEach(t => {
+    const el = $('ds-detail-' + t);
+    if (el) el.hidden = true;
+  });
+  // show the relevant one
+  if (tier === 'cmc_pro' || tier === 'x402') {
+    const el = $('ds-detail-' + tier);
+    if (el) el.hidden = false;
+  }
+}
+
+async function dsContinue() {
+  const checked = document.querySelector('input[name="ds-tier"]:checked');
+  if (!checked) return;
+  const tier = checked.value;
+  const out = $('ds-result');
+  // CMC Pro: save the key first if provided
+  if (tier === 'cmc_pro') {
+    const key = ($('ds-cmc-key').value || '').trim();
+    if (!key) {
+      out.innerHTML = bannerHtml('error', 'CMC Pro API key is required.');
+      return;
+    }
+    const r = await jpost('/api/data-source/cmc-key', { api_key: key });
+    if (!r.ok) {
+      out.innerHTML = bannerHtml('error', r.error || 'failed to save API key');
+      return;
+    }
+  }
+  // x402: persist base_rpcs (always — even if the list didn't change, the
+  // dashboard wants to write the latest view)
+  if (tier === 'x402') {
+    const rpcs = _dsBaseRpcs.map(s => s.trim()).filter(Boolean);
+    if (!rpcs.length) {
+      out.innerHTML = bannerHtml('error', 'Add at least one Base RPC URL.');
+      return;
+    }
+    const r = await jpost('/api/data-source/base-rpcs', { base_rpcs: rpcs });
+    if (!r.ok) {
+      out.innerHTML = bannerHtml('error', r.error || 'failed to save Base RPCs');
+      return;
+    }
+  }
+  // Persist the chosen tier
+  const r = await jpost('/api/data-source/select', { tier });
+  if (!r.ok) {
+    out.innerHTML = bannerHtml('error', r.error || 'failed to save data source');
+    return;
+  }
+  out.innerHTML = bannerHtml('ok', `Data source set to <code>${tier}</code>.`);
+  // advance to wallet step
+  setTimeout(() => gotoStep(3), 400);
+}
+
+async function dsChangeOpen() {
+  // Called from the Config pane "Change data source" button. Jumps
+  // straight to the data-source wizard step.
+  showPane('setup');
+  await wizardLoad();
+  gotoStep(2);
+  dsInit();
+}
+
+async function dsBannerTick() {
+  // Polls /api/data-source and updates the persistent banner on the
+  // Live pane. Called from the main refresh() loop.
+  const s = await jget('/api/data-source');
+  if (!s || !s.tier) return;
+  const t = $('ds-banner-tier');
+  if (t) t.textContent = s.tier;
+  const x = $('ds-banner-extra');
+  if (x) {
+    const st = s.status || {};
+    if (s.tier === 'x402' && st.spend_today_usdc) {
+      x.textContent = `· ${st.spend_today_usdc} USDC today`;
+    } else if (s.tier === 'binance') {
+      x.textContent = '· public, free';
+    } else if (s.tier === 'cmc_pro') {
+      x.textContent = st.api_key_set ? '· key set' : '· no key';
+    } else {
+      x.textContent = '';
+    }
+  }
 }
 
 /* === kill switch ================================================== */
@@ -1370,6 +1660,9 @@ function stopLogStream() {
   setInterval(refresh, 1500);
   setInterval(checkSetupBadge, 5000);
   setInterval(loadChatDecisions, 8000);
+  // Data-source banner ticks every 5s (faster than setup badge)
+  setInterval(dsBannerTick, 5000);
+  dsBannerTick();
 })();
 
 /* ============================================================
