@@ -118,3 +118,43 @@ def _fake_wallet():
                 encode_typed_data(domain, types, value), self.key
             )
     return _W()
+
+
+@respx.mock
+def test_pro_ohlcv_normalizes_to_flat_quotes_shape():
+    """CMC's API returns each candle as {quote: {USD: {open, high, low, close, volume}}}.
+
+    Strategies (sleeve_a_carry.py:142, sleeve_b_momentum.py:89, sleeve_c_meanrev.py:73)
+    read payload['quotes'][i]['close'] — flat keys. CMC's nested shape would
+    KeyError on every read. This test pins the normalization contract: every
+    candle in ohlcv_historical has flat open/high/low/close/volume keys.
+    """
+    respx.get(
+        "https://pro-api.coinmarketcap.com/v1/cryptocurrency/ohlcv/historical"
+    ).mock(return_value=Response(200, json={
+        "data": {
+            "BTC": {"quotes": [
+                {
+                    "time_open":  "2026-06-01T00:00:00Z",
+                    "time_close": "2026-06-01T00:59:59Z",
+                    "quote": {"USD": {"open": 100, "high": 110, "low": 95, "close": 105, "volume": 1000}},
+                },
+                {
+                    "time_open":  "2026-06-01T01:00:00Z",
+                    "time_close": "2026-06-01T01:59:59Z",
+                    "quote": {"USD": {"open": 105, "high": 115, "low": 100, "close": 110, "volume": 1500}},
+                },
+            ]},
+        },
+        "status": {"error_code": 0, "credit_count": 1},
+    }))
+    client = CMCProClient(api_key="test")
+    result = asyncio.run(client.ohlcv_historical(["BTC"], count=2))
+    candles = result["data"]["BTC"]["quotes"]
+    assert len(candles) == 2
+    for c in candles:
+        for k in ("open", "high", "low", "close", "volume"):
+            assert k in c, f"normalized candle missing flat key '{k}': {c}"
+            assert isinstance(c[k], (int, float)), f"candle['{k}'] is {type(c[k]).__name__}, expected numeric"
+    assert candles[0]["close"] == 105
+    assert candles[1]["close"] == 110

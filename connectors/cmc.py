@@ -104,10 +104,34 @@ class CMCProClient(_LedgerMixin):
     async def ohlcv_historical(
         self, symbols: list[str], time_period: str = "hour", count: int = 24, convert: str = "USD"
     ) -> dict:
-        return await self._call("GET", "/v1/cryptocurrency/ohlcv/historical", {
+        raw = await self._call("GET", "/v1/cryptocurrency/ohlcv/historical", {
             "symbol": ",".join(symbols), "time_period": time_period,
             "count": count, "convert": convert,
         })
+        # Normalize CMC's nested {quote: {USD: {open, high, low, close, volume}}}
+        # to the flat shape strategies expect: {quotes: [{open, high, low, close,
+        # volume, ...}, ...]}. Same flat shape as MockClient + BinanceClient
+        # (post-fix). Without this normalization, strategies read
+        # payload['quotes'][i]['close'] and get KeyError because each candle's
+        # close is nested under quote.USD.
+        data = raw.get("data", {})
+        for sym, entry in data.items():
+            quotes_raw = entry.get("quotes", [])
+            flat = []
+            for q in quotes_raw:
+                usd = (q.get("quote") or {}).get(convert) or (q.get("quote") or {}).get("USD") or {}
+                flat.append({
+                    "timestamp":   q.get("timestamp"),
+                    "time_open":   q.get("time_open"),
+                    "time_close":  q.get("time_close"),
+                    "open":        usd.get("open"),
+                    "high":        usd.get("high"),
+                    "low":         usd.get("low"),
+                    "close":       usd.get("close"),
+                    "volume":      usd.get("volume"),
+                })
+            entry["quotes"] = flat
+        return raw
 
     async def cmc_rank_map(self) -> dict[str, int]:
         r = await self._call("GET", "/v1/cryptocurrency/map", {"limit": 200})

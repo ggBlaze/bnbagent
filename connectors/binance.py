@@ -54,13 +54,21 @@ class BinanceClient:
             resp = await self._client.get(f"{self.BASE}/klines", params=params)
             resp.raise_for_status()
             rows = resp.json()
-            out[sym] = [
-                {
-                    "open": r[1], "high": r[2], "low": r[3], "close": r[4],
-                    "volume": r[5], "open_time": r[0], "close_time": r[6],
-                }
-                for r in rows
-            ]
+            # Wrap each symbol's candles in a 'quotes' key so strategies
+            # (sleeve_a_carry.py:142, sleeve_b_momentum.py:89, sleeve_c_meanrev.py:73)
+            # can read payload['quotes'] uniformly across all data sources.
+            # CMCProClient + MockClient already use this shape; Binance was the
+            # odd one out and the inconsistency caused every tick to crash
+            # with AttributeError in the live PnL window.
+            out[sym] = {
+                "quotes": [
+                    {
+                        "open": r[1], "high": r[2], "low": r[3], "close": r[4],
+                        "volume": r[5], "open_time": r[0], "close_time": r[6],
+                    }
+                    for r in rows
+                ]
+            }
         return {"data": out, "status": {"error_code": 0, "note": "binance"}}
 
     # --- unsupported methods ---
