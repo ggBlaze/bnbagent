@@ -21,6 +21,11 @@ warn() { printf "\033[1;33m[warn]\033[0m %s\n" "$*"; }
 die()  { printf "\033[1;31m[fatal]\033[0m %s\n" "$*"; exit 1; }
 
 # --- 1. Python venv -----------------------------------------------------------
+# Robust venv setup. Order: existing venv → uv (no apt dep, fast) →
+# python3 -m venv (needs python3-venv on Debian/Ubuntu) → auto-install uv
+# via the official one-liner. This makes the installer work out of the box
+# on Ubuntu 24+/26+ and other modern distros where python3-venv is not
+# installed by default.
 if [[ -d ".venv" ]]; then
   # shellcheck disable=SC1091
   source .venv/bin/activate
@@ -29,11 +34,42 @@ elif [[ -d "/tmp/venv" ]]; then
   # shellcheck disable=SC1091
   source /tmp/venv/bin/activate
 else
-  say "creating .venv (python3)"
-  python3 -m venv .venv
-  # shellcheck disable=SC1091
-  source .venv/bin/activate
-  ok "venv created"
+  rm -rf .venv  # clear any partial venv from a previous failed attempt
+  if command -v uv >/dev/null 2>&1; then
+    say "creating .venv (uv)"
+    uv venv --seed .venv
+    # shellcheck disable=SC1091
+    source .venv/bin/activate
+    ok "venv created (uv)"
+  elif python3 -m venv .venv 2>/dev/null; then
+    say "creating .venv (python3 -m venv)"
+    # shellcheck disable=SC1091
+    source .venv/bin/activate
+    ok "venv created (python3 -m venv)"
+  else
+    warn "no venv tool found — installing uv from astral.sh"
+    if command -v curl >/dev/null 2>&1; then
+      curl -LsSf https://astral.sh/uv/install.sh | sh
+    elif command -v wget >/dev/null 2>&1; then
+      wget -qO- https://astral.sh/uv/install.sh | sh
+    else
+      die "Need uv or python3-venv. Install one of:
+   • uv (recommended):  pip install --user uv  (then re-run this script)
+   • python3-venv:      sudo apt install -y python3.12-venv  (Ubuntu 24+)
+   • python3-venv:      sudo apt install -y python3.14-venv  (Ubuntu 26+)"
+    fi
+    # shellcheck disable=SC1091
+    source "$HOME/.local/bin/env" 2>/dev/null || true
+    export PATH="$HOME/.local/bin:$PATH"
+    if ! command -v uv >/dev/null 2>&1; then
+      die "uv install failed — install python3-venv manually: sudo apt install python3.X-venv"
+    fi
+    say "creating .venv (uv, auto-installed)"
+    uv venv --seed .venv
+    # shellcheck disable=SC1091
+    source .venv/bin/activate
+    ok "venv created (uv, auto-installed)"
+  fi
 fi
 say "pip install -e .[test]"
 pip install -q --upgrade pip
@@ -49,11 +85,17 @@ else
 fi
 
 # --- 2. Node deps (TWAK) -----------------------------------------------------
+# The TWAK CLI is an optional dependency — the wallet falls back to
+# BNBAGENT_PRIVATE_KEY (dev only) if it's missing. Don't abort the install
+# if `npm install` fails; just warn and continue.
 if command -v npm >/dev/null 2>&1; then
   if [[ ! -d node_modules ]]; then
     say "npm install @trustwallet/cli"
-    npm install --silent --no-audit --no-fund
-    ok "TWAK CLI ready (npx twak …)"
+    if npm install --silent --no-audit --no-fund 2>&1 | tail -3; then
+      ok "TWAK CLI ready (npx twak …)"
+    else
+      warn "npm install failed — wallet will fall back to BNBAGENT_PRIVATE_KEY (dev only)"
+    fi
   else
     ok "node_modules already present"
   fi

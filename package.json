@@ -12,6 +12,6 @@
     "twak:send-tx": "twak tx send"
   },
   "dependencies": {
-    "@trustwallet/cli": "^0.1.0"
+    "@trustwallet/cli": "^0.19.0"
   }
 }
