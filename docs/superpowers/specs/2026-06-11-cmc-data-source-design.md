@@ -88,6 +88,18 @@ class MarketDataSource(Protocol):
 | **Binance** | `https://api.binance.com/api/v3/...` | none | free | quotes (price), OHLCV (klines); CMC-only fields → mock |
 | **Mock** | local fixture | none | free | whatever's in `data/cmc_mock.json` |
 
+### Base RPC URLs (for the x402 path)
+
+x402 needs to read the Base USDC balance of the user's wallet (to detect funding). That requires a Base RPC. The BNB Agent ships with **3 default Base RPC URLs** and lets the user add or remove them in the wizard, mirroring the existing BSC RPC UX:
+
+| Default | Source | Notes |
+|---|---|---|
+| `https://mainnet.base.org` | Base (official) | Public, no API key, occasionally rate-limited under heavy use |
+| `https://base.publicnode.com` | PublicNode | Free public endpoint |
+| `https://1rpc.io/base` | 1RPC | Free public endpoint |
+
+The list lives in `config/config.yaml` under `data_source.base_rpcs` and is also exposed as the `BASE_RPCS` env var (comma-separated, similar to `BSC_RPCS`). `connectors/x402.py` rotates through the list on connection failure (same pattern as `BSCClient`).
+
 ### Hot-swap
 
 `DataSourceRouter.set_source(new_source)` replaces the active source. The new source takes effect on the next call. The dashboard's "Change data source" button calls this after writing the new choice to `config/config.yaml`.
@@ -113,6 +125,11 @@ A new step in the Setup wizard — **Step 3 of 4, "Data source"** — sits betwe
 │        0xABC…123        [Copy]                       │
 │      Chain: Base (8453)                              │
 │      Required: 1.00 USDC (0x8335…2913)               │
+│      Base RPC URLs (for USDC balance polling):       │
+│        [ https://mainnet.base.org          ] [×]     │
+│        [ https://base.publicnode.com       ] [×]     │
+│        [ https://1rpc.io/base              ] [×]     │
+│        [+ Add RPC URL]                               │
 │      Waiting for funding… [polling every 10s]        │
 │      Current balance: 0.00 USDC                      │
 │                                                      │
@@ -125,7 +142,7 @@ A new step in the Setup wizard — **Step 3 of 4, "Data source"** — sits betwe
 ```
 
 - Picking **CMC Pro** reveals an API key input + "Get one" link to the CMC plan page.
-- Picking **x402** reveals the Base address (derived from the TWAK mnemonic) and a polling indicator. The **Continue** button is disabled until the Base USDC balance is ≥ $0.50. A **Back** button lets the user change their mind and switch to a different tier.
+- Picking **x402** reveals the Base address (derived from the TWAK mnemonic), the Base RPC URLs (3 defaults, add/remove), and a polling indicator. The **Continue** button is disabled until the Base USDC balance is ≥ $0.50. A **Back** button lets the user change their mind and switch to a different tier.
 - Picking **Binance** shows a warning + "Continue" is always enabled.
 
 ### Secret-phrase export button
@@ -189,14 +206,18 @@ New endpoints in `dashboard/backend/main.py`. All additive — no existing endpo
 ```
 GET  /api/data-source                 → { tier, status, daily_spend_usdc,
                                           daily_cap_usdc, base_address,
-                                          base_usdc_balance, ... }
+                                          base_usdc_balance, base_rpcs, ... }
 POST /api/data-source/select          → { tier: "cmc_pro" | "x402" | "binance" }
                                           persists to config["data_source"]["tier"]
 POST /api/data-source/cmc-key         → { api_key: "..." }
                                           sets config["data_source"]["cmc_api_key"]
                                           (encrypted at rest in config.yaml)
+POST /api/data-source/base-rpcs       → { base_rpcs: [url1, url2, ...] }
+                                          persists the list; validates each URL
+                                          is a valid http(s) URL; min 1, max 5
 GET  /api/data-source/x402-balance    → { address, balance_usdc, ready }
-                                          polls Base USDC balance via public RPC
+                                          polls Base USDC balance via the
+                                          configured base_rpcs (rotates on fail)
 POST /api/wallet/export-mnemonic      → body: { password: "..." }
                                           returns { mnemonic: "word1 word2 ..." }
                                           one-time per request, never logged
@@ -219,6 +240,7 @@ The `data-source/select` endpoint validates the choice and refuses to switch to 
 ### `connectors/x402.py` (EIP-3009 signing layer, update)
 
 - Add `chain_id: int = 8453` and `token_address: str = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"` as parameters.
+- Add a list of `base_rpcs: list[str]` (default 3 URLs) for balance polling; rotate on connection failure (same pattern as `BSCClient`).
 - The old BSC USDC.e values (`chain_id=56`, `0x55d398326f99059fF775485246999027B3197955`) are kept as deprecated fallbacks so existing tests don't break.
 - Header names: `PAYMENT-REQUIRED` on the 402 challenge, `PAYMENT-SIGNATURE` on retry.
 - Add `check_balance(w3, token, holder) -> Decimal` helper for the wizard's polling.
@@ -289,13 +311,13 @@ Each commit is independent — stopping after any one of them leaves the agent b
 
 **Verify:** `pytest tests/unit/test_data_source.py tests/unit/test_cmc.py -v` — all sources return their respective shapes (Binance returns arrays, CMC returns objects, mock returns from JSON). The agent's `/api/stats` endpoint still returns 200 with `tier: "mock"`.
 
-### Commit 2 — `feat(x402): port to Base chain + PAYMENT-SIGNATURE header`
+### Commit 2 — `feat(x402): port to Base chain + PAYMENT-SIGNATURE header + Base RPCs`
 
-**Files:** `connectors/x402.py` (update), `tests/unit/test_x402.py` (update).
+**Files:** `connectors/x402.py` (update), `config/config.yaml` (add `data_source.base_rpcs` with 3 defaults), `.env.example` (add `BASE_RPCS`), `tests/unit/test_x402.py` (update).
 
-**Touches heavy?** `connectors/x402.py` is in the "security boundary" set. This commit updates the default `chain_id` and `token_address` and renames the header. Existing tests that asserted the old BSC USDC.e values get a `chain_id=56` parameter (backward-compat) so they continue to pass.
+**Touches heavy?** `connectors/x402.py` is in the "security boundary" set. This commit updates the default `chain_id` and `token_address`, renames the header, and adds the `base_rpcs` list with rotation. Existing tests that asserted the old BSC USDC.e values get a `chain_id=56` parameter (backward-compat) so they continue to pass.
 
-**Verify:** `pytest tests/unit/test_x402.py -v` — all 12 unit tests pass; a manual call to `https://pro-api.coinmarketcap.com/x402/v3/cryptocurrency/quotes/latest?symbol=ETH` returns a 402 with a `PAYMENT-REQUIRED` header that `decode_payment_requirements()` parses correctly.
+**Verify:** `pytest tests/unit/test_x402.py -v` — all unit tests pass; a manual call to `https://pro-api.coinmarketcap.com/x402/v3/cryptocurrency/quotes/latest?symbol=ETH` returns a 402 with a `PAYMENT-REQUIRED` header that `decode_payment_requirements()` parses correctly; the `check_balance()` helper returns a real USDC balance when pointed at one of the default Base RPCs.
 
 ### Commit 3 — `feat(router): DataSourceRouter + wiring into boot`
 
@@ -329,7 +351,7 @@ Each commit is independent — stopping after any one of them leaves the agent b
 
 ## 9. Risks
 
-1. **Base USDC balance polling needs a free Base RPC.** `https://mainnet.base.org` is public. Add `BASE_RPC=https://mainnet.base.org` to `.env.example`. If the public RPC is rate-limited, fall back to `https://base.publicnode.com` or `https://1rpc.io/base`.
+1. **Base USDC balance polling needs a Base RPC.** Three defaults are shipped (`https://mainnet.base.org`, `https://base.publicnode.com`, `https://1rpc.io/base`) and the user can add/remove in the wizard. The list is exposed as `BASE_RPCS` (comma-separated env var) and stored in `config/config.yaml` under `data_source.base_rpcs`. `connectors/x402.py` rotates through the list on connection failure (same pattern as `BSCClient`).
 2. **TWAK doesn't currently support non-BSC chains.** `connectors/twak.py` signs for chain_id 56 only. The signer itself is chain-agnostic (secp256k1 is universal), so adding a `chain_id` parameter is a small additive change — but the mnemonic-derivation path also needs to support the Ethereum standard (`m/44'/60'/0'/0/0`). The current TWAK uses a single-key derivation; we'll add a method `derive_address_at(path: str) -> str` that returns the address without exposing the key.
 3. **The `bnbagent-sdk` is imported in `connectors/bnb_sdk.py` for BSC operations.** It won't be used for the Base balance read — we'll use `web3` directly with the public Base RPC. Keeps the dependency surface narrow.
 4. **Existing strategy tests assume CMC-shaped data (objects with `data` key).** Binance returns arrays. Some of the strategy tests will need updates to handle Binance-shaped data. Done as part of Commit 1.
@@ -338,7 +360,52 @@ Each commit is independent — stopping after any one of them leaves the agent b
 
 ---
 
-## 10. References
+## 11. Documentation sync (final commit)
+
+The repo's README and several docs reference the *old* x402-on-BSC flow. After the 5 implementation commits land, a **Commit 6** brings the docs back in sync. Touch list:
+
+| Doc | Change |
+|---|---|
+| `README.md` | • §5 "Sponsor integration" — replace "Settlement is on BNB Chain via USDC.transferWithAuthorization" with "Settlement is on Base (chain 8453) via USDC.transferWithAuthorization". <br> • §6 "Quick start" — mention the new Data-source wizard step. <br> • §12 "Environment variables" — add `BASE_RPCS` to the table. |
+| `docs/x402.md` | Major rewrite: new URLs (`pro-api.coinmarketcap.com/x402/...`), new headers (`PAYMENT-REQUIRED` / `PAYMENT-SIGNATURE`), new chain (Base, 8453), new USDC contract (`0x833589…2913`), new Base RPC config with 3 defaults, the 402-challenge sequence diagram, the daily-spend cap. |
+| `docs/setup-wizard.md` | Add the new "Data source" step in the 4-step walkthrough, with the 3-way radio mockup and the secret-phrase export button. |
+| `docs/operations.md` | Mention the persistent data-source banner in the Live pane and the "Change data source" card in the Config pane. |
+| `docs/onchain.md` | Update the x402 section to reflect Base settlement and the new contract. |
+| `docs/CHANGELOG.md` | Add `v2.1.0 — 3-tier CMC data source (CMC Pro / x402 on Base / Binance fallback), export-mnemonic button, Base RPC config, daily-spend cap`. |
+| `salepitch.md` | Update the "what we built" section to mention the 3-tier data source + export-mnemonic. |
+| `docs/CHANGELOG.md` and `docs/SECURITY.md` | Note the new `export-mnemonic` endpoint under security review. |
+
+**Why a separate commit:** doc-only changes are easy to review in one pass; interleaving them with code changes makes the diff harder to follow. The 5 code commits reference the relevant doc snippets inline (e.g. Commit 2 updates the docstring of `connectors/x402.py` to point to Base); Commit 6 is the doc-pass that catches everything else.
+
+---
+
+## 12. Versioning
+
+This is a substantive architectural change (new Protocol, new router, new wizard step, new endpoints, new docs). It warrants a **minor version bump** to `v2.1.0`. The CHANGELOG entry will be:
+
+```
+v2.1.0 — 3-tier CMC data source
+  ADDED: 3-tier data-source selection (CMC Pro / x402 on Base / Binance
+         fallback) via the Setup wizard + a 'Change data source' button
+         in the Config pane.
+  ADDED: Persistent data-source banner in the Live pane.
+  ADDED: Secret-phrase export button in the Wallet step + the
+         /api/wallet/export-mnemonic endpoint.
+  ADDED: Base RPC config (3 defaults, add/remove, rotation) in the
+         x402 wizard step.
+  CHANGED: x402 now settles on Base (chain 8453) with native USDC at
+           0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. The retry
+           header is now PAYMENT-SIGNATURE (was X-PAYMENT).
+  FIXED:   The 404 on https://api.coinmarketcap.com/agent-hub — the
+           correct x402 base is https://pro-api.coinmarketcap.com/x402.
+  CHANGED: The CMC integration is now a MarketDataSource Protocol with
+           4 concrete clients (CMCProClient, CMCX402Client, BinanceClient,
+           MockClient) behind a DataSourceRouter.
+```
+
+---
+
+## 13. References
 
 - Deep-research synthesis (internal): "How should the BNB Agent's CoinMarketCap (CMC) integration work?" — 18 confirmed findings, 7 refuted.
 - [https://coinmarketcap.com/api/documentation/ai-agent-hub/x402](https://coinmarketcap.com/api/documentation/ai-agent-hub/x402)
@@ -347,4 +414,7 @@ Each commit is independent — stopping after any one of them leaves the agent b
 - [https://coinmarketcap.com/api/documentation/guides/authentication](https://coinmarketcap.com/api/documentation/guides/authentication)
 - [https://github.com/coinbase/x402/blob/main/specs/schemes/exact/scheme_exact_evm.md](https://github.com/coinbase/x402/blob/main/specs/schemes/exact/scheme_exact_evm.md) (x402 exact-EVM scheme spec)
 - [https://eips.ethereum.org/EIPS/eip-3009](https://eips.ethereum.org/EIPS/eip-3009) (EIP-3009 `transferWithAuthorization`)
+- [https://docs.base.org/docs/network-information](https://docs.base.org/docs/network-information) (Base mainnet RPC endpoints)
+- [https://publicnode.com/](https://publicnode.com/) (PublicNode free public RPC)
+- [https://1rpc.io/](https://1rpc.io/) (1RPC free public RPC)
 - Existing repo: `connectors/cmc.py` (current broken integration), `connectors/x402.py` (current BSC-targeted x402), `dashboard/backend/main.py` (current 40+ endpoint layout), `core/boot.py` (current boot flow).
