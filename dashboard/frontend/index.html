@@ -625,11 +625,6 @@ body::before {
             <textarea id="wiz-rpcs" rows="3" style="resize:vertical;"></textarea>
             <div class="hint">Default testnet: bsc-testnet public RPCs. Mainnet: bsc-dataseed.</div>
           </div>
-          <div class="field">
-            <label>CoinMarketCap API key <span style="color:var(--fg-dimmer);">(optional)</span></label>
-            <input id="wiz-cmc-key" type="password" placeholder="leave empty to use x402 micro-payments" />
-            <div class="hint">x402 works without a key (USDC micro-payments per request). Pro API key gives you a free tier.</div>
-          </div>
           <div class="actions">
             <div></div>
             <button class="btn primary" onclick="wizardNext(1)">Continue →</button>
@@ -1397,13 +1392,15 @@ async function wizardNext(from) {
   if (from === 1) {
     const mode = $('wiz-mode').value;
     const rpcs = $('wiz-rpcs').value.split('\n').map(s => s.trim()).filter(Boolean);
-    const cmc  = $('wiz-cmc-key').value;
     if (mode !== 'replay' && rpcs.length === 0) {
       $('wiz-rpcs').style.borderColor = 'var(--red)';
       return;
     }
     $('wiz-rpcs').style.borderColor = '';
-    const r = await jpost('/api/setup/config', { mode, chain_id: mode === 'mainnet' ? 56 : 97, rpcs, cmc_api_key: cmc });
+    // The CMC Pro API key is configured in Step 2 (Data source), not here.
+    // The old `cmc.api_key` field is dead — the new DataSourceRouter only
+    // reads from data_source.cmc_api_key.
+    const r = await jpost('/api/setup/config', { mode, chain_id: mode === 'mainnet' ? 56 : 97, rpcs });
     if (!r.ok) {
       alert('config error: ' + r.error);
       return;
