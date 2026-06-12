@@ -29,6 +29,8 @@ Endpoints
   POST /api/data-source/select persist + hot-swap the data source
   POST /api/data-source/cmc-key persist CMC Pro API key
   POST /api/data-source/base-rpcs persist Base RPC list
+  GET  /api/data-source/x402-balance poll Base USDC balance of the wallet
+  POST /api/wallet/export-mnemonic  reveal the 12/24-word phrase (password-gated)
   POST /api/chat               non-streamed chat
   POST /api/chat/tool          dispatch a tool call (used by dashboard)
   GET  /api/chat/tools         list available tools
@@ -59,7 +61,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -599,6 +601,73 @@ def build_app() -> FastAPI:
         tmp.write_text(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
         tmp.replace(cfg_path)
         return JSONResponse({"ok": True, "base_rpcs": list(rpcs)})
+
+    @app.get("/api/data-source/x402-balance")
+    async def get_x402_balance(address: str | None = None):
+        """Poll the Base USDC balance of `address` (or the configured one).
+
+        Optional query param ?address=0x... overrides the config-stored
+        address. Returns {address, balance_usdc, ready}. The wizard
+        enables the Continue button when balance_usdc >= 0.50.
+        """
+        from connectors.x402 import check_balance
+        cfg_path = Path("config/config.yaml")
+        if cfg_path.exists():
+            try:
+                cfg = yaml.safe_load(cfg_path.read_text()) or {}
+            except Exception:
+                cfg = {}
+        else:
+            cfg = {}
+        ds_cfg = cfg.get("data_source", {}) or {}
+        base_rpcs = ds_cfg.get("base_rpcs", [])
+        if not base_rpcs:
+            raise HTTPException(422, "no base_rpcs configured")
+        usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        if not address:
+            address = ds_cfg.get("base_address", "")
+        if not address:
+            raise HTTPException(
+                400,
+                "no address provided; pass ?address=0x... or set data_source.base_address in config",
+            )
+        try:
+            raw = check_balance(base_rpcs, address, usdc)
+        except Exception as e:
+            raise HTTPException(502, f"all Base RPCs failed: {e}")
+        balance_usdc = float(raw) / 1_000_000  # USDC has 6 decimals
+        return {
+            "address": address,
+            "balance_usdc": balance_usdc,
+            "ready": balance_usdc >= 0.50,
+        }
+
+    @app.post("/api/wallet/export-mnemonic")
+    async def post_export_mnemonic(payload: dict):
+        """Return the TWAK mnemonic if the correct password is provided.
+
+        One-time per request — the password is not retained, the mnemonic
+        is not logged. The keystore is the same AES-256-GCM blob that
+        /api/setup/wallet wrote; we decrypt it briefly, return the phrase,
+        and discard the key.
+        """
+        password = payload.get("password", "") if isinstance(payload, dict) else ""
+        if not password:
+            raise HTTPException(400, "password required")
+        from connectors.keystore import load_keystore
+        keystore_path = os.path.expanduser(
+            os.environ.get("TWAK_KEYSTORE", "~/.twak/wallet.json")
+        )
+        try:
+            ks = load_keystore(keystore_path, password=password)
+        except FileNotFoundError:
+            raise HTTPException(404, f"keystore not found at {keystore_path}")
+        except Exception as e:
+            raise HTTPException(401, f"invalid password or corrupt keystore: {e}")
+        mnemonic = ks.get("mnemonic", "")
+        if not mnemonic:
+            raise HTTPException(500, "keystore has no mnemonic field")
+        return {"mnemonic": mnemonic}
 
     # --------------------------------------------------------------------- ws
     @app.websocket("/ws")

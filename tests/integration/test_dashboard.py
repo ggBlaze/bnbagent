@@ -15,6 +15,7 @@ mock tier when the agent hasn't booted a router yet.
 from __future__ import annotations
 
 import pytest
+import respx
 
 
 # --- data source endpoints (v2.1) ---
@@ -68,3 +69,70 @@ def test_post_data_source_base_rpcs_rejects_invalid_url():
     with TestClient(app) as client:
         r = client.post("/api/data-source/base-rpcs", json={"base_rpcs": ["not-a-url"]})
     assert r.status_code == 422  # validation error
+
+
+# --- x402 balance polling (v2.1) ---
+
+@respx.mock
+def test_get_x402_balance_returns_decimal():
+    """GET /api/data-source/x402-balance polls the Base USDC balance.
+
+    Test uses Option A: the endpoint accepts ?address=0x... so we don't
+    need a wallet in the test process. We patch _get_web3 (the seam
+    exposed by connectors/x402.py) since web3 uses the `requests`
+    library, which respx doesn't intercept.
+    """
+    from unittest.mock import patch, MagicMock
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+
+    test_address = "0x" + "ab" * 20
+    # 1.5 USDC = 1_500_000 raw = 0x16e360
+    fake_w3 = MagicMock()
+    fake_w3.eth.call.return_value = int(1_500_000).to_bytes(32, "big")
+    with respx.mock, patch("connectors.x402._get_web3", return_value=fake_w3):
+        with TestClient(app) as client:
+            r = client.get(f"/api/data-source/x402-balance?address={test_address}")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "balance_usdc" in body
+    assert "ready" in body
+    assert "address" in body
+    # 1_500_000 raw / 1_000_000 = 1.5 USDC
+    assert abs(body["balance_usdc"] - 1.5) < 1e-9
+    assert body["ready"] is True
+
+
+# --- export mnemonic (v2.1) ---
+
+def test_export_mnemonic_requires_password():
+    """POST without a password should return 400/401/422."""
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+    with TestClient(app) as client:
+        r = client.post("/api/wallet/export-mnemonic", json={})
+    assert r.status_code in (400, 401, 422)
+
+
+def test_export_mnemonic_returns_phrase_with_correct_password(monkeypatch):
+    """Mock the keystore loader; verify the endpoint returns the phrase."""
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+
+    # Patch wherever the endpoint imports the load_keystore function.
+    # The endpoint does `from connectors.keystore import load_keystore`
+    # inside the handler, so the import will resolve via sys.modules['connectors.keystore'].
+    test_mnemonic = "test test test test test test test test test test test junk"
+    import connectors.keystore as _ks_mod
+    monkeypatch.setattr(
+        _ks_mod,
+        "load_keystore",
+        lambda path, password: {"mnemonic": test_mnemonic, "address": "0x" + "11" * 20},
+    )
+
+    with TestClient(app) as client:
+        r = client.post("/api/wallet/export-mnemonic", json={"password": "anything"})
+    assert r.status_code == 200
+    body = r.json()
+    assert "mnemonic" in body
+    assert body["mnemonic"] == test_mnemonic

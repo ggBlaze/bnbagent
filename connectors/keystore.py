@@ -65,11 +65,19 @@ def _keystore_path() -> Path:
     return p
 
 
-def create_keystore(password: str, account: Account | None = None) -> dict:
+def create_keystore(
+    password: str,
+    account: Account | None = None,
+    mnemonic: str = "",
+) -> dict:
     """Generate a new key, encrypt with `password`, write to disk, return summary.
 
-    Returns a dict safe to surface to the dashboard — only the address, never
-    the private key.
+    If `mnemonic` is provided, it is stored alongside the encrypted key
+    so the dashboard's export-mnemonic endpoint can recover it. Legacy
+    imports (no mnemonic) leave the field empty.
+
+    Returns a dict safe to surface to the dashboard — only the address,
+    never the private key.
     """
     if not password or len(password) < 8:
         raise ValueError("password must be at least 8 characters")
@@ -90,6 +98,10 @@ def create_keystore(password: str, account: Account | None = None) -> dict:
         "public_key": "0x" + acct._key_obj.public_key.to_bytes().hex(),
         "version": 1,
     }
+    if mnemonic:
+        # Store the mnemonic so the operator can export it later. The
+        # keystore file is chmod 600 — only the host user can read it.
+        blob["mnemonic"] = mnemonic
     _keystore_path().write_text(json.dumps(blob, indent=2))
     os.chmod(_keystore_path(), 0o600)
     return {
@@ -100,7 +112,12 @@ def create_keystore(password: str, account: Account | None = None) -> dict:
 
 
 def import_keystore(private_key_hex: str, password: str) -> dict:
-    """Encrypt an existing private key into a TWAK keystore. Returns summary."""
+    """Encrypt an existing private key into a TWAK keystore. Returns summary.
+
+    Imports do not store a mnemonic — there's no way to recover it from
+    a private key. The export-mnemonic endpoint will return an empty
+    string for imported wallets.
+    """
     pk = private_key_hex[2:] if private_key_hex.startswith("0x") else private_key_hex
     if len(pk) != 64:
         raise ValueError("private key must be 32 bytes (64 hex chars)")
@@ -176,3 +193,31 @@ def unlock_and_get_account(password: str) -> Account:
     blob = json.loads(p.read_text())
     key = decrypt_keystore(blob, password)
     return Account.from_key(key)
+
+
+def load_keystore(path: str, password: str) -> dict:
+    """Read the keystore at `path` and return its public fields + mnemonic.
+
+    Returns a dict with at least {address, public_key, version}. The
+    `mnemonic` field is populated only for keystores that were generated
+    via `create_keystore(mnemonic=...)` (newer format); legacy keystores
+    (private-key-only imports) have no recoverable mnemonic and the
+    `mnemonic` field will be empty. The caller should treat an empty
+    mnemonic as "this wallet was imported, the phrase is not on this host".
+
+    This function is the seam that the dashboard's export-mnemonic
+    endpoint mocks in tests. In production, the mnemonic is only present
+    if the operator chose Generate (vs. Import existing private key).
+    """
+    p = Path(path).expanduser()
+    if not p.exists():
+        raise FileNotFoundError(f"no keystore at {p}")
+    blob = json.loads(p.read_text())
+    # verify the password by attempting decryption
+    decrypt_keystore(blob, password)
+    return {
+        "address":    blob.get("address"),
+        "public_key": blob.get("public_key"),
+        "version":    blob.get("version"),
+        "mnemonic":   blob.get("mnemonic", ""),
+    }

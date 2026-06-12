@@ -457,6 +457,77 @@ body::before {
 .ds-banner .ds-banner-tier { color: var(--accent); font-weight: 600; }
 .ds-banner button { margin-left: auto; }
 
+/* === export-mnemonic modal ===================================== */
+.modal {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.modal[hidden] { display: none; }
+.modal-content {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 520px;
+  width: calc(100% - 32px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.modal-content h2 {
+  font: 600 16px/1.3 'Inter';
+  margin: 0 0 12px;
+  color: var(--fg);
+}
+.modal-content p.warn {
+  font: 400 12px/1.5 'Inter';
+  color: var(--accent-2);
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  background: rgba(255, 100, 50, 0.08);
+  border-left: 3px solid var(--accent-2);
+  border-radius: 4px;
+}
+.modal-content label {
+  display: flex; align-items: center; gap: 8px;
+  font: 400 12px/1.4 'Inter';
+  margin: 12px 0;
+  color: var(--fg);
+  cursor: pointer;
+}
+.modal-content input[type="password"] {
+  width: 100%;
+  padding: 8px 10px;
+  font: 400 12px/1.4 'JetBrains Mono';
+  background: var(--bg-1);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin: 4px 0 8px;
+}
+.modal-content input[type="password"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+#export-mnemonic-output {
+  margin: 12px 0;
+  padding: 12px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+#export-mnemonic-output code {
+  display: block;
+  font: 500 13px/1.6 'JetBrains Mono';
+  color: var(--accent);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.modal-nav {
+  display: flex; gap: 8px; justify-content: flex-end;
+  margin-top: 16px;
+}
+
 </style>
 </head>
 <body>
@@ -598,6 +669,11 @@ body::before {
                   <span class="muted">Your Base address:</span>
                   <code id="ds-base-address">0x…</code>
                 </div>
+                <div class="ds-row">
+                  <span class="muted">USDC balance:</span>
+                  <code id="ds-base-usdc-balance">—</code>
+                  <span class="muted" id="ds-base-usdc-status"></span>
+                </div>
                 <div class="ds-row muted">Chain: Base (8453) · Required: 1.00 USDC</div>
                 <div style="margin-top:8px;">
                   <span class="muted" style="font:400 11px/1.4 'Inter';">Base RPC URLs (for USDC balance polling):</span>
@@ -662,6 +738,7 @@ body::before {
           <div id="wiz-wallet-result"></div>
           <div class="actions">
             <button class="btn" onclick="wizardBack(2)">← Back</button>
+            <button class="btn" type="button" id="wiz-wallet-export" onclick="openExportMnemonic()" style="display:none;">Export secret phrase</button>
             <button class="btn primary" id="wiz-wallet-btn" onclick="wizardCreateWallet()">Create Wallet</button>
           </div>
         </div>
@@ -1298,6 +1375,10 @@ function gotoStep(n) {
       stp.classList.toggle('done', i < n);
     }
   }
+  // Stop x402 polling when the user leaves the data-source step
+  if (n !== 2 && typeof stopBasePolling === 'function') {
+    stopBasePolling();
+  }
 }
 
 function bannerHtml(kind, text) {
@@ -1369,6 +1450,8 @@ async function wizardCreateWallet() {
   $('wiz-wallet-result').innerHTML =
     bannerHtml('ok', `Wallet ready at <code class="mono">${r.path}</code>.`) +
     addressBox(r.address, 'Agent address (this EOA signs every tx)');
+  // Reveal the export-mnemonic button now that a wallet exists
+  $('wiz-wallet-export').style.display = '';
   // advance to step 3 after a beat
   setTimeout(() => gotoStep(3), 800);
 }
@@ -1474,6 +1557,9 @@ async function dsInit() {
   }
   dsRadioChange();
   _dsInited = true;
+  // If the active tier is x402, the polling should already be running
+  // (dsRadioChange calls startBasePolling). If the operator changes
+  // the tier from a config pane, dsChangeOpen + dsInit covers it.
 }
 
 function dsRenderRpcs() {
@@ -1510,6 +1596,58 @@ function dsRadioChange() {
   if (tier === 'cmc_pro' || tier === 'x402') {
     const el = $('ds-detail-' + tier);
     if (el) el.hidden = false;
+  }
+  // start/stop x402 balance polling
+  if (tier === 'x402') {
+    startBasePolling();
+  } else {
+    stopBasePolling();
+  }
+}
+
+/* === x402 balance polling (v2.1) ===================================== */
+let _basePollHandle = null;
+
+async function pollBaseBalance() {
+  const balEl = $('ds-base-usdc-balance');
+  const statusEl = $('ds-base-usdc-status');
+  const contEl = $('ds-continue');
+  if (!balEl) return;
+  // Only enforce the readiness gate while x402 is the selected tier
+  // (other tiers don't poll and don't need the gate).
+  const x402Checked = document.querySelector('input[name="ds-tier"]:checked')?.value === 'x402';
+  try {
+    const r = await fetch('/api/data-source/x402-balance');
+    if (!r.ok) {
+      if (statusEl) statusEl.textContent = '(polling failed)';
+      if (contEl && x402Checked) contEl.disabled = true;
+      return;
+    }
+    const body = await r.json();
+    const usdc = (body && typeof body.balance_usdc === 'number') ? body.balance_usdc : 0;
+    balEl.textContent = usdc.toFixed(2) + ' USDC';
+    if (statusEl) {
+      statusEl.textContent = body.ready ? '✓ ready' : '(need ≥ 0.50 USDC)';
+      statusEl.style.color = body.ready ? 'var(--green)' : 'var(--fg-dim)';
+    }
+    // Gate Continue when x402 is the selected tier
+    if (contEl && x402Checked) contEl.disabled = !body.ready;
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '(network error)';
+    if (contEl && x402Checked) contEl.disabled = true;
+  }
+}
+
+function startBasePolling() {
+  stopBasePolling();
+  pollBaseBalance();
+  _basePollHandle = setInterval(pollBaseBalance, 10_000);
+}
+
+function stopBasePolling() {
+  if (_basePollHandle) {
+    clearInterval(_basePollHandle);
+    _basePollHandle = null;
   }
 }
 
@@ -1878,6 +2016,113 @@ async function deployToken() {
   `;
 }
 window.addEventListener('beforeunload', stopLogStream);
+
+/* ============================================================
+   Export-mnemonic modal (v2.1)
+   ============================================================ */
+function openExportMnemonic() {
+  const m = $('export-mnemonic-modal');
+  m.hidden = false;
+  // reset state
+  $('export-mnemonic-confirm').checked = false;
+  $('export-mnemonic-password').value = '';
+  $('export-mnemonic-output').hidden = true;
+  $('export-mnemonic-output').textContent = '';
+  $('export-mnemonic-reveal').disabled = true;
+  $('export-mnemonic-reveal').hidden = false;
+  $('export-mnemonic-copy').hidden = true;
+  $('export-mnemonic-password').focus();
+}
+
+function closeExportMnemonic() {
+  const m = $('export-mnemonic-modal');
+  m.hidden = true;
+  // Clear the phrase from the DOM so it isn't left in memory
+  const out = $('export-mnemonic-output');
+  out.textContent = '';
+  out.hidden = true;
+  $('export-mnemonic-password').value = '';
+}
+
+function toggleExportReveal() {
+  const checked = $('export-mnemonic-confirm').checked;
+  const pwd = $('export-mnemonic-password').value;
+  $('export-mnemonic-reveal').disabled = !(checked && pwd.length > 0);
+}
+
+async function revealExportMnemonic() {
+  const pwd = $('export-mnemonic-password').value;
+  if (!pwd) return;
+  const btn = $('export-mnemonic-reveal');
+  btn.disabled = true;
+  btn.textContent = 'Decrypting…';
+  try {
+    const r = await jpost('/api/wallet/export-mnemonic', { password: pwd });
+    if (!r || r.error) {
+      alert('Export failed: ' + (r?.error || 'unknown error'));
+      btn.disabled = false;
+      btn.textContent = 'Reveal';
+      return;
+    }
+    if (!r.mnemonic) {
+      alert('This wallet was imported from a private key — the secret phrase is not on this host. If you need it, restore from your original backup.');
+      closeExportMnemonic();
+      return;
+    }
+    const out = $('export-mnemonic-output');
+    out.innerHTML = '<code></code>';
+    out.querySelector('code').textContent = r.mnemonic;
+    out.hidden = false;
+    btn.hidden = true;
+    $('export-mnemonic-copy').hidden = false;
+  } catch (e) {
+    alert('Export failed: ' + (e?.message || e));
+    btn.disabled = false;
+    btn.textContent = 'Reveal';
+  }
+}
+
+async function copyExportMnemonic() {
+  const code = $('export-mnemonic-output').querySelector('code');
+  if (!code) return;
+  try {
+    await navigator.clipboard.writeText(code.textContent);
+    const btn = $('export-mnemonic-copy');
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  } catch (e) {
+    alert('Clipboard access denied — please copy manually.');
+  }
+}
+
+// wire up the modal once the DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  $('export-mnemonic-cancel').addEventListener('click', closeExportMnemonic);
+  $('export-mnemonic-reveal').addEventListener('click', revealExportMnemonic);
+  $('export-mnemonic-copy').addEventListener('click', copyExportMnemonic);
+  $('export-mnemonic-confirm').addEventListener('change', toggleExportReveal);
+  $('export-mnemonic-password').addEventListener('input', toggleExportReveal);
+});
 </script>
+
+<!-- Export-mnemonic modal -->
+<div id="export-mnemonic-modal" class="modal" hidden>
+  <div class="modal-content">
+    <h2>Export secret recovery phrase</h2>
+    <p class="warn">⚠ Anyone with this phrase can drain your wallet. Never share it. Never paste it on a website. Store it offline.</p>
+    <label>
+      <input type="checkbox" id="export-mnemonic-confirm">
+      I understand the security implications
+    </label>
+    <input type="password" id="export-mnemonic-password" placeholder="Wallet password">
+    <div id="export-mnemonic-output" hidden></div>
+    <div class="modal-nav">
+      <button type="button" class="btn" id="export-mnemonic-cancel">Cancel</button>
+      <button type="button" class="btn primary" id="export-mnemonic-reveal" disabled>Reveal</button>
+      <button type="button" class="btn" id="export-mnemonic-copy" hidden>Copy</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

@@ -155,8 +155,23 @@ def set_runtime_config(
 
 
 def generate_wallet(password: str) -> dict:
-    """Create a new wallet, encrypt with `password`, persist keystore."""
-    return create_keystore(password)
+    """Create a new wallet, encrypt with `password`, persist keystore.
+
+    The 12-word mnemonic is generated here (via Account.create()'s
+    underlying bip32) and stored in the keystore so the dashboard's
+    export-mnemonic endpoint can recover it later. The mnemonic is
+    also returned in the response so the operator can write it down
+    immediately on first create.
+    """
+    from eth_account import Account
+    # Account.create() with no entropy_seed generates a fresh key but
+    # does not expose the mnemonic. To capture the phrase we use the
+    # mnemonic-based constructor with Account.generate_mnemonic().
+    mnemonic = Account.generate_mnemonic()
+    acct = Account.from_mnemonic(mnemonic)
+    result = create_keystore(password, account=acct, mnemonic=mnemonic)
+    result["mnemonic"] = mnemonic  # surface once to the operator
+    return result
 
 
 def import_wallet(private_key_hex: str, password: str) -> dict:
