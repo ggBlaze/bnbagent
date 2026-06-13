@@ -264,7 +264,14 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
                 day_breach_active_until=portfolio.day_breach_active_until,
             )
             return ok, reason
-        def review_trade(_self, proposed, sleeve_state, market_snapshot):
+        # v2.1.5: must be async to match the production Agent.review_trade
+        # signature (core/tick.py:167) and the sleeves' call site
+        # (strategies/sleeve_*.py: await self.agent.review_trade(...)).
+        # The previous sync definition caused
+        # "object tuple can't be used in 'await' expression" warnings on
+        # every tick, which made the reviewer effectively a no-op in
+        # the replay path. The replay now matches production.
+        async def review_trade(_self, proposed, sleeve_state, market_snapshot):
             # Replay shim: pass-through so the reviewer code path is
             # exercised in the harness. The real reviewer is wired in
             # production via core.main._init_llm_components. Without
