@@ -1,22 +1,58 @@
 {
   "starting_equity": 1000.0,
-  "ending_equity": 994.3546011887006,
-  "total_return_pct": -0.564539881129944,
-  "trades": 99,
-  "hit_rate": 0.7171717171717171,
-  "profit_factor": 0.8105742056636617,
-  "sharpe": -51.68855431298914,
-  "sortino": -37.484132172507515,
-  "max_drawdown_pct": 1.0782340058894517,
-  "calmar": -80.99913894449512,
+  "ending_equity": 1002.3357167533077,
+  "total_return_pct": 0.23357167533075707,
+  "trades": 75,
+  "hit_rate": 0.52,
+  "profit_factor": 1.0860146828188255,
+  "sharpe": 2.267704694571676,
+  "sortino": 2.2716225915815764,
+  "max_drawdown_pct": 0.5711206956820779,
+  "calmar": 235.19697331397177,
   "attribution": {
     "A": {
-      "trades": 99,
-      "pnl": -5.645398811299585,
-      "hit_rate": 0.7171717171717171
+      "trades": 75,
+      "pnl": 2.3357167533078687,
+      "hit_rate": 0.52
     }
   },
+  "samples_per_year": 3911,
   "breaches": 0,
   "kill_switch_engaged": false,
-  "summary": {}
+  "summary": {
+    "window_id": "replay-bear-42-final",
+    "job_ids": {
+      "A": 1,
+      "B": 2,
+      "C": 3,
+      "ALL": 4
+    },
+    "cids": {
+      "A": "Qmc2176c69c9558d28fe432418df5200cac4219e00d052",
+      "B": "Qm922cc5f99194fe6e7e12a48f361c7512b17abf47578b",
+      "C": "Qm05af0b0685f04eb490c88e60c84dc4e394cfa3a92b9b",
+      "ALL": "Qmb8f2ab86f6a23f97f37f475e65caacf878350da63aa0"
+    },
+    "stats": {
+      "equity": 1002.3357167533079,
+      "starting": 1000.0,
+      "peak": 1003.9045387856036,
+      "drawdown_pct": 0.15627203301555573,
+      "day_pnl_pct": -0.23357167533078685,
+      "open_positions": 0,
+      "closed_trades": 75,
+      "gross_exposure": 0.0,
+      "sleeve_exposure": {
+        "A": 0.0,
+        "B": 0.0,
+        "C": 0.0
+      }
+    },
+    "action_required": [
+      "User must sign complete(uint256) on ERC-8183 escrow for job 1 (sleeve A)",
+      "User must sign complete(uint256) on ERC-8183 escrow for job 2 (sleeve B)",
+      "User must sign complete(uint256) on ERC-8183 escrow for job 3 (sleeve C)",
+      "User must sign complete(uint256) on ERC-8183 escrow for job 4 (sleeve ALL)"
+    ]
+  }
 }

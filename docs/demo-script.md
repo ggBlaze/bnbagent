@@ -12,31 +12,35 @@ MCP integration.
 test for the strategy, not the live-PnL window. Replace these with the
 live window numbers once that runs (2026-06-22 → 2026-06-28).**
 
-**v2.0.7 numbers (2026-06-06, canonical, committed JSON):**
+**v2.1.5 numbers (2026-06-13, canonical, committed JSON — post Shar Annualize fix):**
 
 5-min tape (default — 7 days of 5-min bars):
 
 | Regime | Return | Max DD | Trades | Hit Rate | Sleeves |
 |---|---|---|---|---|---|
-| bull 5m | +0.61% | 0.48% | 191 | 76% | A |
-| bear 5m | -1.16% | 1.62% | 327 | 80% | A |
-| chop 5m | -0.20% | 1.73% | 691 | 81% | A |
+| bull 5m | +0.91% | 0.57% | 703 | 40% | A |
+| bear 5m | -0.02% | 0.63% | 609 | 50% | A |
+| chop 5m | -0.89% | 1.74% | 820 | 48% | A |
 
 1-hour tape (5-min tape aggregated to 1h bars — closer to CMC's hourly
 OHLCV which the live PnL window will use):
 
 | Regime | Return | Max DD | Trades | Hit Rate | Sleeves |
 |---|---|---|---|---|---|
-| bull 1h | +0.99% | 0.37% | 87 | 79% | A |
-| bear 1h | -0.57% | 1.08% | 99 | 72% | A |
-| chop 1h | +0.62% | 1.50% | 135 | 76% | A |
+| bull 1h | +0.66% | 0.32% | 100 | 42% | A |
+| bear 1h | +0.23% | 0.57% | 75 | 52% | A |
+| chop 1h | +2.40% | 0.72% | 122 | 38% | A |
 
 Source: `data/reports/replay_{bull,bear,chop}.json` and
-`data/reports/replay_{bull,bear,chop}_hourly.json`. These are the actual
-JSON values, **committed to the repo** so a fresh `git clone` produces
-the same numbers in the demo-script. The meta-test
+`data/reports/replay_{bull,bear,chop}_hourly.json`. Each JSON also
+exports `samples_per_year` (the annualization denominator), so the
+Sharpe / Sortino math is auditable: the 5m tape is annualized over
+~36,000 samples/year (200+ trades across 7 days), not 525,600 (the
+minute-bar default that the v2.0.7 code used and that the v2.1.5 fix
+corrected). The committed JSON is the source of truth for the
+voiceover. The meta-test
 `tests/test_meta.py::test_demo_script_kpi_table_matches_replay_json`
-locks this table to the JSON on every commit. Open the file, judge.
+locks this table to the JSON on every commit.
 
 **What the 1h tape actually shows:** on the committed v2.0.7 code
 (`lookback_h=4`, `zscore=2.0`), the z-score mean-reversion signal

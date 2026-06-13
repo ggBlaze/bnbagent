@@ -26,16 +26,16 @@
 | **B — DEX momentum** | 20% | CMC signals (volume spike + 4h breakout) → 1–4h long with ATR stop and 3% TP | positive alpha, capped at 1% per trade | low |
 | **C — Mean reversion** | 10% | Fades 1h drops >2.0σ on top-20 BSC tokens | positive alpha, capped at 0.5% per trade | low |
 
-**Honest backtest** (`python -m scripts.run_both_regimes`, v2.0.5, committed JSON):
+**Honest backtest** (`python -m scripts.run_both_regimes`, v2.1.5, committed JSON):
 
 | Regime | Return | Max DD | Trades | Hit Rate | Sleeves |
 |---|---|---|---|---|---|
-| bull 5m | +0.61% | 0.48% | 191 | 76% | A |
-| bear 5m | -1.16% | 1.62% | 327 | 80% | A |
-| chop 5m | -0.20% | 1.73% | 691 | 81% | A |
-| bull 1h | +0.99% | 0.37% | 87 | 79% | A |
-| bear 1h | -0.57% | 1.08% | 99 | 72% | A |
-| chop 1h | +0.62% | 1.50% | 135 | 76% | A |
+| bull 5m | +0.91% | 0.57% | 703 | 40% | A |
+| bear 5m | -0.02% | 0.63% | 609 | 50% | A |
+| chop 5m | -0.89% | 1.74% | 820 | 48% | A |
+| bull 1h | +0.66% | 0.32% | 100 | 42% | A |
+| bear 1h | +0.23% | 0.57% | 75 | 52% | A |
+| chop 1h | +2.40% | 0.72% | 122 | 38% | A |
 
 Source: `data/reports/replay_{bull,bear,chop}.json` and
 `data/reports/replay_{bull,bear,chop}_hourly.json` — **committed to
