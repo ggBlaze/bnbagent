@@ -202,8 +202,18 @@ class Portfolio:
             },
         }
 
-    def sharpe(self, window: int = 200) -> float:
-        """Annualized Sharpe from the equity history. Assumes minute samples."""
+    def sharpe(self, window: int = 200,
+               samples_per_year: int = 365 * 24 * 60) -> float:
+        """Annualized Sharpe from the equity history.
+
+        `samples_per_year` defaults to minute samples (525,600) to match
+        the historical convention used by the backtest report() output,
+        but live callers should pass the value that matches the actual
+        sample interval of equity_history (1/sec → 31,536,000) to avoid
+        the annualization error the replay previously had (the original
+        version hardcoded minute samples everywhere, which made live
+        Sharpe numbers look 60× higher than reality).
+        """
         if len(self.equity_history) < 2:
             return 0.0
         eqs = [float(e) for _, e in list(self.equity_history)[-window:]]
@@ -215,8 +225,7 @@ class Portfolio:
         std = var ** 0.5
         if std == 0:
             return 0.0
-        # annualize: 525_600 minutes/year
-        return float(mean / std * (525_600 ** 0.5))
+        return float(mean / std * (samples_per_year ** 0.5))
 
     def max_drawdown_pct(self) -> float:
         if not self.equity_history:

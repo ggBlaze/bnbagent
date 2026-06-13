@@ -32,7 +32,7 @@ from core.risk import circuit_breaker_check, ProposedTrade
 from strategies.sleeve_a_carry import SleeveACarry
 from strategies.sleeve_b_momentum import SleeveBMomentum
 from strategies.sleeve_c_meanrev import SleeveCMeanRev
-from backtest.metrics import report, equity_curve_from_trades, returns_from_equity
+from backtest.metrics import report, equity_curve_from_trades, returns_from_equity, DEFAULT_SAMPLES_PER_YEAR
 from jobs.open_jobs import open_jobs_for_window
 from jobs.finalize_window import finalize_window
 
@@ -352,8 +352,28 @@ async def run_replay(tape_path: str | None, report_path: str, equity: float = 10
         )
 
     # metrics
+    # Bug fix v2.1.5: pass samples_per_year to report() based on the
+    # actual sample frequency of the equity curve. Previously the
+    # default of 365*24*60 (minute samples) was used unconditionally,
+    # which inflated the Sharpe by ~60x on a 7-day replay (the eq
+    # curve has ~200 points across 7 days, not 525,600).
     eq_curve = equity_curve_from_trades(float(equity), list(portfolio.closed_trades))
-    metrics = report(eq_curve, list(portfolio.closed_trades), starting_equity=float(equity))
+    # Sample frequency: 1 sample per (tape_duration / eq_curve_length)
+    # seconds, annualized. Default to minute if we can't compute it.
+    samples_per_year = DEFAULT_SAMPLES_PER_YEAR
+    if len(eq_curve) >= 2:
+        candles = (tape or {}).get("candles", []) or []
+        if candles:
+            tape_duration_s = max(c["ts"] for c in candles) - min(c["ts"] for c in candles)
+            if tape_duration_s > 0:
+                sample_interval_s = tape_duration_s / (len(eq_curve) - 1)
+                samples_per_year = int(round((365 * 24 * 3600) / sample_interval_s))
+    metrics = report(
+        eq_curve, list(portfolio.closed_trades),
+        starting_equity=float(equity),
+        samples_per_year=samples_per_year,
+    )
+    metrics["samples_per_year"] = samples_per_year  # surface for the HTML/JSON so the demo can show it
     # Surface the breach count + the kill-switch flag in the JSON so the
     # bnbagent launcher can decide exit code. Without this, --replay
     # always returns 0 from a successful Python invocation even if the

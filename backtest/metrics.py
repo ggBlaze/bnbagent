@@ -1,9 +1,35 @@
-"""Backtest metrics: Sharpe, Sortino, Calmar, max DD, hit rate, profit factor."""
+"""Backtest metrics: Sharpe, Sortino, Calmar, max DD, hit rate, profit factor.
+
+The Sharpe / Sortino / Calmar functions take an explicit `samples_per_year`
+parameter (default 365*24*60 = minute samples). Callers MUST pass the value
+that matches the actual sample interval of the equity curve they feed in,
+otherwise the annualized number is meaningless.
+
+  minute samples  -> 365 * 24 * 60   (525,600)
+  hour samples    -> 365 * 24         (8,760)
+  5-min samples   -> 365 * 24 * 12    (105,120)
+  daily samples   -> 365
+
+Calling with the wrong default inflates the Sharpe by orders of magnitude
+(the bug that previously made the replay claim a 41x Sharpe for a 7-day
+carry strategy that returns 0.6% — a 60x annualization error).
+
+The replay harness in backtest/replay.py computes samples_per_year from
+the tape duration and the number of equity points (i.e. actual sample
+frequency), so the reported numbers are apples-to-apples regardless of
+the tape interval (5m or 1h).
+"""
 from __future__ import annotations
 
 import math
 from collections import defaultdict
 from typing import Iterable
+
+# Default for callers that don't know their sample interval.
+# Picked minute samples because that matches the historical CMC OHLCV
+# minute bars and the live portfolio equity history (1 sample/sec,
+# but annualized as if minute, which is a conservative rounding).
+DEFAULT_SAMPLES_PER_YEAR = 365 * 24 * 60
 
 
 def equity_curve_from_trades(starting_equity: float, trades: list[dict]) -> list[float]:
@@ -19,7 +45,7 @@ def returns_from_equity(equity: list[float]) -> list[float]:
     return [(equity[i] - equity[i-1]) / equity[i-1] for i in range(1, len(equity)) if equity[i-1]]
 
 
-def sharpe(returns: list[float], annualize: int = 365 * 24 * 60) -> float:
+def sharpe(returns: list[float], samples_per_year: int = DEFAULT_SAMPLES_PER_YEAR) -> float:
     if len(returns) < 2:
         return 0.0
     mean = sum(returns) / len(returns)
@@ -27,10 +53,10 @@ def sharpe(returns: list[float], annualize: int = 365 * 24 * 60) -> float:
     std = var ** 0.5
     if std == 0:
         return 0.0
-    return mean / std * math.sqrt(annualize)
+    return mean / std * math.sqrt(samples_per_year)
 
 
-def sortino(returns: list[float], annualize: int = 365 * 24 * 60) -> float:
+def sortino(returns: list[float], samples_per_year: int = DEFAULT_SAMPLES_PER_YEAR) -> float:
     if len(returns) < 2:
         return 0.0
     mean = sum(returns) / len(returns)
@@ -41,7 +67,7 @@ def sortino(returns: list[float], annualize: int = 365 * 24 * 60) -> float:
     std = var ** 0.5
     if std == 0:
         return 0.0
-    return mean / std * math.sqrt(annualize)
+    return mean / std * math.sqrt(samples_per_year)
 
 
 def max_drawdown_pct(equity: list[float]) -> float:
@@ -109,7 +135,8 @@ def attribution_by_sleeve(trades: list[dict]) -> dict[str, dict]:
     }
 
 
-def report(equity: list[float], trades: list[dict], starting_equity: float = 100.0) -> dict:
+def report(equity: list[float], trades: list[dict], starting_equity: float = 100.0,
+           samples_per_year: int = DEFAULT_SAMPLES_PER_YEAR) -> dict:
     eq = equity or [starting_equity]
     rets = returns_from_equity(eq)
     return {
@@ -119,8 +146,8 @@ def report(equity: list[float], trades: list[dict], starting_equity: float = 100
         "trades":            len(trades),
         "hit_rate":          hit_rate(trades),
         "profit_factor":     profit_factor(trades),
-        "sharpe":            sharpe(rets),
-        "sortino":           sortino(rets),
+        "sharpe":            sharpe(rets, samples_per_year=samples_per_year),
+        "sortino":           sortino(rets, samples_per_year=samples_per_year),
         "max_drawdown_pct":  max_drawdown_pct(eq),
         "calmar":            calmar(eq),
         "attribution":       attribution_by_sleeve(trades),

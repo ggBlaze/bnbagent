@@ -67,6 +67,8 @@ That's it. The dashboard auto-loads; first-time users land in the **Setup wizard
 
 **v2.1.4: BNB HACK 2026 compliance.** The contest page publishes a fixed 149-BEP-20 eligible list, requires on-chain registration before June 22, and demands 1 trade/day for 7 days. This release pins the eligible list (`data/eligible_tokens.json`), filters every trade universe against it (sleeves + risk engine), wraps `npx twak compete register` as a script + MCP tool + dashboard button, and adds a daily trade floor that fires a 0.1%-of-equity rebalance at 23:30 UTC if no sleeve traded that day. 47 new tests, full audit at `docs/compliance.md`.
 
+**v2.1.5: test infra + Sharpe annualization fix.** Two cleanups ahead of submission. (1) `tests/conftest.py` now auto-generates a dev-signed `config/policy.yaml` (via `policy.policy_sign --dev`) if the file is missing at the start of a test session, and cleans it up afterward. This is a belt-and-suspenders for the canonical `bash install.sh` path — fresh clones and CI can run `pytest` directly without manually copying the example. (2) Backtest Sharpe / Sortino were annualized with the default `365*24*60` (minute samples) even though the replay equity curve has only ~200 points across 7 days (~36k samples/year, not 525k). The previous `replay_bull.json` Sharpe of 41 was real arithmetic, just annualizing the wrong sample frequency — Sharpe now reflects the actual sample count and is reported in the JSON's `samples_per_year` field for transparency. The same fix is applied to `core/portfolio.py:sharpe()` (the live-path version) which now accepts an explicit `samples_per_year` parameter.
+
 | Command | What it does |
 |---|---|
 | `bash bnbagent` | start the agent + dashboard, Ctrl+C stops both |
