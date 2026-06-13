@@ -1037,8 +1037,7 @@ body::before {
           <button type="submit" class="btn primary">Send</button>
         </form>
         <div style="margin-top:10px; display:flex; gap:12px; font:400 11px/1.4 'Inter'; color:var(--fg-dim);">
-          <a href="#" id="chat-view-persona" style="color:var(--blue); text-decoration:none;">view persona</a>
-          <a href="#" id="chat-reset-persona" style="color:var(--accent); text-decoration:none;">reset persona to pro</a>
+          <a href="#" onclick="event.preventDefault(); showPane('config');" style="color:var(--blue); text-decoration:none;">→ Manage in Config</a>
           <span class="mono" id="chat-persona-status"></span>
         </div>
         <details style="margin-top:14px;">
@@ -2079,22 +2078,6 @@ async function loadChatPersona() {
     status.style.color = 'var(--green)';
   }
 }
-
-$('chat-view-persona').addEventListener('click', async (e) => {
-  e.preventDefault();
-  const r = await jget('/api/agent/personas/chat');
-  if (!r || r.error) { alert('persona not loaded: ' + (r?.error || '?')); return; }
-  const newBody = prompt('Edit chat persona (.md body — frontmatter preserved):', r.system);
-  if (newBody === null) return;
-  await jpost('/api/agent/personas/chat', { body: newBody, version: r.version });
-  loadChatPersona();
-});
-$('chat-reset-persona').addEventListener('click', async (e) => {
-  e.preventDefault();
-  if (!confirm('Reset chat persona to pro default?')) return;
-  await jpost('/api/agent/personas/chat/reset', {});
-  loadChatPersona();
-});
 
 /* ============================================================
    v2.1.3: LLM API key UI (Config pane)
