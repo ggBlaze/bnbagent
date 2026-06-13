@@ -107,15 +107,16 @@ def test_demo_script_kpi_table_matches_replay_json():
     reports = ROOT / "data" / "reports"
     demo = (ROOT / "docs" / "demo-script.md").read_text()
 
-    # Find the v2.0.4 numbers block (or any v2.0.X — only the version
-    # label moves forward, the table format is stable)
+    # Find the v2.1.5 numbers block (or any v2.X.Y — only the version
+    # label moves forward, the table format is stable). The pattern
+    # was v2\.0\.\d originally; v2.1.5 broadened it to v2\.\d+\.\d+.
     block_m = re.search(
-        r"\*\*v2\.0\.\d numbers[^\n]*\n+(.+?)(?=\n\n\*\*|\Z)",
+        r"\*\*v2\.\d+\.\d+ numbers[^\n]*\n+(.+?)(?=\n\n\*\*|\Z)",
         demo,
         re.DOTALL,
     )
     if not block_m:
-        pytest.skip("v2.0.4 numbers block not found in demo-script.md")
+        pytest.skip("v2.X.Y numbers block not found in demo-script.md")
     body = block_m.group(1)
 
     def _find_row(interval: str, regime: str) -> list[str] | None:
