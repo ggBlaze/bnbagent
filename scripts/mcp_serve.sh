@@ -15,6 +15,8 @@ elif [[ -f /tmp/venv/bin/activate ]]; then
   source /tmp/venv/bin/activate
 fi
 export PYTHONPATH="$PWD:${PYTHONPATH:-}"
+# v2.1.5: pin str/bytes hash randomization (see bnbagent + commit msg).
+export PYTHONHASHSEED=0
 # Prefer the venv's python (if active) over the system python3.
 # Both .venv/ created by `uv venv --seed` or `python3 -m venv` have
 # a `python3` symlink, so this works whether the venv is activated

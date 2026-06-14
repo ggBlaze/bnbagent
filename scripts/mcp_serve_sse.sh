@@ -14,6 +14,8 @@ elif [[ -f /tmp/venv/bin/activate ]]; then
   source /tmp/venv/bin/activate
 fi
 export PYTHONPATH="$PWD:${PYTHONPATH:-}"
+# v2.1.5: pin str/bytes hash randomization (see bnbagent + commit msg).
+export PYTHONHASHSEED=0
 PY="$(command -v python3 || command -v python)"
 if [[ -z "$PY" ]]; then
   echo "[mcp_serve_sse] no python3 or python on PATH. Install Python 3.10+ or run 'bash install.sh' first." >&2

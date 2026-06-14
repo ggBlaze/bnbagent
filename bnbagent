@@ -23,6 +23,12 @@ fi
 
 export PYTHONPATH="$ROOT:${PYTHONPATH:-}"
 
+# v2.1.5: pin str/bytes hash randomization so dict iteration order is
+# stable across processes and machines. Without this, two runs of the
+# same code can produce different sets/dicts if any library uses string
+# keys internally for control flow (rare, but bulletproof is the goal).
+export PYTHONHASHSEED=0
+
 # Resolve the Python interpreter. Prefers the venv (if activated by the
 # caller) or the system `python3`. Works on Ubuntu 24+/26+ where `python`
 # is not on PATH by default. Falls back to `python` for very old systems.
