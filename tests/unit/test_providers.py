@@ -38,8 +38,9 @@ def test_resolve_env_returns_empty_for_unset(monkeypatch):
 
 # --- provider registry ------------------------------------------------------
 
-def test_providers_registry_has_all_5():
-    assert set(PROVIDERS.keys()) == {"anthropic", "openai", "openrouter", "oai_compat", "local"}
+def test_providers_registry_has_all_6():
+    # v2.1.5: added 'minimax' (OpenAI-compatible endpoint at api.minimaxi.chat).
+    assert set(PROVIDERS.keys()) == {"anthropic", "openai", "openrouter", "oai_compat", "minimax", "local"}
 
 
 def test_build_provider_raises_on_unknown():

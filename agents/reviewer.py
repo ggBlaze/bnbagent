@@ -34,7 +34,11 @@ class TradeReviewer:
     """Layer 2 — per-trade veto."""
 
     CONFIDENCE_THRESHOLD = 0.70
-    LATENCY_BUDGET_S = 0.5
+    # v2.1.5: bumped from 0.5s to 10s. MiniMax M3 (and any reasoning model)
+    # takes 4-7s per call due to its <think> block + JSON verdict output.
+    # The previous 0.5s caused every reviewer call to fall back to the
+    # heuristic, making the LLM effectively a no-op in production.
+    LATENCY_BUDGET_S = 10.0
 
     def __init__(self, *, sleeve: str, components: dict, router: LLMRouter,
                  persona_name: str | None = None,

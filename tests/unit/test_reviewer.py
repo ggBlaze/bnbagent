@@ -205,14 +205,19 @@ def loss_pnl(x: float) -> dict:
 
 @pytest.mark.asyncio
 async def test_llm_timeout_falls_back_to_heuristic(tmp_path):
+    # v2.1.5: production LATENCY_BUDGET_S is 10s for M3 (think + JSON).
+    # For this test we want to exercise the timeout path, so we override
+    # the budget down to 0.05s and use a fake LLM that sleeps 0.2s.
     class SlowFake(FakeLLMClient):
         async def complete(self, *a, **kw):
             self.calls.append({"a": a, "kw": kw})
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(0.2)
             return json.dumps({"allow": True, "confidence": 0.9, "reason": "slow"})
     slow = SlowFake()
     router = _build_router(slow)
     rev = TradeReviewer(sleeve="B", components={}, router=router, decision_log=tmp_path / "d.jsonl")
+    # Force a tight budget so 0.2s triggers timeout
+    rev.LATENCY_BUDGET_S = 0.05
     v = await rev.review(_prop(), {"win_rate_ewma": 0.5, "loss_cooldown_active": False,
                                     "policy_max_dd_pct": 100, "sleeve_dd_pct": 0})
     assert v.source == "llm_timeout"

@@ -295,6 +295,7 @@ PROVIDERS: dict[str, type[LLMClient]] = {
     "openai":     OpenAIClient,
     "openrouter": OpenRouterClient,
     "oai_compat": GenericOAICompatClient,
+    "minimax":    OpenAIClient,  # v2.1.5+: MiniMax (OpenAI-compatible endpoint at api.minimaxi.chat)
     "local":      LocalLLMClient,
 }
 

@@ -9,26 +9,36 @@ providers:
   openai:     { base: https://api.openai.com,           key: $OPENAI_API_KEY,     default_model: gpt-4o-mini }
   openrouter: { base: https://openrouter.ai/api,       key: $OPENROUTER_API_KEY, default_model: anthropic/claude-3.5-haiku }
   oai_compat: { base: $OAI_BASE,                       key: $OAI_KEY,            default_model: $OAI_MODEL }
+  # v2.1.5+: MiniMax provider. OpenAI-compatible chat-completions endpoint
+  # at https://api.minimaxi.chat. Use $MINIMAX_API_KEY (the user sets this
+  # in their env; the file never holds the key). Default model is
+  # MiniMax-M3. NOTE: 'base' must NOT include /v1 (the client appends
+  # /v1/chat/completions). Operators can override by setting the
+  # MINIMAX_MODEL env var and editing the default_model line below.
+  minimax:
+    base: https://api.minimaxi.chat
+    key: $MINIMAX_API_KEY
+    default_model: MiniMax-M3
   local:      { base: $LOCAL_LLM_BASE,                 key: "",         default_model: local }
 
 agents:
   advisor:
-    provider: openrouter
-    model: anthropic/claude-3.5-haiku
+    provider: minimax
+    model: MiniMax-M3
     max_tokens: 512
     temperature: 0.1
   reviewer:
-    provider: openrouter
-    model: anthropic/claude-3.5-haiku
-    max_tokens: 256
+    provider: minimax
+    model: MiniMax-M3
+    max_tokens: 512
     temperature: 0.0
   chat:
-    provider: openrouter
-    model: anthropic/claude-3.5-sonnet
+    provider: minimax
+    model: MiniMax-M3
     max_tokens: 2048
     temperature: 0.4
   token_module:
-    provider: openrouter
-    model: anthropic/claude-3.5-haiku
+    provider: minimax
+    model: MiniMax-M3
     max_tokens: 8000
     temperature: 0.7

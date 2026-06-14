@@ -181,12 +181,19 @@ async def llm_complete(routing, messages, **kwargs) -> str:
     """Call the LLM if the routing is enabled; return "" if disabled.
 
     Centralized so advisor/reviewer/chat all share the same degraded-mode behavior.
+
+    v2.1.5: MiniMax M3 (and any other reasoning-capable model) wraps the
+    actual response in a <think>...</think> block. We strip that here so
+    the callers (reviewer, advisor, chat) see clean content. If the
+    model returns JSON inside the think block + something else outside,
+    the strip puts the second half in the caller's hand and they can
+    json.loads() the tail.
     """
     if not routing.enabled or routing.client is None:
         log.info("LLM disabled for %s: %s", routing.provider_name, routing.reason)
         return ""
     try:
-        return await routing.client.complete(
+        raw = await routing.client.complete(
             messages,
             model=routing.model,
             max_tokens=routing.max_tokens,
@@ -194,6 +201,14 @@ async def llm_complete(routing, messages, **kwargs) -> str:
             response_format=kwargs.pop("response_format", None),
             timeout_s=kwargs.pop("timeout_s", 8.0),
         )
+        if not raw:
+            return ""
+        # Strip a leading <think>...</think> reasoning block if present.
+        # Some reasoning models (e.g. MiniMax M3) emit a think block before
+        # the actual answer; downstream callers expect clean content.
+        import re
+        stripped = re.sub(r"<think>.*?</think>\s*", "", raw, flags=re.DOTALL).strip()
+        return stripped or raw  # if the strip ate everything, return the original
     except Exception as e:
         log.warning("LLM call failed (%s): %s", routing.provider_name, e)
         return ""
