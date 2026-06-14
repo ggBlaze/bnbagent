@@ -327,3 +327,30 @@ def test_get_version_returns_version_and_commit():
     parts = body["version"].split(".")
     assert len(parts) == 3
     assert int(parts[0]) >= 2
+
+
+# --- wallet balances endpoint (v2.1.7) ---
+
+def test_get_wallet_balances_returns_expected_shape(monkeypatch):
+    """The right-rail 'Wallet Holdings' panel polls /api/wallet/balances.
+
+    Without a configured wallet, the endpoint must return 200 with an
+    'error' explaining that no wallet is set up (the frontend shows a
+    hint instead of NaN).
+    """
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+    # Patch out the real RPC \u2014 unit tests already cover the read path.
+    from core import balances
+    monkeypatch.setattr(balances, "_connect_first", lambda rpcs, timeout=5.0: None)
+    with TestClient(app) as client:
+        r = client.get("/api/wallet/balances")
+    assert r.status_code == 200
+    body = r.json()
+    assert "wallet" in body
+    assert "bsc" in body
+    assert "base_active" in body
+    # If a wallet is configured in setup state, bsc.error will be set
+    # to 'no BSC RPC reachable' (we patched the connector to None).
+    # If no wallet, the top-level error will mention 'no wallet'.
+    assert body["bsc"]["error"] or body["error"]

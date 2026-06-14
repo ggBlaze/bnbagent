@@ -267,6 +267,36 @@ body::before {
 .toggle.on .switch { background: var(--accent); border-color: var(--accent); }
 .toggle.on .switch::after { left: 15px; background: var(--bg); }
 
+/* === wallet holdings panel ====================================== */
+.holdings-chain {
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px;
+}
+.holdings-chain h5 {
+  margin: 0 0 4px; font: 600 9px/1 'Inter'; text-transform: uppercase;
+  letter-spacing: 0.16em; color: var(--fg-dim);
+  display: flex; align-items: center; gap: 6px;
+}
+.holdings-chain h5 .badge {
+  font: 500 8px/1 'JetBrains Mono', monospace; padding: 2px 4px;
+  background: var(--bg-1); border: 1px solid var(--line); border-radius: 2px;
+  color: var(--fg-dimmer);
+}
+.holdings-row {
+  display: flex; align-items: center; justify-content: space-between;
+  font: 500 11px/1.4 'JetBrains Mono', monospace;
+  padding: 2px 0;
+}
+.holdings-row .sym { color: var(--fg); min-width: 50px; }
+.holdings-row .bal { color: var(--fg-dim); flex: 1; text-align: right; padding-right: 6px; }
+.holdings-row .usd { color: var(--green); font-size: 10px; min-width: 60px; text-align: right; }
+.holdings-row.zero .bal { color: var(--fg-dimmer); }
+.holdings-error {
+  font: 400 9px/1.4 'JetBrains Mono', monospace;
+  color: var(--accent-2); margin-top: 4px;
+}
+
 .kill {
   display: block; width: 100%; margin-top: 12px;
   background: transparent; border: 1px solid var(--red);
@@ -1214,6 +1244,11 @@ body::before {
     <div class="toggle" data-sleeve="B"><span class="label"><span style="color:var(--B);">●</span> B momentum</span><div class="switch"></div></div>
     <div class="toggle" data-sleeve="C"><span class="label"><span style="color:var(--C);">●</span> C mean-rev</span><div class="switch"></div></div>
 
+    <h3>Wallet Holdings <span class="meta" id="holdings-meta">live · 30s</span></h3>
+    <div id="holdings">
+      <div class="line dim" style="font:400 10px/1.4 'JetBrains Mono';">— loading…</div>
+    </div>
+
     <h3>Control Log</h3>
     <div class="logs scroll" id="ctrl-log" style="max-height:200px; font-size:10px;">
       <div class="line dim">—</div>
@@ -2108,8 +2143,66 @@ function stopLogStream() {
   setInterval(loadChatDecisions, 8000);
   // Data-source banner ticks every 5s (faster than setup badge)
   setInterval(dsBannerTick, 5000);
+  // Wallet holdings: 30s cadence (RPC reads \u2014 don't hammer the node)
+  setInterval(refreshHoldings, 30_000);
+  refreshHoldings();
   dsBannerTick();
 })();
+
+// --- wallet holdings (right-rail panel) ----------------------------
+function fmtBal(n) {
+  if (n == null) return '\u2014';
+  const s = String(n);
+  return s.length > 12 ? s.slice(0, 12) + '\u2026' : s;
+}
+function renderHoldings(b) {
+  const root = $('holdings');
+  if (!b) { root.innerHTML = '<div class="line dim" style="font:400 10px/1.4 \'JetBrains Mono\';">\u2014</div>'; return; }
+  if (!b.wallet) {
+    root.innerHTML = '<div class="line dim" style="font:400 10px/1.4 \'JetBrains Mono\';">\u2014 no wallet configured (run the wizard)</div>';
+    return;
+  }
+  if (b.error && (!b.bsc || (!b.bsc.native && !b.bsc.tokens.length))) {
+    root.innerHTML = `<div class="line dim" style="font:400 10px/1.4 'JetBrains Mono';">\u2014 ${b.error}</div>`;
+    return;
+  }
+  const blocks = [];
+  const renderChain = (label, badge, c) => {
+    if (!c) return '';
+    let html = `<div class="holdings-chain"><h5>${label} <span class="badge">${badge}</span></h5>`;
+    if (c.native) {
+      const zero = c.native.balance === '0';
+      html += `<div class="holdings-row${zero ? ' zero' : ''}"><span class="sym">${c.native.symbol}</span><span class="bal">${fmtBal(c.native.balance)}</span><span class="usd">\u2014</span></div>`;
+    }
+    for (const t of (c.tokens || [])) {
+      const zero = t.balance === '0';
+      const usd = t.usd != null ? `\u2248 $${fmtBal(t.usd)}` : '\u2014';
+      html += `<div class="holdings-row${zero ? ' zero' : ''}"><span class="sym">${t.symbol}</span><span class="bal">${fmtBal(t.balance)}</span><span class="usd">${usd}</span></div>`;
+    }
+    if (c.error) html += `<div class="holdings-error">\u26a0 ${c.error}</div>`;
+    html += '</div>';
+    return html;
+  };
+  blocks.push(renderChain('BSC', 'chain ' + (b.chain_id || '?'), b.bsc));
+  if (b.base_active) blocks.push(renderChain('Base', 'x402 USDC', b.base));
+  if (b.base_active === false && b.wallet) {
+    blocks.push('<div class="line dim" style="font:400 9px/1.4 \'JetBrains Mono\'; margin-top:6px;">Base balances show only when x402 is the active data source.</div>');
+  }
+  root.innerHTML = blocks.join('');
+  const meta = $('holdings-meta');
+  if (meta) {
+    if (b.fetched_at) {
+      const d = new Date(b.fetched_at * 1000);
+      meta.textContent = 'live \u00b7 30s \u00b7 ' + d.toISOString().slice(11, 19);
+    } else {
+      meta.textContent = 'live \u00b7 30s';
+    }
+  }
+}
+async function refreshHoldings() {
+  const b = await jget('/api/wallet/balances');
+  renderHoldings(b);
+}
 
 /* ============================================================
    Chat pane (Layer 3) — text in, text out, no LLM logic on the client

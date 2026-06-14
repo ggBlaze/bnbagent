@@ -13,6 +13,8 @@ Endpoints
   GET  /api/equity-series      equity curve (for the chart)
   GET  /api/sleeves            per-sleeve breakdown
   GET  /api/healthz            liveness probe (200 if process alive)
+  GET  /api/version            build version + git commit (for the dashboard footer)
+  GET  /api/wallet/balances    live BSC + Base balances for the operator wallet
   GET  /api/logs               last N log lines
   GET  /api/logs/stream        SSE stream of new log lines
   POST /api/control            dashboard → agent intent (kill/resume/sleeve toggles/risk)
@@ -326,6 +328,32 @@ def build_app() -> FastAPI:
         if cmc and hasattr(cmc, "calls"):
             return JSONResponse(cmc.calls)
         return JSONResponse([])
+
+    @app.get("/api/wallet/balances")
+    async def wallet_balances():
+        """Live on-chain balances for the operator wallet (BSC + Base if x402).
+
+        Returns a JSON-safe dict with {wallet, chain_id, bsc:{native, tokens[]},
+        base?:{native, tokens[]}, base_active, fetched_at, error}. The frontend
+        renders the right-rail 'Wallet Holdings' panel from this and polls on
+        a 30s cadence. All reads are best-effort; a failed RPC is captured
+        per-chain and the endpoint never raises.
+        """
+        from core.balances import get_wallet_balances, balances_to_dict
+        setup = load_setup_state()
+        cfg = _cfg()
+        ds_cfg = (cfg.get("data_source", {}) or {})
+        base_rpcs = ds_cfg.get("base_rpcs", []) or []
+        # x402 is active when the selected data source tier is 'x402'
+        base_active = str(ds_cfg.get("tier", "")).lower() == "x402"
+        b = get_wallet_balances(
+            wallet_address=setup.wallet_address,
+            bsc_rpcs=setup.rpcs or [],
+            chain_id=setup.chain_id,
+            base_active=base_active,
+            base_rpcs=base_rpcs,
+        )
+        return JSONResponse(balances_to_dict(b))
 
     @app.get("/api/txs")
     async def txs():
