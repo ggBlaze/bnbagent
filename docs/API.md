@@ -72,9 +72,11 @@ The agent's heartbeat reads this file once per second via `core.control.apply_co
 | GET | `/api/setup/checklist` | — | `{complete, missing: [...]}` — drives the wizard stepper |
 | POST | `/api/setup/config` | `{mode, chain_id, rpcs, cmc_api_key}` | write `config/config.yaml` |
 | POST | `/api/setup/wallet` | `{password}` | create a new wallet, encrypt to `~/.twak/wallet.json` |
-| POST | `/api/setup/wallet/import` | `{private_key, password}` | import an existing private key |
+| POST | `/api/setup/wallet/import` | `{private_key, password}` | import an existing private key. **v2.1.6: env-gated** — returns 403 unless `BNBAGENT_ALLOW_WALLET_IMPORT=true`. |
 | POST | `/api/setup/sign` | `{password}` | sign `config/policy.yaml` with the unlocked wallet |
 | POST | `/api/setup/reset` | — | wipe config, policy, wallet, setup state |
+| POST | `/api/wallet/export-mnemonic` | `{password}` | return the TWAK mnemonic. **v2.1.6: env-gated** — returns 403 unless `BNBAGENT_ALLOW_WALLET_EXPORT=true`. |
+| POST | `/api/tokens/deploy` | `{name, symbol, supply, decimals, network, confirm_mainnet?}` | Token Module deploy. **v2.1.6: contest-locked** — returns 423 (Locked) before 2026-07-07 UTC; after that, requires `BNBAGENT_ALLOW_TOKEN_DEPLOY=true`. |
 
 All write endpoints validate against the policy schema bounds (mode ∈ {testnet, mainnet, replay}, chain_id ∈ {56, 97}, password ≥ 8 chars, etc).
 

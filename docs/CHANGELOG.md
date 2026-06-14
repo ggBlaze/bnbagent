@@ -2,6 +2,78 @@
 
 All notable changes to this project. Versioned per the git tag.
 
+## v2.1.6 — Hard date-lock Token Module + 2-key wallet protection (2026-06-13)
+
+The public Coolify deploy exposes admin routes (setup, sign, register,
+kill switch, wallet import/export) and the Token Module deploy route.
+Each needs defense-in-depth so a judge with the admin password (or
+a misconfigured env) can't blow up the operator.
+
+ADDED:  Token Module HARD date lock — `TokenModule.is_deploy_unlocked()`
+        returns `(bool, reason)` and refuses to deploy before
+        2026-07-07 00:00 UTC. After the date, STILL locked unless
+        `BNBAGENT_ALLOW_TOKEN_DEPLOY=true` is set. Belt-and-suspenders.
+ADDED:  `/api/wallet/export-mnemonic` env-gated — returns 403 unless
+        `BNBAGENT_ALLOW_WALLET_EXPORT=true` is in the server env. A
+        judge who learns the admin password still can't dump the
+        operator's seed phrase (4-factor protection: cookie + password
+        + env flag + restart).
+ADDED:  `/api/setup/wallet/import` env-gated — returns 403 unless
+        `BNBAGENT_ALLOW_WALLET_IMPORT=true` is set. A judge with admin
+        cookie still can't replace the operator's keystore with their
+        own.
+CHANGED: `dashboard/backend/main.py` `/api/tokens/deploy` route
+        returns HTTP 423 (Locked) with `error: "token_deploy_locked"`
+        and a human-readable reason. The dashboard UI shows a 🔒
+        banner with the unlock date + the env flag.
+CHANGED: `dashboard/frontend/index.html` Token Module deploy handler
+        shows the dedicated 423 banner (no more generic "deploy failed").
+CHANGED: `.env.example` got a new "Contest / safety locks" section
+        documenting the 3 new env flags + their default-OFF posture.
+CHANGED: README §16 (Security model) got 3 new rows for the date lock
+        + 2 wallet routes.
+CHANGED: `docs/SECURITY.md` got a "Token Module contest lock" section
+        and updates to the export/import sections for the new env gates.
+CHANGED: `docs/TOKEN_MODULE.md` got a "Contest window lock" section
+        with the full gate matrix.
+CHANGED: `docs/operations.md` Token Module pane + a new "Production
+        env vars (v2.1.6)" section at the end.
+CHANGED: `docs/API.md` route table got env-gate callouts on the
+        affected rows.
+CHANGED: `docs/compliance.md` "No token launches" row notes that the
+        lock is now enforced in code, not just in docs.
+CHANGED: `docs/submission.md` "Token Module testnet deploy" checklist
+        row notes the contest lock.
+TESTS:  +23 new tests (438/438 passing; was 415):
+        - 17 in tests/unit/test_token_lock.py (date + env boundaries)
+        - 6 in tests/integration/test_auth.py (env-gated routes)
+
+## v2.1.5 — 2-mode password wrapper + Dockerfile + Coolify deploy (2026-06-13)
+
+The bnbagent is going on a public VPS via Coolify. The dashboard needs
+a way to gate operator controls (setup, sign, register, kill switch,
+wallet export, persona edit) from judge-demo controls (live state,
+chat, replay, persona read).
+
+ADDED:  `dashboard/backend/auth.py` — `BNBAGENT_AUTH_ENABLED` flag
+        (default OFF) + 2 passwords (JUDGE / ADMIN) + HMAC-SHA256
+        signed cookie (stdlib only, no new dep). 1-day expiry,
+        httponly + samesite=strict. `current_role(request)` +
+        `require_role(min_role)` FastAPI deps.
+ADDED:  `dashboard/backend/main.py` — 3 new auth routes:
+        GET /api/auth/status, POST /api/auth/login, POST /api/auth/logout.
+CHANGED: All 20 mutation routes gated by `Depends(_auth.require_admin)`.
+        Chat routes gated by `require_judge` (judges + admins).
+ADDED:  `Dockerfile` — single Python 3.12 image, runs the dashboard
+        on :8000 via uvicorn. Healthcheck hits /api/healthz every 30s.
+ADDED:  `docker-compose.yml` — env-var driven, .env loaded automatically.
+CHANGED: README §17 (Deployment) rewritten to cover local dev, the
+        password wrapper, Coolify / docker-compose, reverse proxy,
+        and the production checklist (now with 2 new boxes for
+        AUTH_ENABLED + AUTH_SECRET).
+TESTS:  +27 new auth tests (388/388 → 415/415). Local dev is unchanged:
+        `bash bnbagent` works without any auth env vars set.
+
 ## v2.1.4 — BNB HACK 2026 compliance (eligible 149 + on-chain register + daily trade floor)
 
 Blaze (2026-06-12, 08:48 CST) asked us to audit the agent against the

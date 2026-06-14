@@ -172,11 +172,18 @@ go to Setup → re-sign the policy with their wallet password.
 - The retry header is `PAYMENT-SIGNATURE` (v2.0 used `X-PAYMENT`).
 - Daily spend is capped by `policy.fees.x402_max_usdc_per_day` (default $10). The agent refuses any CMC call that would exceed the cap.
 
-## Secret-phrase export endpoint (v2.1.0)
+## Secret-phrase export endpoint (v2.1.0, hardened in v2.1.6)
 
 The `/api/wallet/export-mnemonic` endpoint returns the TWAK mnemonic if
 the correct password is provided in the request body. Mitigations:
 
+  - **v2.1.6 env gate (default OFF in production):** the endpoint
+    returns 403 unless `BNBAGENT_ALLOW_WALLET_EXPORT=true` is set in
+    the server env. A judge who somehow learns the admin cookie still
+    cannot dump the seed phrase unless they ALSO have SSH access to
+    the host, edit the env, and restart the service. 4 factors.
+  - **v2.1.5 admin gate:** the route is admin-only (requires the
+    admin cookie, which is HMAC-SHA256 signed with `BNBAGENT_AUTH_SECRET`).
   - Password is required in the request body; the endpoint refuses to
     operate with a missing or empty password.
   - The password is never logged, persisted, or returned in any other
@@ -185,6 +192,38 @@ the correct password is provided in the request body. Mitigations:
   - The endpoint is only reachable through the dashboard's Wallet
     wizard step, which requires the Setup wizard to be complete.
   - The phrase is removed from the DOM when the modal is closed.
+
+## Wallet import endpoint (hardened in v2.1.6)
+
+The `/api/setup/wallet/import` endpoint accepts a private key in the
+request body and writes it to the encrypted keystore. v2.1.6 added:
+
+  - **Env gate (default OFF in production):** returns 403 unless
+    `BNBAGENT_ALLOW_WALLET_IMPORT=true` is set in the server env. A
+    judge with the admin cookie still cannot replace the operator's
+    wallet with their own (which would let them drain funds or
+    register a fake ERC-8004 identity). Same 4-factor protection as
+    the export endpoint.
+
+## Token Module contest lock (v2.1.6)
+
+The BNB HACK 2026 contest rules forbid token launches between
+2026-06-03 and 2026-07-06. The Token Module enforces this in code
+via `TokenModule.is_deploy_unlocked()`:
+
+  - **Date gate (always on):** before 2026-07-07 00:00 UTC, every
+    `create_token()` call raises `PermissionError` regardless of any
+    env var. The dashboard route returns HTTP 423 (Locked) with a
+    JSON body that names the env flag needed to opt in.
+  - **Env gate (default OFF):** after the date passes, the module is
+    STILL locked unless `BNBAGENT_ALLOW_TOKEN_DEPLOY=true` is set.
+    This is belt-and-suspenders: a misconfigured prod env can't
+    accidentally start launching tokens the moment the clock crosses
+    midnight on July 7.
+
+The pure-logic test in `tests/unit/test_token_lock.py` covers the
+boundary cases (off-by-one at midnight, env truthy/falsy values,
+permission error on lock).
 
 ---
 

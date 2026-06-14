@@ -102,6 +102,10 @@ spec, a budget, and an evaluator.
   metadata is uploaded to IPFS via the agent's existing IPFS client.
   Judges and other agents can fetch the token's metadata from
   `ipfs://<cid>` and verify the deploy params + tx hash.
+  **v2.1.6 contest lock:** deploys are refused before 2026-07-07 UTC
+  (BNB HACK 2026 rules). After the window, the env opt-in
+  `BNBAGENT_ALLOW_TOKEN_DEPLOY=true` is still required. See
+  `docs/TOKEN_MODULE.md#contest-window-lock-v216`.
 
 ## x402 settlement (v2.1.0 — moved to Base)
 

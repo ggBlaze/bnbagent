@@ -68,6 +68,30 @@ Mainnet deploys require **both** layers of confirmation:
 
 The MCP tool `bnbagent_deploy_token` also requires `confirm_mainnet: true`.
 
+## Contest window lock (v2.1.6)
+
+The BNB HACK 2026 contest rules forbid token launches between
+2026-06-03 and 2026-07-06. The Token Module enforces this in code
+via `TokenModule.is_deploy_unlocked()`:
+
+| Gate | Condition | Behavior |
+|---|---|---|
+| Date lock | `now < 2026-07-07 00:00 UTC` | Always locked. `create_token()` raises `PermissionError`; dashboard route returns HTTP 423 (Locked) with `error: "token_deploy_locked"`. |
+| Env opt-in | `now >= 2026-07-07 00:00 UTC` AND `BNBAGENT_ALLOW_TOKEN_DEPLOY=true` | Unlocked. Deploys proceed. |
+| Default after window | `now >= 2026-07-07 00:00 UTC` AND env unset | **Still locked.** Belt-and-suspenders: a misconfigured prod env can't accidentally start launching tokens the moment the clock crosses midnight. |
+
+**To enable real deploys after 2026-07-07 UTC**, the operator must:
+1. SSH into the host
+2. Set `BNBAGENT_ALLOW_TOKEN_DEPLOY=true` in `.env` (or Coolify env UI)
+3. Restart the service
+4. Log in as admin
+5. Confirm mainnet via the dashboard modal (or `confirm_mainnet: true` in API)
+
+The dashboard UI shows a clear banner when the lock is on, naming the
+env flag to flip. The pure-logic test in `tests/unit/test_token_lock.py`
+covers the boundary cases (off-by-one at midnight, env truthy/falsy
+values, `PermissionError` on lock, success path with full network stub).
+
 ## Protocols
 
 | Protocol | Description | Bytecode size |

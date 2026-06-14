@@ -319,3 +319,52 @@ real-time when the Network dropdown changes:
 
 Mainnet deploys still ask the user to type the symbol to confirm
 (the symbol is the canonical on-chain identifier).
+
+**Contest window (v2.1.6):** The Token Module is hard-locked before
+2026-07-07 00:00 UTC per BNB HACK 2026 rules. If a judge clicks
+"Deploy" during the contest window, the UI shows a 🔒 banner with
+the unlock date and the env flag to opt in (`BNBAGENT_ALLOW_TOKEN_DEPLOY`).
+After the date, the module is still locked by default — the operator
+must explicitly enable real deploys. See `docs/TOKEN_MODULE.md`
+("Contest window lock") for the full gate logic.
+
+---
+
+## Production env vars (v2.1.6)
+
+For a public Coolify / VPS deploy, set these env vars in the service
+UI. Defaults are designed to be safe-by-default; the contest window
+and the wallet are protected even if you forget to set anything.
+
+### Required (auth + AI brain)
+
+```bash
+BNBAGENT_AUTH_ENABLED=true                  # enable 2-mode password wrapper
+BNBAGENT_AUTH_SECRET=*** rand -hex 32)  # HMAC signing key for cookies
+JUDGE_PASSWORD=***                   # what judges type
+ADMIN_PASSWORD=***                   # what the operator types
+BNBAGENT_AUTH_COOKIE_SECURE=true            # required when behind TLS
+MINIMAX_API_KEY=***                  # the AI brain
+```
+
+### Default-OFF safety locks (do NOT set in production)
+
+```bash
+# BNBAGENT_ALLOW_TOKEN_DEPLOY=false          # Token Module stays locked
+# BNBAGENT_ALLOW_WALLET_EXPORT=false         # mnemonic export stays 403
+# BNBAGENT_ALLOW_WALLET_IMPORT=false         # wallet swap stays 403
+```
+
+| Env var | What it unlocks | When to enable |
+|---|---|---|
+| `BNBAGENT_ALLOW_TOKEN_DEPLOY=true` | Token Module deploys (after 2026-07-07 UTC) | When you want to launch a real token post-contest. The date lock still applies — must be after 2026-07-07 00:00 UTC. |
+| `BNBAGENT_ALLOW_WALLET_EXPORT=true` | `/api/wallet/export-mnemonic` (returns the seed phrase) | To recover the mnemonic. Requires admin cookie + wallet password + restart. |
+| `BNBAGENT_ALLOW_WALLET_IMPORT=true` | `/api/setup/wallet/import` (replaces the keystore) | To import a different wallet. Requires admin cookie + the new private key + restart. |
+
+**The combined posture**: in a public Coolify deploy with default env,
+the operator's wallet is protected by 5 factors (admin cookie + wallet
+password + env flag + SSH + restart). The Token Module is protected by
+a hard date + a default-OFF env flag.
+
+For local dev: just `bash bnbagent`. No env vars needed; auth defaults
+to OFF and the Token Module lock is enforced only on the date.

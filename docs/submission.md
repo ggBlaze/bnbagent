@@ -83,7 +83,7 @@ YouTube unlisted / Loom link, 3 minutes, 1080p. See [`demo-script.md`](demo-scri
 - [ ] All three sponsor evidence sections rendered on the dashboard
 - [ ] Policy signature recovers to evaluator_address (`python -m policy.policy_verify` prints `VERIFIED`)
 - [ ] (v2.0) At least one LLM provider key set (e.g. `OPENROUTER_API_KEY`) so the AI agent team is live
-- [ ] (v2.0) Token Module deployed at least one test token on testnet — saves the contract address + IPFS CID to the dashboard
+- [ ] (v2.0) Token Module deployed at least one test token on testnet — saves the contract address + IPFS CID to the dashboard. **v2.1.6: contest-locked** — the deploy button returns 423 before 2026-07-07 UTC. Submit your testnet deploy either via the local-dev build (no auth, no env gates) or wait until 2026-07-07 + set `BNBAGENT_ALLOW_TOKEN_DEPLOY=true` in Coolify.
 
 ---
 

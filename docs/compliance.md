@@ -213,7 +213,7 @@ June 3 and June 21 12:00 UTC. The submission form needs:
 |---|---|
 | On-chain proof: agent address on BSC | ✅ — registered via the button before June 22 |
 | Reproducible: public repo + demo link/video, OR clear setup | ✅ — `github.com/ggBlaze/bnbagent` + `bash install.sh && bash bnbagent` |
-| No token launches during the event | ✅ — **DO NOT use the Token Module between June 3 and July 6.** Surface this in the demo: "Token Module is a feature of the agent, but we don't launch anything during the event window." |
+| No token launches during the event | ✅ — **DO NOT use the Token Module between June 3 and July 6.** Surface this in the demo: "Token Module is a feature of the agent, but we don't launch anything during the event window." **v2.1.6: hard-coded lock** — `TokenModule.is_deploy_unlocked()` refuses every `create_token()` call before 2026-07-07 00:00 UTC, regardless of env. The dashboard route returns HTTP 423 (Locked) with `error: "token_deploy_locked"`. After the window, the env opt-in `BNBAGENT_ALLOW_TOKEN_DEPLOY=true` is still required. |
 | AI tooling encouraged (vibe-code freely) | ✅ — the entire codebase was vibe-coded; the LLMRouter overlays the deterministic engine |
 
 ---

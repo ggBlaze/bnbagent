@@ -114,8 +114,15 @@ The mnemonic is required to recover the wallet in Trust Wallet, MetaMask,
 or any other BIP-39-compatible tool. After the modal is closed, the
 phrase is removed from the DOM and is no longer reachable from the UI.
 
-Mitigations (see also [`docs/SECURITY.md`](SECURITY.md#secret-phrase-export-endpoint-v210)):
+Mitigations (see also [`docs/SECURITY.md`](SECURITY.md#secret-phrase-export-endpoint-v210-hardened-in-v216)):
 
+- **v2.1.6 env gate (default OFF):** the endpoint returns 403 unless
+  `BNBAGENT_ALLOW_WALLET_EXPORT=true` is set in the server env. A judge
+  who learns the admin cookie still cannot dump the operator's seed
+  phrase unless they ALSO have SSH access to the host. **In a public
+  Coolify deploy with default env, the export button is dead.**
+- **v2.1.5 admin gate:** the route is admin-only (requires the admin
+  cookie, which is HMAC-SHA256 signed with `BNBAGENT_AUTH_SECRET`).
 - The endpoint refuses to operate without a non-empty password.
 - The mnemonic is never logged, persisted to disk, or returned in any
   response other than the dedicated `export-mnemonic` endpoint.
