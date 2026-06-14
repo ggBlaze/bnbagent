@@ -216,7 +216,8 @@ def _tail_log_lines(n: int = 200) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def build_app() -> FastAPI:
-    app = FastAPI(title="BNB Agent Dashboard", version="1.1.0")
+    from core.version import __version__
+    app = FastAPI(title="BNB Agent Dashboard", version=__version__)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -295,6 +296,12 @@ def build_app() -> FastAPI:
         return {"status": "ok", "ts": int(time.time()),
                 "agent_updated_at": _stats().get("updated_at"),
                 "kill_switch": _stats().get("kill_switch", False)}
+
+    @app.get("/api/version")
+    async def version():
+        """Return the canonical version + git commit for the dashboard footer."""
+        from core.version import version_info
+        return JSONResponse(version_info())
 
     @app.get("/api/stats")
     async def stats():

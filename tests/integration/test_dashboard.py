@@ -309,3 +309,21 @@ def test_post_llm_test_oai_compat_requires_base(tmp_path, monkeypatch):
     assert r.status_code == 200
     assert r.json()["status"] == "missing-base"
     assert "OAI_BASE" in r.json()["note"]
+
+
+# --- version endpoint (v2.1.6) ---
+
+def test_get_version_returns_version_and_commit():
+    """The dashboard footer reads /api/version to show the live build."""
+    from fastapi.testclient import TestClient
+    from dashboard.backend.main import app
+    with TestClient(app) as client:
+        r = client.get("/api/version")
+    assert r.status_code == 200
+    body = r.json()
+    assert "version" in body
+    assert "git_commit" in body
+    # Sanity-check the version looks like X.Y.Z (not 1.1.0 which was the old stub)
+    parts = body["version"].split(".")
+    assert len(parts) == 3
+    assert int(parts[0]) >= 2

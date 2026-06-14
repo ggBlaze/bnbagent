@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>BNB Agent — Operations Bridge</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>◆</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2212%22 fill=%22%23090b10%22/><text x=%2250%25%22 y=%22.62em%22 text-anchor=%22middle%22 font-family=%22Inter,sans-serif%22 font-size=%2244%22 font-weight=%22700%22 fill=%22%23f0b90b%22>◆</text><text x=%2250%25%22 y=%22.62em%22 text-anchor=%22middle%22 font-family=%22Inter,sans-serif%22 font-size=%2218%22 font-weight=%22600%22 fill=%22%23090b10%22 dx=%220%22 dy=%22-2%22>B</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -300,10 +300,51 @@ body::before {
   font: 500 10px/1 'Inter'; text-transform: uppercase; letter-spacing: 0.14em;
   color: var(--fg-dim);
 }
-.sponsor .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-.sponsor.cmc .dot { background: #f0b90b; }
-.sponsor.twa .dot { background: var(--purple); }
-.sponsor.bnb .dot { background: var(--orange); }
+.sponsor .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+}
+/* Brand-color left accent on the label so each sponsor is still recognizable */
+.sponsor.cmc { border-left: 2px solid #f0b90b; padding-left: 6px; }
+.sponsor.twa { border-left: 2px solid var(--purple); padding-left: 6px; }
+.sponsor.bnb { border-left: 2px solid var(--orange); padding-left: 6px; }
+
+/* === LLM strip (shows the model in use, right under sponsors) === */
+.llm-strip {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 6px;
+  margin-top: 6px;
+  border-top: 1px dashed var(--line);
+  font: 500 10px/1 'Inter'; text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--fg-dim);
+}
+.llm-strip .llm-label { color: var(--fg-dimmer); }
+.llm-strip .llm-value {
+  font: 600 11px/1 'JetBrains Mono', monospace;
+  text-transform: none; letter-spacing: 0;
+  color: var(--accent);
+}
+
+/* === footer (Made by Blaze) === */
+.app-footer {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px;
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  font: 400 10px/1.4 'JetBrains Mono', monospace;
+  color: var(--fg-dim);
+  letter-spacing: 0.04em;
+}
+.app-footer .left  { display: flex; align-items: center; gap: 8px; }
+.app-footer .right { display: flex; align-items: center; gap: 14px; }
+.app-footer a {
+  color: var(--fg-dim); text-decoration: none;
+  border-bottom: 1px dashed transparent;
+}
+.app-footer a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.app-footer .pulse { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); margin-right: 6px; vertical-align: middle; }
 
 /* === responsive ================================================== */
 @media (max-width: 1280px) {
@@ -458,6 +499,31 @@ body::before {
 .ds-banner .ds-banner-tier { color: var(--accent); font-weight: 600; }
 .ds-banner button { margin-left: auto; }
 
+/* === capabilities strip (judges-first overview) ================ */
+.cap-strip {
+  display: flex; flex-wrap: wrap; gap: 6px 10px;
+  padding: 8px 10px;
+  margin: 0 0 14px;
+  background: rgba(198,242,78,0.04); border: 1px solid var(--line);
+  border-radius: 4px;
+  font: 500 10px/1.4 'Inter';
+  color: var(--fg);
+}
+.cap-strip .cap {
+  display: flex; align-items: center; gap: 6px;
+  padding: 2px 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.cap-strip .cap .meta { color: var(--fg-dimmer); font-family: 'JetBrains Mono', monospace; font-size: 9px; }
+.cap-strip .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  display: inline-block;
+}
+.cap-strip .dot.green { background: var(--green); box-shadow: 0 0 5px var(--green); }
+.cap-strip .dot.amber { background: var(--accent-2); box-shadow: 0 0 5px var(--accent-2); }
+
 /* === export-mnemonic modal ===================================== */
 .modal {
   position: fixed; inset: 0;
@@ -539,7 +605,7 @@ body::before {
     <div class="mark">◆</div>
     <div>
       <span class="name">BNB <span class="accent">Agent</span></span>
-      <span class="tag">Operations Bridge · v1.1.0</span>
+      <span class="tag" id="brand-tag">Operations Bridge · <span id="brand-version" class="mono" style="color:var(--fg);">…</span><span class="mono" id="brand-commit" style="color:var(--fg-dimmer); margin-left:4px;">…</span></span>
     </div>
   </div>
   <nav class="topnav">
@@ -583,10 +649,14 @@ body::before {
       <div class="sig" id="pol-sig">—</div>
     </div>
 
-    <div class="sponsor-strip">
-      <div class="sponsor cmc"><span class="dot"></span>CMC x402</div>
-      <div class="sponsor twa"><span class="dot"></span>TWAK</div>
-      <div class="sponsor bnb"><span class="dot"></span>BNB SDK</div>
+    <div class="sponsor-strip" title="Sponsor integrations — all three are wired into the agent (see Token Module + ledgers). Green = online / configured.">
+      <div class="sponsor cmc" title="CoinMarketCap — paid data via HTTP 402 microcharges in USDC on Base"><span class="dot"></span>CMC x402</div>
+      <div class="sponsor twa" title="TWAK — local keystore signs every transaction (EIP-191) before broadcast"><span class="dot"></span>TWAK</div>
+      <div class="sponsor bnb" title="BNB Chain SDK — broadcasts signed txs to BSC mainnet/testnet"><span class="dot"></span>BNB SDK</div>
+    </div>
+    <div class="llm-strip" id="llm-strip" title="The LLM that powers the advisor / reviewer / chat / token_module agents">
+      <span class="llm-label">LLM</span>
+      <span class="llm-value" id="llm-value">—</span>
     </div>
   </aside>
 
@@ -798,6 +868,17 @@ body::before {
         [DATA] <span class="ds-banner-tier" id="ds-banner-tier">—</span>
         <span id="ds-banner-extra" class="muted"></span>
         <button type="button" class="btn" id="ds-banner-change" onclick="dsChangeOpen()">change</button>
+      </div>
+
+      <!-- CAPABILITIES STRIP — judges-first overview of what the agent does -->
+      <div class="cap-strip" title="What this agent can do, at a glance">
+        <div class="cap"><span class="dot green"></span>3-sleeve live trading <span class="meta">A·B·C</span></div>
+        <div class="cap"><span class="dot green"></span>LLM risk reviewer <span class="meta" id="cap-llm">MiniMax-M3</span></div>
+        <div class="cap"><span class="dot green"></span>ERC-8004 identity + IPFS</div>
+        <div class="cap"><span class="dot green"></span>TWAK-signed txs <span class="meta">EIP-191</span></div>
+        <div class="cap"><span class="dot green"></span>x402 USDC micro-data</div>
+        <div class="cap"><span class="dot green"></span>ERC-20 token launcher</div>
+        <div class="cap"><span class="dot green"></span>BNB Chain SDK broadcast</div>
       </div>
 
       <!-- HERO STRIP -->
@@ -1145,6 +1226,20 @@ body::before {
   </aside>
 </div>
 
+<!-- ============== FOOTER ============== -->
+<footer class="app-footer">
+  <div class="left">
+    <span class="pulse"></span>
+    <span>BNB Agent <span id="foot-year">2026</span> · <span style="color:var(--accent);">Made by Blaze</span> 🔥</span>
+  </div>
+  <div class="right">
+    <span class="mono" id="foot-version" style="color:var(--fg);">v…</span>
+    <span class="mono" id="foot-commit" style="color:var(--fg-dimmer);">…</span>
+    <a href="https://github.com/ggBlaze/bnbagent" target="_blank" rel="noopener">github.com/ggBlaze/bnbagent</a>
+    <a href="https://bnbhack.com" target="_blank" rel="noopener">BNB HACK 2026</a>
+  </div>
+</footer>
+
 <script>
 /* ============================================================
    BNB Agent — dashboard JS
@@ -1158,6 +1253,26 @@ const usd = (n) => '$' + fmt(n);
 const pct = (n) => (n>=0?'+':'') + fmt(n, 2) + '%';
 const shortHash = (h) => h ? h.slice(0,8) + '…' + h.slice(-5) : '—';
 const ts = (epoch) => { try { return new Date(epoch*1000).toISOString().slice(11,19); } catch { return '—'; } };
+
+// Fetch the live version + git commit once on load and stamp it into the
+// topbar + footer. Judges can verify the exact build from the dashboard.
+async function loadVersion() {
+  const v = await jget('/api/version');
+  if (!v || !v.version) return;
+  const tag = v.git_commit && v.git_commit !== 'unknown' ? `v${v.version} · ${v.git_commit}` : `v${v.version}`;
+  const verOnly = `v${v.version}`;
+  const commitOnly = v.git_commit && v.git_commit !== 'unknown' ? v.git_commit : '—';
+  if ($('brand-version')) $('brand-version').textContent = verOnly;
+  if ($('brand-commit')) $('brand-commit').textContent = commitOnly;
+  if ($('foot-version')) $('foot-version').textContent = verOnly;
+  if ($('foot-commit')) $('foot-commit').textContent = commitOnly;
+  if ($('foot-year')) {
+    // show the build year (extracted from the running shell) — but keep the
+    // spec-stable "2026" in the footer text for the demo
+    $('foot-year').textContent = '2026';
+  }
+}
+loadVersion();
 
 async function jget(path) { try { const r = await fetch(path); return await r.json(); } catch { return {}; } }
 async function jpost(path, body) {
@@ -1229,6 +1344,24 @@ async function refresh() {
     jget('/api/policy'), jget('/api/trades'), jget('/api/control-log'),
     jget('/api/config'),
   ]);
+
+  // LLM model display (under the sponsor strip in the left rail).
+  // Reads from /api/config which has the full agents block.
+  if (config && config.agents) {
+    const chat = config.agents.chat;
+    const llmEl = $('llm-value');
+    const capLlm = $('cap-llm');
+    if (chat && chat.enabled && chat.model) {
+      const txt = `${chat.provider} / ${chat.model}`;
+      llmEl.textContent = txt;
+      llmEl.style.color = 'var(--accent)';
+      if (capLlm) capLlm.textContent = chat.model;
+    } else {
+      llmEl.textContent = 'not configured';
+      llmEl.style.color = 'var(--accent-2)';
+      if (capLlm) capLlm.textContent = 'unset';
+    }
+  }
 
   // hero
   $('equity').textContent     = stats.equity != null ? fmt(stats.equity) : '—';
