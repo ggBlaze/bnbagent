@@ -83,3 +83,62 @@ def test_unsupported_method_raises():
 def test_status_includes_tier():
     client = BinanceClient()
     assert client.status["tier"] == "binance"
+
+
+# --- v2.1.7: per-symbol resilience in BinanceClient -----------------------
+
+@respx.mock
+def test_ohlcv_historical_silently_drops_unknown_symbols():
+    """If one symbol in the batch isn't on Binance, the whole batch
+    used to raise and crash the sleeves. Now we silently drop the
+    unknown ones and return whatever worked.
+    """
+    respx.get("https://api.binance.com/api/v3/klines").mock(
+        side_effect=[
+            # First call: BTCUSDT works
+            Response(200, json=[
+                [1700000000000, "100", "110", "95", "105", "1000", 1699999999999, "105000", 100, "500", "52500", "0"],
+            ]),
+            # Second call: FOOUSDT \u2014 unknown symbol, Binance returns 400
+            Response(400, json={"code": -1121, "msg": "Invalid symbol."}),
+            # Third call: ETHUSDT works
+            Response(200, json=[
+                [1700000000000, "3000", "3100", "2900", "3050", "500", 1699999999999, "1525000", 50, "250", "762500", "0"],
+            ]),
+        ]
+    )
+    import asyncio
+    client = BinanceClient()
+    result = asyncio.run(client.ohlcv_historical(["BTC", "FOO", "ETH"], count=1))
+    # BTC and ETH are returned; FOO is silently dropped
+    assert "BTC" in result["data"]
+    assert "FOO" not in result["data"]
+    assert "ETH" in result["data"]
+
+
+@respx.mock
+def test_quotes_latest_falls_back_to_per_symbol_on_bulk_400():
+    """Binance bulk /ticker/price returns 400 if any symbol in the
+    batch is unknown. We catch and fall back to per-symbol requests,
+    returning only the ones that work.
+    """
+    respx.get("https://api.binance.com/api/v3/ticker/price").mock(
+        side_effect=[
+            # First call: bulk with all 3 \u2014 fails because FOO unknown
+            Response(400, json={"code": -1121, "msg": "Invalid symbol."}),
+            # Then per-symbol: BTC works
+            Response(200, json={"symbol": "BTCUSDT", "price": "50000.00"}),
+            # FOO fails
+            Response(400, json={"code": -1121, "msg": "Invalid symbol."}),
+            # ETH works
+            Response(200, json={"symbol": "ETHUSDT", "price": "3000.00"}),
+        ]
+    )
+    import asyncio
+    client = BinanceClient()
+    result = asyncio.run(client.quotes_latest(["BTC", "FOO", "ETH"]))
+    assert "BTC" in result["data"]
+    assert result["data"]["BTC"]["quote"]["USD"]["price"] == "50000.00"
+    assert "FOO" not in result["data"]
+    assert "ETH" in result["data"]
+    assert result["data"]["ETH"]["quote"]["USD"]["price"] == "3000.00"

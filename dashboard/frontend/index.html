@@ -891,8 +891,8 @@ body.demo-mode button[onclick^="toggleKill"] {
             <label class="ds-radio">
               <div>
                 <input type="radio" name="ds-tier" value="x402" id="ds-radio-x402">
-                <strong>x402 (pay-per-request, USDC on Base)</strong>
-                <span class="ds-radio-hint">No key. ~$0.01 per call, capped at $10/day.</span>
+                <strong>x402 (pay-per-request, USDC on Base) + Binance OHLCV</strong>
+                <span class="ds-radio-hint">No key. x402 has no OHLCV endpoint, so Binance silently fills in historical candles (free). Live quotes + listings are paid via x402 (~$0.01/call, capped at $10/day).</span>
               </div>
               <div class="ds-radio-detail" id="ds-detail-x402" hidden>
                 <div class="ds-row">
@@ -1081,7 +1081,7 @@ body.demo-mode button[onclick^="toggleKill"] {
         <div class="cap"><span class="dot green"></span>LLM risk reviewer <span class="meta" id="cap-llm">MiniMax-M3</span></div>
         <div class="cap"><span class="dot green"></span>ERC-8004 identity + IPFS</div>
         <div class="cap"><span class="dot green"></span>TWAK-signed txs <span class="meta">EIP-191</span></div>
-        <div class="cap"><span class="dot green"></span>x402 USDC micro-data</div>
+        <div class="cap"><span class="dot green"></span>x402 USDC micro-data (live) + Binance OHLCV</div>
         <div class="cap"><span class="dot green"></span>ERC-20 token launcher</div>
         <div class="cap"><span class="dot green"></span>BNB Chain SDK broadcast</div>
       </div>

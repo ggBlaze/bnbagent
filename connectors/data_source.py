@@ -82,19 +82,39 @@ class DataSourceRouter:
 
     @classmethod
     def from_config(cls, config: dict, wallet=None) -> "DataSourceRouter":
-        """Pick the source from config["data_source"]["tier"]."""
+        """Pick the source from config["data_source"]["tier"].
+
+        v2.1.7: when the user picks "x402", we now construct a
+        HybridDataSource that uses x402 for live quotes + listings
+        (the sponsor track, paid in USDC on Base) and Binance for
+        OHLCV (free, no key, full coverage). x402 has no OHLCV
+        endpoint, so the prior behavior was "agent makes 0 trades in
+        x402 mode" — the hybrid fixes that. Opt out via
+        BNBAGENT_X402_NO_BINANCE_FALLBACK=1 in the env.
+        """
         from .cmc import CMCProClient, CMCX402Client
         from .binance import BinanceClient
+        import os
 
         ds = config.get("data_source", {})
         tier = ds.get("tier", "mock")
         if tier == "cmc_pro" and ds.get("cmc_api_key"):
             return cls(CMCProClient(api_key=ds["cmc_api_key"]))
         if tier == "x402" and wallet is not None:
-            return cls(CMCX402Client(
+            x402_client = CMCX402Client(
                 wallet=wallet,
                 base_rpcs=ds.get("base_rpcs", _DEFAULT_BASE_RPCS),
-            ))
+            )
+            # Default: hybrid x402 + Binance OHLCV. The sponsor track
+            # (CMC, USDC on Base) is still actively used for live
+            # quotes + listings; Binance silently fills in OHLCV. Set
+            # BNBAGENT_X402_NO_BINANCE_FALLBACK=1 to opt out.
+            no_fallback = os.environ.get("BNBAGENT_X402_NO_BINANCE_FALLBACK", "").lower() in (
+                "1", "true", "yes", "on",
+            )
+            if no_fallback:
+                return cls(x402_client)
+            return cls(HybridDataSource(x402=x402_client, binance=BinanceClient()))
         if tier == "binance":
             return cls(BinanceClient())
         return cls(MockClient())
@@ -161,3 +181,108 @@ class MockClient:
 
     async def exchange_listings(self, limit: int = 100) -> dict:
         return {"data": self._data.get("exchange_listings", [])[:limit], "status": {"error_code": 0}}
+
+
+class HybridDataSource:
+    """x402 sponsor track + Binance OHLCV fallback (v2.1.7).
+
+    Why this exists
+    ---------------
+    The x402 endpoint of CoinMarketCap supports live quotes and
+    listings, but does NOT have an OHLCV endpoint. Every strategy
+    (sleeve_a_carry, sleeve_b_momentum, sleeve_c_meanrev) needs
+    historical candles to compute its signals: realized vol, momentum
+    strength, mean-reversion z-scores. Without OHLCV, the sleeves
+    catch NotImplementedError on every tick, return no signals, and
+    only the daily trade floor fires. In a contest window that's
+    1 trade/day \u2014 not enough to show meaningful PnL.
+
+    The fix: route per-method to the source that has the data.
+
+      * quotes_latest   \u2192 x402  (sponsor track, USDC on Base)
+      * cmc_rank_map    \u2192 x402  (sponsor track, /listings/latest)
+      * ohlcv_historical \u2192 Binance (free, no key, has full history)
+      * the other endpoints (global_metrics, fear_and_greed,
+        dex_listings, exchange_listings) aren't used by any strategy,
+        but the protocol requires them. We try x402 first; if it
+        raises NotImplementedError, we return a sensible empty
+        stub so the dashboard renders cleanly.
+
+    The user-facing tier is still "x402" (so the wizard, the dashboard
+    status, the x402 balance polling, and the BNB HACK 2026 sponsor
+    credit all keep working as before). The status dict reports the
+    fallback transparently. Opt out via
+    BNBAGENT_X402_NO_BINANCE_FALLBACK=1.
+    """
+
+    def __init__(self, x402, binance):
+        self._x402 = x402
+        self._binance = binance
+
+    @property
+    def tier(self) -> str:
+        # The user-facing tier is still x402. Operators checking
+        # the dashboard or the sponsor-track credit should see the
+        # same string they selected in the wizard.
+        return "x402"
+
+    @property
+    def status(self) -> dict:
+        x402_status = self._x402.status if hasattr(self._x402, "status") else {}
+        return {
+            **x402_status,
+            "tier": "x402",  # explicit \u2014 the user's selection
+            "fallback": "binance",
+            "fallback_for": ["ohlcv_historical"],
+            "note": (
+                "Hybrid: x402 serves live quotes + listings (sponsor track, "
+                "USDC on Base); Binance serves OHLCV (free, no key, full coverage). "
+                "x402 has no OHLCV endpoint \u2014 the sleeves need it to compute "
+                "signals, so the hybrid is the only way to actually trade in "
+                "x402 mode. Opt out with BNBAGENT_X402_NO_BINANCE_FALLBACK=1."
+            ),
+        }
+
+    async def close(self):
+        if hasattr(self._x402, "close"):
+            await self._x402.close()
+        if hasattr(self._binance, "close"):
+            await self._binance.close()
+
+    # --- per-method routing ---
+
+    async def quotes_latest(self, symbols, convert="USD"):
+        return await self._x402.quotes_latest(symbols, convert)
+
+    async def ohlcv_historical(self, symbols, time_period="hour", count=24, convert="USD"):
+        return await self._binance.ohlcv_historical(symbols, time_period, count, convert)
+
+    async def cmc_rank_map(self):
+        return await self._x402.cmc_rank_map()
+
+    async def global_metrics(self):
+        try:
+            return await self._x402.global_metrics()
+        except NotImplementedError:
+            return {"data": {}, "status": {"error_code": 0, "note": "x402: not implemented"}}
+
+    async def fear_and_greed(self):
+        try:
+            return await self._x402.fear_and_greed()
+        except NotImplementedError:
+            return {
+                "data": {"value": 50, "value_classification": "Neutral"},
+                "status": {"error_code": 0, "note": "x402: not implemented"},
+            }
+
+    async def dex_listings(self, limit=100):
+        try:
+            return await self._x402.dex_listings(limit)
+        except NotImplementedError:
+            return {"data": [], "status": {"error_code": 0, "note": "x402: not implemented"}}
+
+    async def exchange_listings(self, limit=100):
+        try:
+            return await self._x402.exchange_listings(limit)
+        except NotImplementedError:
+            return {"data": [], "status": {"error_code": 0, "note": "x402: not implemented"}}
