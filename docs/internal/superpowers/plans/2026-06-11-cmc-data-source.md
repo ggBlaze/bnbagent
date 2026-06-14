@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+, asyncio, httpx, web3.py (Base RPCs), eth-account (EIP-3009 signing), FastAPI (backend), vanilla HTML/JS (frontend), pytest + respx (tests), pyyaml (configs).
 
-**Spec:** `docs/superpowers/specs/2026-06-11-cmc-data-source-design.md` (read this first — the plan references it for design context).
+**Spec:** `docs/internal/superpowers/specs/2026-06-11-cmc-data-source-design.md` (read this first — the plan references it for design context).
 
 **Reference commits (prior session):** `5d6532b` (pyproject), `3511495` (install.sh), `f1d9687` (rename), `d166249` (initial spec), `0e6dd8c` (spec additions).
 
