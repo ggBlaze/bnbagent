@@ -196,3 +196,161 @@ def test_admin_route_works_without_password_when_disabled(auth_disabled_client):
     # 4xx (bad body) is fine; 401/403 would mean auth is still on
     assert r.status_code != 401
     assert r.status_code != 403
+
+
+# --- Wallet + Token protection (the "operator-only" surface) -----------
+
+def test_export_mnemonic_blocked_by_default_even_for_admin(auth_enabled_client, monkeypatch):
+    """Even with a valid admin cookie, /api/wallet/export-mnemonic is
+    blocked unless BNBAGENT_ALLOW_WALLET_EXPORT=true. This is the
+    defense-in-depth: a judge who somehow learns the admin password
+    still cannot dump the seed phrase."""
+    from dashboard.backend import auth as auth_mod
+    # BNBAGENT_ALLOW_WALLET_EXPORT is unset (default) — must be blocked
+    monkeypatch.delenv("BNBAGENT_ALLOW_WALLET_EXPORT", raising=False)
+    # In case the host env has it set, scrub from the module too
+    saved = getattr(auth_mod, "_WALLET_EXPORT_SAVED", None)
+    if saved is None:
+        os.environ.pop("BNBAGENT_ALLOW_WALLET_EXPORT", None)
+    # Stub the token module so the route's other checks pass
+    from dashboard.backend import main as main_mod
+    main_mod.DASHBOARD_STATE.setdefault("components", {})["token_module"] = type("TM", (), {"config": {}})()
+
+    client = auth_enabled_client
+    client.post("/api/auth/login", json={"password": "admin-test"})
+    r = client.post("/api/wallet/export-mnemonic", json={"password": "anything"})
+    assert r.status_code == 403
+    assert "BNBAGENT_ALLOW_WALLET_EXPORT" in r.json()["detail"]
+
+
+def test_export_mnemonic_unlocked_with_env_flag(auth_enabled_client, monkeypatch, tmp_path):
+    """With BNBAGENT_ALLOW_WALLET_EXPORT=true AND admin cookie AND
+    correct wallet password, the route returns the mnemonic. We
+    write a fake keystore on disk and verify."""
+    from dashboard.backend import auth as auth_mod
+    from dashboard.backend import main as main_mod
+
+    # Build a fake keystore on disk
+    import json as _json
+    import base64 as _b64
+    ks_path = tmp_path / "wallet.json"
+    # Use the real keystore format: encrypted AES-GCM blob. Easier: monkey-patch
+    # the load_keystore function to return a controlled dict.
+    ks_path.write_text(_json.dumps({"mnemonic": "***  dummy  mnemonic  phrase"}))
+    monkeypatch.setenv("TWAK_KEYSTORE", str(ks_path))
+    monkeypatch.setenv("BNBAGENT_ALLOW_WALLET_EXPORT", "true")
+
+    def _fake_load(path, password):
+        return {"mnemonic": "***  dummy  mnemonic  phrase"}
+    monkeypatch.setattr("connectors.keystore.load_keystore", _fake_load)
+
+    client = auth_enabled_client
+    client.post("/api/auth/login", json={"password": "admin-test"})
+    r = client.post("/api/wallet/export-mnemonic", json={"password": "anything"})
+    assert r.status_code == 200
+    assert "***  dummy  mnemonic  phrase" in r.json()["mnemonic"]
+
+
+def test_wallet_import_blocked_by_default_even_for_admin(auth_enabled_client, monkeypatch):
+    """A judge with admin cookie still can't replace the wallet with
+    their own key unless BNBAGENT_ALLOW_WALLET_IMPORT=true."""
+    monkeypatch.delenv("BNBAGENT_ALLOW_WALLET_IMPORT", raising=False)
+    client = auth_enabled_client
+    client.post("/api/auth/login", json={"password": "admin-test"})
+    r = client.post("/api/setup/wallet/import", json={
+        "private_key": "0x" + "a" * 64,
+        "password": "test-pwd-1234",
+    })
+    assert r.status_code == 403
+    assert "BNBAGENT_ALLOW_WALLET_IMPORT" in r.json()["detail"]
+
+
+def test_wallet_import_unlocked_with_env_flag(auth_enabled_client, monkeypatch):
+    """With the env flag set, import works (the route delegates to
+    core.setup.import_wallet which would actually encrypt + write
+    the keystore; we mock that)."""
+    monkeypatch.setenv("BNBAGENT_ALLOW_WALLET_IMPORT", "true")
+
+    from dashboard.backend import main as main_mod
+    called = {}
+    def _fake_import(pk, password):
+        called["pk"] = pk
+        called["password"] = password
+        return {"address": "0x" + "a" * 40, "keystore_path": "/tmp/fake.json"}
+    monkeypatch.setattr(main_mod, "import_wallet", _fake_import)
+
+    client = auth_enabled_client
+    client.post("/api/auth/login", json={"password": "admin-test"})
+    r = client.post("/api/setup/wallet/import", json={
+        "private_key": "0x" + "a" * 64,
+        "password": "test-pwd-1234",
+    })
+    assert r.status_code == 200
+    assert called["pk"] == "0x" + "a" * 64
+    assert r.json()["address"] == "0x" + "a" * 40
+
+
+def test_token_deploy_returns_423_during_contest_window(auth_enabled_client, monkeypatch):
+    """The /api/tokens/deploy route returns HTTP 423 (Locked) during
+    the contest window, regardless of the BNBAGENT_ALLOW_TOKEN_DEPLOY
+    env var. The TokenModule code path also raises PermissionError;
+    the route short-circuits with a friendlier status for the UI."""
+    from agents import token_module as tm_mod
+    from datetime import datetime, timezone
+    fake_now = datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(tm_mod.TokenModule, "_now_utc",
+                        classmethod(lambda cls: fake_now))
+    # Even with the env opt-in we're still locked during the contest
+    monkeypatch.setenv("BNBAGENT_ALLOW_TOKEN_DEPLOY", "true")
+
+    # Stub the token module so the route's other checks pass
+    from dashboard.backend import main as main_mod
+    class _FakeTM:
+        def __init__(self): self.config = {}
+    main_mod.DASHBOARD_STATE.setdefault("components", {})["token_module"] = _FakeTM()
+
+    client = auth_enabled_client
+    client.post("/api/auth/login", json={"password": "admin-test"})
+    r = client.post("/api/tokens/deploy", json={
+        "name": "T", "symbol": "TST", "supply": 1000, "network": "testnet",
+    })
+    assert r.status_code == 423
+    assert r.json()["error"] == "token_deploy_locked"
+    assert "2026-07-07" in r.json()["message"]
+
+
+def test_token_deploy_works_after_contest_with_env(auth_enabled_client, monkeypatch):
+    """After 2026-07-07 with BNBAGENT_ALLOW_TOKEN_DEPLOY=true, the
+    route is unlocked. We stub create_token to avoid real RPC."""
+    from agents import token_module as tm_mod
+    from datetime import datetime, timezone
+    fake_now = datetime(2026, 7, 7, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(tm_mod.TokenModule, "_now_utc",
+                        classmethod(lambda cls: fake_now))
+    monkeypatch.setenv("BNBAGENT_ALLOW_TOKEN_DEPLOY", "true")
+
+    from dashboard.backend import main as main_mod
+    from dataclasses import dataclass
+
+    @dataclass
+    class _R:
+        symbol: str = "TST"
+        network: str = "testnet"
+        address: str = "0x" + "a" * 40
+        tx_hash: str = "0x" + "b" * 64
+        cid: str = None
+        website: str = None
+
+    class _FakeTM:
+        def __init__(self): self.config = {}
+        async def create_token(self, **kw): return _R()
+
+    main_mod.DASHBOARD_STATE.setdefault("components", {})["token_module"] = _FakeTM()
+
+    client = auth_enabled_client
+    client.post("/api/auth/login", json={"password": "admin-test"})
+    r = client.post("/api/tokens/deploy", json={
+        "name": "Test", "symbol": "TST", "supply": 1000, "network": "testnet",
+    })
+    assert r.status_code == 200
+    assert r.json()["result"]["symbol"] == "TST"

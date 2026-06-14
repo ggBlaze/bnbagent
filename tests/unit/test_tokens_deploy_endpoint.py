@@ -3,18 +3,34 @@
 The endpoint must reject a mainnet deploy when `confirm_symbol` is
 missing, empty, or doesn't match `symbol` case-insensitively. Symbol
 match (not name match) is the canonical identifier on-chain forever.
+
+v2.1.6: The route is also guarded by TokenModule.is_deploy_unlocked()
+(contest rule: no launches before 2026-07-07 UTC). The fixture below
+unlocks the date lock via monkeypatching _now_utc to a post-window
+timestamp + BNBAGENT_ALLOW_TOKEN_DEPLOY=true. The date-lock logic
+itself is covered by tests/unit/test_token_lock.py.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 
 
 @pytest.fixture
-def client_and_state():
+def client_and_state(monkeypatch):
     """Build a TestClient with a mocked TokenModule in DASHBOARD_STATE."""
     from fastapi.testclient import TestClient
     from dashboard.backend import main as dash_main
+    from agents import token_module as tm_mod
+
+    # Unlock the date lock so we can test the symbol-confirm path.
+    # The date-lock logic itself is covered by tests/unit/test_token_lock.py.
+    fake_now = datetime(2026, 7, 7, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(tm_mod.TokenModule, "_now_utc",
+                        classmethod(lambda cls: fake_now))
+    monkeypatch.setenv("BNBAGENT_ALLOW_TOKEN_DEPLOY", "true")
 
     tm = MagicMock()
     tm.create_token = AsyncMock(return_value=MagicMock(

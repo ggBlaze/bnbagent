@@ -633,7 +633,21 @@ def build_app() -> FastAPI:
     @app.post("/api/setup/wallet/import", dependencies=[Depends(_auth.require_admin)])
     async def setup_wallet_import(body: dict):
         """Import an existing private key. Returns ONLY the address; the key
-        is encrypted to disk and never leaves the host process."""
+        is encrypted to disk and never leaves the host process.
+
+        Like /api/wallet/export-mnemonic, this is gated by
+        BNBAGENT_ALLOW_WALLET_IMPORT (default OFF in production). A
+        judge who somehow gets the admin password should NOT be able
+        to swap the operator's wallet for their own (which would let
+        them drain the funds, register a fake identity, etc.)."""
+        if os.environ.get("BNBAGENT_ALLOW_WALLET_IMPORT", "").lower() not in (
+            "1", "true", "yes", "on",
+        ):
+            raise HTTPException(
+                403,
+                "wallet import is disabled. Set BNBAGENT_ALLOW_WALLET_IMPORT=true "
+                "in the server env and restart to enable (operator-only operation).",
+            )
         pk = body.get("private_key", "")
         password = body.get("password", "")
         try:
@@ -857,11 +871,37 @@ def build_app() -> FastAPI:
     async def post_export_mnemonic(payload: dict):
         """Return the TWAK mnemonic if the correct password is provided.
 
+        **DISABLED BY DEFAULT in production.** Even with an admin cookie,
+        this route refuses to dump the seed phrase unless the operator
+        explicitly opts in via BNBAGENT_ALLOW_WALLET_EXPORT=true in the
+        environment. This is a defense-in-depth measure: if a judge
+        (or anyone else) ever learns the admin password, they still
+        can't exfiltrate the operator's private key. To recover the
+        mnemonic, the operator must:
+          1. SSH into the host, AND
+          2. Set BNBAGENT_ALLOW_WALLET_EXPORT=true in .env / Coolify, AND
+          3. Restart the service, AND
+          4. Re-authenticate as admin, AND
+          5. Provide the wallet password.
+        That's 5 factors; no single admin-password leak can drain
+        the wallet.
+
         One-time per request — the password is not retained, the mnemonic
         is not logged. The keystore is the same AES-256-GCM blob that
         /api/setup/wallet wrote; we decrypt it briefly, return the phrase,
         and discard the key.
         """
+        if os.environ.get("BNBAGENT_ALLOW_WALLET_EXPORT", "").lower() not in (
+            "1", "true", "yes", "on",
+        ):
+            # 403 + a clear operational hint. The route is intentionally
+            # registered (so a stale link/UI doesn't 404 mysteriously)
+            # but the body explains what to do.
+            raise HTTPException(
+                403,
+                "mnemonic export is disabled. Set BNBAGENT_ALLOW_WALLET_EXPORT=true "
+                "in the server env and restart to enable (operator-only operation).",
+            )
         password = payload.get("password", "") if isinstance(payload, dict) else ""
         if not password:
             raise HTTPException(400, "password required")
@@ -1183,6 +1223,17 @@ def build_app() -> FastAPI:
         tm = s.get("components", {}).get("token_module")
         if tm is None:
             return JSONResponse({"error": "TokenModule not loaded"}, status_code=503)
+        # Hard date lock + env opt-in. The TokenModule.create_token()
+        # call below also enforces this, but we surface a friendlier
+        # JSON 423 (Locked) here so the dashboard can show a clear
+        # "disabled until 2026-07-07" message instead of a generic 400.
+        from agents.token_module import TokenModule as _TM
+        unlocked, reason = _TM.is_deploy_unlocked()
+        if not unlocked:
+            return JSONResponse(
+                {"error": "token_deploy_locked", "message": reason},
+                status_code=423,
+            )
         network = body.get("network", "testnet")
         symbol = (body.get("symbol") or "").strip()
         if network == "mainnet":

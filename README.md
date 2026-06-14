@@ -660,6 +660,9 @@ pytest tests/unit/test_risk.py -v # 1 file
 | **Skill side effects** | `cmc_global_filter` is the only Skill that writes; its writes are tagged `_source: "skill:cmc_global_filter"` and visible in the Control Log. |
 | **Adversarial personas** | Persona files are loaded into the system prompt but the `BaseAgent` machinery is the same regardless. Reset to pro is one click. |
 | **Replay safety** | The replay harness runs the strategies against a synthetic tape; no real txs are signed. The `replay` mode in `BSCClient.broadcast` returns deterministic stubs. |
+| **Token Module during contest** | Hard date lock: refuses to deploy before 2026-07-07 00:00 UTC. After the window, requires `BNBAGENT_ALLOW_TOKEN_DEPLOY=true` in env. The contest forbids launches 2026-06-03–2026-07-06; this is enforced in code (`TokenModule.is_deploy_unlocked`), not in docs. |
+| **Mnemonic export on the public dashboard** | `/api/wallet/export-mnemonic` returns 403 unless `BNBAGENT_ALLOW_WALLET_EXPORT=true` is set in the server env. Defense-in-depth: a judge who learns the admin password still cannot dump the operator's seed phrase unless they also have SSH access + restart capability. |
+| **Wallet swap on the public dashboard** | `/api/setup/wallet/import` returns 403 unless `BNBAGENT_ALLOW_WALLET_IMPORT=true` is set. A judge who gets the admin password still cannot replace the operator's wallet with their own (which would let them drain funds or register a fake identity). |
 
 Full details: [`docs/SECURITY.md`](docs/SECURITY.md).
 

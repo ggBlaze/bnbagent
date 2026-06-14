@@ -23,9 +23,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -36,6 +38,7 @@ from eth_account import Account
 from web3 import Web3
 
 log = logging.getLogger(__name__)
+logger = log  # alias for parity with the rest of the codebase
 
 
 # --- minimal ERC-20 init code ------------------------------------------------
@@ -77,6 +80,47 @@ class TokenDeployResult:
 
 class TokenModule:
     PROTOCOLS = ("erc20_minimal", "bep20", "openzeppelin")
+
+    # BNB HACK 2026 contest rules: no token launches between 2026-06-03
+    # and 2026-07-06 (the "do not use Token Module" window). The module
+    # is a feature of the agent, but launching any token during the
+    # contest is a hard rule. We enforce it in code, not in docs.
+    #
+    # The contest window is interpreted as: NO deploys before
+    # 2026-07-07 00:00:00 UTC. After that, the operator can opt in
+    # to real launches by setting BNBAGENT_ALLOW_TOKEN_DEPLOY=true.
+    #
+    # Why the env opt-in even after the date? Because we want a
+    # belt-and-suspenders second gate: the date passes, but a fresh
+    # deploy on a test setup (or an accidental prod config) shouldn't
+    # silently start launching tokens. The operator must explicitly
+    # say "yes, I want this on".
+    CONTEST_DEPLOY_LOCK_UNTIL_UTC = datetime(2026, 7, 7, 0, 0, 0, tzinfo=timezone.utc)
+
+    @classmethod
+    def is_deploy_unlocked(cls) -> tuple[bool, str]:
+        """Return (unlocked, reason). Pure function — no side effects."""
+        now = cls._now_utc()
+        if now < cls.CONTEST_DEPLOY_LOCK_UNTIL_UTC:
+            return False, (
+                f"Token Module is locked until {cls.CONTEST_DEPLOY_LOCK_UNTIL_UTC.isoformat()} "
+                f"per BNB HACK 2026 contest rules (no token launches between "
+                f"2026-06-03 and 2026-07-06). Current time: {now.isoformat()}."
+            )
+        if os.environ.get("BNBAGENT_ALLOW_TOKEN_DEPLOY", "").lower() not in ("1", "true", "yes", "on"):
+            return False, (
+                f"Contest window is open (>{cls.CONTEST_DEPLOY_LOCK_UNTIL_UTC.isoformat()}), "
+                f"but Token Module launches remain disabled by default. Set "
+                f"BNBAGENT_ALLOW_TOKEN_DEPLOY=true in your env to enable real deploys."
+            )
+        return True, "deploy unlocked"
+
+    @classmethod
+    def _now_utc(cls) -> datetime:
+        """Indirection for tests: they patch this to simulate clock time.
+
+        In production this is just datetime.now(timezone.utc)."""
+        return datetime.now(timezone.utc)
     DEFAULT_CONFIG = {
         "network": "testnet",
         "protocol": "erc20_minimal",
@@ -123,6 +167,16 @@ class TokenModule:
     async def create_token(self, *, name: str, symbol: str, supply: int,
                            decimals: int = 18, network: str | None = None,
                            protocol: str | None = None) -> TokenDeployResult:
+        # Date lock + opt-in guard. The date lock is the contest
+        # rule; the env opt-in is the operator's explicit "I really
+        # want to launch a token" signal that has to be set even after
+        # the window opens. This means a misconfigured prod env can't
+        # accidentally start launching tokens the moment the clock
+        # passes 2026-07-07 00:00 UTC.
+        unlocked, reason = self.is_deploy_unlocked()
+        if not unlocked:
+            logger.warning("Token Module deploy blocked: %s", reason)
+            raise PermissionError(reason)
         network = network or self.config.get("network", "testnet")
         protocol = protocol or self.config.get("protocol", "erc20_minimal")
         if network not in ("testnet", "mainnet"):

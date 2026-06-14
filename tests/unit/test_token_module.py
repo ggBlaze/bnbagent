@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -9,6 +10,18 @@ import pytest
 
 from agents.token_module import TokenModule
 from connectors.twak import TWAKWallet
+
+
+@pytest.fixture(autouse=True)
+def unlock_token_deploy(monkeypatch):
+    """v2.1.6: the TokenModule has a hard date lock until 2026-07-07 UTC
+    + an env opt-in. The lock logic is tested in test_token_lock.py;
+    these tests focus on the rest of the module's behavior, so we
+    auto-unlock the date lock for every test in this file."""
+    fake_now = datetime(2026, 7, 7, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(TokenModule, "_now_utc",
+                        classmethod(lambda cls: fake_now))
+    monkeypatch.setenv("BNBAGENT_ALLOW_TOKEN_DEPLOY", "true")
 
 
 @pytest.fixture

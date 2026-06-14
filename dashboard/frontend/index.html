@@ -2344,6 +2344,23 @@ async function deployToken() {
   });
   const out = $('tok-result');
   if (!r.ok) {
+    // v2.1.6: HTTP 423 (Locked) is the contest-window block. Show a
+    // dedicated banner with the unlock date + env flag to opt in.
+    if (r.status === 423 && r.error === 'token_deploy_locked') {
+      out.innerHTML = `
+        <div class="banner warn">
+          🔒 Token Module is locked. <br>
+          <span style="display:block; margin-top:6px;">
+            ${r.message}
+          </span>
+          <span style="display:block; margin-top:6px; font-size:0.9em; opacity:0.8;">
+            (Contest rule: no token launches between 2026-06-03 and 2026-07-06.
+            After that, set <code>BNBAGENT_ALLOW_TOKEN_DEPLOY=true</code> in
+            the server env to enable real deploys.)
+          </span>
+        </div>`;
+      return;
+    }
     out.innerHTML = `<div class="banner error">deploy failed: ${r.error || JSON.stringify(r)}</div>`;
     return;
   }

@@ -147,17 +147,31 @@ def test_get_x402_balance_returns_decimal():
 
 # --- export mnemonic (v2.1) ---
 
-def test_export_mnemonic_requires_password():
-    """POST without a password should return 400/401/422."""
+def test_export_mnemonic_requires_password(monkeypatch):
+    """POST without a password should return 400/401/422.
+
+    v2.1.6: The export-mnemonic route is gated by BNBAGENT_ALLOW_WALLET_EXPORT.
+    With it unset, we get 403 (the default), not the previous 200/400. This
+    test verifies that without a password, the route still rejects. The
+    env-gating behavior is covered in test_auth.py."""
+    monkeypatch.delenv("BNBAGENT_ALLOW_WALLET_EXPORT", raising=False)
+    import os
+    os.environ.pop("BNBAGENT_ALLOW_WALLET_EXPORT", None)
     from fastapi.testclient import TestClient
     from dashboard.backend.main import app
     with TestClient(app) as client:
         r = client.post("/api/wallet/export-mnemonic", json={})
-    assert r.status_code in (400, 401, 422)
+    # 403 (env-locked) or 400 (no password) — both are valid rejections
+    assert r.status_code in (400, 401, 403, 422)
 
 
 def test_export_mnemonic_returns_phrase_with_correct_password(monkeypatch):
-    """Mock the keystore loader; verify the endpoint returns the phrase."""
+    """Mock the keystore loader; verify the endpoint returns the phrase.
+
+    v2.1.6: BNBAGENT_ALLOW_WALLET_EXPORT=true is required to unlock the
+    route. Once unlocked, the existing password-gate behavior holds.
+    """
+    monkeypatch.setenv("BNBAGENT_ALLOW_WALLET_EXPORT", "true")
     from fastapi.testclient import TestClient
     from dashboard.backend.main import app
 
