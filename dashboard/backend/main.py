@@ -1128,6 +1128,7 @@ def build_app() -> FastAPI:
         "openai":     "OPENAI_API_KEY",
         "openrouter": "OPENROUTER_API_KEY",
         "oai_compat": "OAI_KEY",
+        "minimax":    "MINIMAX_API_KEY",  # MiniMax via api.minimaxi.chat (OAI-compat)
         # local: no key needed
     }
 

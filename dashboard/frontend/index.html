@@ -988,7 +988,8 @@ body.demo-mode button[onclick^="toggleKill"] {
           <div class="field">
             <label>Provider</label>
             <select id="llm-wiz-provider">
-              <option value="openrouter">OpenRouter (default)</option>
+              <option value="minimax">MiniMax (recommended — same model the Circle runs on)</option>
+              <option value="openrouter">OpenRouter</option>
               <option value="anthropic">Anthropic</option>
               <option value="openai">OpenAI</option>
               <option value="oai_compat">OAI-compatible (custom base URL)</option>
@@ -1239,7 +1240,8 @@ body.demo-mode button[onclick^="toggleKill"] {
           <div class="field">
             <label>Provider</label>
             <select id="llm-provider">
-              <option value="openrouter">OpenRouter (default)</option>
+              <option value="minimax">MiniMax (recommended — same model the Circle runs on)</option>
+              <option value="openrouter">OpenRouter</option>
               <option value="anthropic">Anthropic</option>
               <option value="openai">OpenAI</option>
               <option value="oai_compat">OAI-compatible (custom base URL)</option>
@@ -2343,6 +2345,7 @@ async function dsChangeOpen() {
 // the Config pane.
 
 const LLM_ENV_VARS = {
+  minimax:    'MINIMAX_API_KEY',
   openrouter: 'OPENROUTER_API_KEY',
   anthropic:  'ANTHROPIC_API_KEY',
   openai:     'OPENAI_API_KEY',
