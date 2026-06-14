@@ -330,21 +330,49 @@ must explicitly enable real deploys. See `docs/TOKEN_MODULE.md`
 
 ---
 
-## Production env vars (v2.1.6)
+## Production env vars (v2.1.6+readonly in v2.1.7)
 
 For a public Coolify / VPS deploy, set these env vars in the service
 UI. Defaults are designed to be safe-by-default; the contest window
 and the wallet are protected even if you forget to set anything.
 
-### Required (auth + AI brain)
+### Auth mode (v2.1.7: 3 modes, 1 env var)
+
+| Mode | `BNBAGENT_AUTH_MODE` | Password? | Mutations? | When to use |
+|---|---|---|---|---|
+| `disabled` (default) | unset / `false` | No | ✅ all allowed | Local dev on your laptop |
+| `password` | `password` (or legacy `BNBAGENT_AUTH_ENABLED=true`) | Yes (judge / admin) | ✅ with admin cookie | VPS with operator doing maintenance |
+| `readonly` | `readonly` | No | ❌ 403 on all POSTs | **Public contest URL (DoraHacks)** — judges see everything, can't break anything |
+
+`BNBAGENT_AUTH_MODE` (if set) wins over the legacy
+`BNBAGENT_AUTH_ENABLED` flag. Unknown values fall back to
+`disabled` with a startup warning. The startup log always
+self-documents the active mode (`dashboard auth mode: <mode>`).
+
+### Required for contest public URL (recommended)
 
 ```bash
-BNBAGENT_AUTH_ENABLED=true                  # enable 2-mode password wrapper
-BNBAGENT_AUTH_SECRET=*** rand -hex 32)  # HMAC signing key for cookies
-JUDGE_PASSWORD=***                   # what judges type
-ADMIN_PASSWORD=***                   # what the operator types
-BNBAGENT_AUTH_COOKIE_SECURE=true            # required when behind TLS
-MINIMAX_API_KEY=***                  # the AI brain
+BNBAGENT_AUTH_MODE=readonly                  # the contest mode
+MINIMAX_API_KEY=***                          # the AI brain
+# No JUDGE_PASSWORD / ADMIN_PASSWORD / BNBAGENT_AUTH_SECRET needed in readonly
+```
+
+### Required for VPS with operator maintenance
+
+```bash
+BNBAGENT_AUTH_MODE=password
+BNBAGENT_AUTH_SECRET=*** rand -hex 32>     # HMAC signing key for cookies
+JUDGE_PASSWORD=***                           # what judges type
+ADMIN_PASSWORD=***                           # what the operator types
+BNBAGENT_AUTH_COOKIE_SECURE=true              # required when behind TLS
+MINIMAX_API_KEY=***                          # the AI brain
+```
+
+### Required for local dev (defaults are fine)
+
+```bash
+# Nothing — `BNBAGENT_AUTH_MODE` defaults to `disabled` and
+# the dashboard is open. Just `bash bnbagent`.
 ```
 
 ### Default-OFF safety locks (do NOT set in production)

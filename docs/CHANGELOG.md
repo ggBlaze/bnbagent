@@ -2,6 +2,127 @@
 
 All notable changes to this project. Versioned per the git tag.
 
+## v2.1.7 — Readonly mode + HybridDataSource + polish (2026-06-14)
+
+The contest-submission story: a public URL where judges can see the
+agent live, interact with the chat, but cannot mutate any state.
+Plus the x402 sponsor-track is now actually tradeable (HybridDataSource
+fills in OHLCV from Binance so the sleeves have signals), and a round
+of judge-first UI polish (capabilities strip, version display, BNB
+favicon, Made by Blaze footer, green sponsor dots, hover tooltips on
+locked controls).
+
+ADDED:  `BNBAGENT_AUTH_MODE` 3-mode auth — `disabled` (local dev,
+        no auth, all mutations allowed), `password` (judge + admin
+        cookie gate, 2-mode behavior from v2.1.5 preserved), `readonly`
+        (no password, every mutation returns 403, the contest mode).
+        The legacy `BNBAGENT_AUTH_ENABLED` flag is still respected
+        as a fallback; the new var wins if both are set. `/api/auth/status`
+        now returns `{enabled, mode, role}` (was `{enabled, role}`).
+        Login endpoint refuses with 403 in non-password modes.
+        Startup log self-documents the active mode.
+ADDED:  `connectors/data_source.py::HybridDataSource` — routes per-method
+        to the right source. x402 for live quotes + listings (sponsor
+        track, paid in USDC on Base); Binance for OHLCV (free, no key,
+        full coverage). x402 has no OHLCV endpoint; without this
+        hybrid, x402 mode would have made 0 sleeve trades (only the
+        daily trade floor would fire, ~1 trade/day). With it, the
+        sleeves actually trade in x402 mode and the BNB HACK 2026
+        sponsor credit is preserved. Opt out via
+        `BNBAGENT_X402_NO_BINANCE_FALLBACK=1`.
+ADDED:  `connectors/binance.py` per-symbol resilience — silently
+        drops unknown symbols instead of crashing the whole batch
+        via `raise_for_status()`. Critical for the hybrid because
+        the strategy baskets include BEP-20s that aren't all listed
+        on Binance. The bulk `/ticker/price?symbols=[...]` endpoint
+        now falls back to per-symbol requests on 400.
+ADDED:  Wizard step 4 (🧠 LLM Brain, optional, skippable) + Ready
+        card showing live LLM status. The agent now has 6 wizard
+        steps: Network → Wallet → Data source → Brain → Sign → Ready.
+        The wizard auto-orders the Brain step before Sign Policy
+        (since the LLM is the advisor + reviewer). The skip button
+        keeps the agent working without an LLM (rule-based risk only).
+ADDED:  `GET /api/wallet/balances` — live on-chain balances for the
+        operator wallet. BSC native (BNB) + USDT/USDC/BUSD via
+        `balanceOf`; Base native (ETH) + USDC if x402 is active.
+        Best-effort RPC reads, per-chain errors captured, endpoint
+        never raises. Frontend: new "Wallet Holdings" panel in the
+        right rail, polled on a 30s cadence.
+ADDED:  `core/version.py` + `GET /api/version` — canonical version
+        + git commit. Topbar + footer stamp the live build so judges
+        can verify exactly which version they're looking at. Bumped
+        `pyproject.toml` 2.1.6 → 2.1.7 to match.
+ADDED:  `dashboard/frontend/index.html` judges-first polish:
+        - BNB-themed favicon (dark square + gold diamond + B mark)
+        - Capabilities strip (7 chip pills) under the data-source
+          banner: 3-sleeve trading, LLM risk reviewer, ERC-8004,
+          TWAK-signed txs, x402 USDC micro-data (+Binance OHLCV in
+          v2.1.7), ERC-20 token launcher, BNB Chain SDK broadcast
+        - LLM strip in left rail under sponsor dots: live model name
+          + provider, with a green dot when the LLM is configured
+        - Footer: "BNB Agent 2026 · Made by Blaze 🔥" + live
+          version/commit + github.com/ggBlaze/bnbagent + BNB HACK 2026
+        - All 3 sponsor dots are green with brand-color left borders
+        - "Blaze 🔥" in the footer links to https://x.com/OGDegen
+ADDED:  Demo mode UI: persistent `🟢 DEMO MODE — public read-only
+        view. All mutations disabled.` banner under the topbar,
+        `● demo` pulse badge in the topnav, and per-control English
+        hover tooltips on every locked control (kill switch, sleeve
+        toggles, wizard buttons, LLM key, persona editor, etc.) that
+        explain what the control would have done in non-readonly mode.
+CHANGED: Wizard step ordering — Network → **Wallet** → **Data source**
+        → **Brain** → Sign Policy → Ready. The x402 data source
+        needs the wallet to be created first (same EVM key covers
+        BSC trading + Base USDC payments). Side benefit: the
+        pre-existing bug where `wizardCreateWallet` advanced to
+        itself (`gotoStep(3)` in the old order) is fixed naturally.
+CHANGED: LLM provider dropdowns (wizard step 4 + Config pane) now
+        list **MiniMax first** as the recommended default (it was
+        already the default in `agents/providers.yaml` for all 4
+        agents but the UI didn't surface it; the backend accepted
+        it, the frontend didn't list it). Env var is `MINIMAX_API_KEY`,
+        base URL is `https://api.minimaxi.chat`, model is `MiniMax-M3`.
+CHANGED: `.env.example` got a new "Dashboard auth" section documenting
+        all 4 auth vars (the v2.1.6 gap: only the legacy
+        `BNBAGENT_AUTH_ENABLED` flag was documented; the 3 new vars
+        from the v2.1.6 commit — `BNBAGENT_AUTH_MODE`,
+        `BNBAGENT_AUTH_SECRET`, `JUDGE_PASSWORD`, `ADMIN_PASSWORD` —
+        are now listed with full mode matrix and example values).
+CHANGED: `tests/integration/test_replay_determinism_across_runs.py`
+        is now `@pytest.mark.slow` and the subprocess timeout bumped
+        240s → 360s. The test passes in 96s in isolation; the bump
+        gives headroom for the env tax when the live bot is on the
+        same CPU. New `pytest -m "not slow"` runs the fast subset
+        for pre-commit / quick feedback.
+CHANGED: README §17 (Dashboard auth) now documents all 3 modes
+        (was 2). Production checklist updated to use
+        `BNBAGENT_AUTH_MODE=readonly` as the contest recommendation.
+CHANGED: `docs/operations.md` "Production env vars" now has a full
+        mode matrix + the 3 minimal env-var blocks (contest URL,
+        operator VPS, local dev). Was just the 2-mode block.
+FIXED:    x402 mode in v2.1.6 was effectively non-trading because
+        the sleeves need OHLCV (x402 has none). The
+        HybridDataSource in this release routes OHLCV to Binance
+        so the sleeves actually fire trades. A bug that would have
+        lost 7 days of contest window to "0 trades" is now closed.
+TESTS:  +13 new tests (was 438, now 461 → was 461, now 468 with
+        the slow marker deselecting 1):
+        - 7 in tests/unit/test_auth.py (3-mode resolution, readonly
+          behavior, opt-out safety)
+        - 6 in tests/integration/test_auth.py (readonly end-to-end
+          via FastAPI TestClient, login refuses in readonly, no
+          escalation path to admin)
+        - 8 in tests/unit/test_balances.py (BSC + Base wallet balance
+          reads, stablecoin USD annotation, RPC failure handling)
+        - 1 in tests/integration/test_dashboard.py (wallet balances
+          endpoint shape)
+        - 6 in tests/unit/test_data_source.py (HybridDataSource
+          per-method routing, status reports fallback, from_config
+          default + opt-out)
+        - 2 in tests/unit/test_binance.py (per-symbol resilience for
+          both OHLCV and quotes)
+        - 1 marker registration in pyproject.toml (slow)
+
 ## v2.1.6 — Hard date-lock Token Module + 2-key wallet protection (2026-06-13)
 
 The public Coolify deploy exposes admin routes (setup, sign, register,

@@ -82,7 +82,10 @@ The wallet's private key is decrypted **only inside the host process** — insid
 2. **Rotate the password** every 90 days. The keystore format supports re-encryption without changing the key.
 3. For high-value mainnet runs, use a **hardware wallet** (Ledger / Trezor) — TWAK supports `ledger:` URIs natively. The Setup wizard does not yet expose this; do it via `npx twak init --ledger`.
 4. **Never** check `config/policy.yaml`, `~/.twak/wallet.json`, or any file containing the signature into a public repo.
-5. Use a **reverse proxy with TLS** (Caddy, nginx) in front of the dashboard. The dashboard does not enforce auth.
+5. Use a **reverse proxy with TLS** (Caddy, nginx) in front of the dashboard. The dashboard's auth posture depends on the mode:
+   - `BNBAGENT_AUTH_MODE=disabled` (default) — dashboard is open. Local dev only. **Do not expose a disabled-mode instance to the public internet.**
+   - `BNBAGENT_AUTH_MODE=password` — JWT-style cookie gate with 2 roles (judge read-mostly, admin full). Suitable for VPS with an operator doing maintenance.
+   - `BNBAGENT_AUTH_MODE=readonly` — no password, every mutation returns 403. **This is the recommended mode for the DoraHacks public URL.** Judges see everything, can't break anything. Defense in depth: even forging an admin cookie doesn't help (the cookie is bypassed entirely in readonly mode).
 
 ---
 

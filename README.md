@@ -699,14 +699,42 @@ The hardening commits are:
 bash install.sh && bash bnbagent
 ```
 
-`BNBAGENT_AUTH_ENABLED` defaults to `false`, so no password is required. The dashboard is open. Use this on your laptop.
+`BNBAGENT_AUTH_MODE` defaults to `disabled`, so no password is required. The dashboard is open. Use this on your laptop.
 
-### Public demo (2-mode password wrapper, v2.1.5+)
+### 3-mode auth wrapper (v2.1.5+, readonly added in v2.1.7)
 
-For the Coolify VPS / public URL, set the auth flag and two passwords in `.env` (gitignored; placeholders live in `.env.example`):
+One env var, `BNBAGENT_AUTH_MODE`, picks the mode. The legacy
+`BNBAGENT_AUTH_ENABLED` flag still works as a fallback
+(`true` → `password`, `false`/unset → `disabled`); `BNBAGENT_AUTH_MODE`
+wins when both are set.
+
+| Mode | When to use | Password? | Mutations? |
+|---|---|---|---|
+| `disabled` (default) | Local dev on your laptop | No | ✅ all allowed |
+| `password` | Coolify with operator-on-VPS | Yes (judge / admin) | ✅ with admin cookie |
+| `readonly` | Public contest URL (DoraHacks) | No | ❌ 403 on all POSTs |
+
+**For the Coolify contest URL (recommended):** set
+`BNBAGENT_AUTH_MODE=readonly`. Judges hit the URL with no
+password prompt, see the live agent (live state, sleeves, holdings,
+chat, replay), but every mutation route returns 403. The
+`🟢 DEMO MODE` banner in the topbar makes it obvious. Defense in
+depth: even forging an admin cookie doesn't help in readonly mode
+(the cookie is bypassed entirely — everyone is `judge`).
+
+**For operator maintenance:** switch to `password` mode temporarily
+(see Phase 4 of `coolify_runbook.md`), log in as admin, do the
+thing, switch back to `readonly`.
 
 ```bash
-BNBAGENT_AUTH_ENABLED=true
+# Mode A: local dev (default, no env var)
+# BNBAGENT_AUTH_MODE=disabled
+
+# Mode B: contest public URL (recommended for Coolify)
+BNBAGENT_AUTH_MODE=readonly
+
+# Mode C: VPS with operator maintenance
+BNBAGENT_AUTH_MODE=password
 BNBAGENT_AUTH_SECRET=$(openssl rand -hex 32)   # stable across restarts
 JUDGE_PASSWORD=see-the-agent-running
 ADMIN_PASSWORD=operate-the-agent
@@ -714,7 +742,7 @@ BNBAGENT_AUTH_COOKIE_SECURE=true              # required when behind TLS
 MINIMAX_API_KEY=sk-cp-...                     # the AI brain
 ```
 
-Two roles are enforced by FastAPI dependency injection:
+Two roles are enforced by FastAPI dependency injection (in `password` mode):
 - **`judge`** — can see Live, Chat, Replay, Tokens (read), and use the chat agent. *Cannot* edit policy, sign, run registration, change personas, or hit the kill switch.
 - **`admin`** — full operator access (judge + setup + sign + register + kill switch + wallet export).
 
@@ -752,8 +780,8 @@ bnbagent.example {
 - [ ] At least 1 ERC-8183 job in `Completed` state on mainnet
 - [ ] Backtest report `data/reports/replay.html` is committed
 - [ ] Dashboard reachable at a public URL with TLS + auth
-- [ ] `BNBAGENT_AUTH_ENABLED=true` + non-default `JUDGE_PASSWORD` / `ADMIN_PASSWORD`
-- [ ] `BNBAGENT_AUTH_SECRET` set to a stable value (`openssl rand -hex 32`)
+- [ ] `BNBAGENT_AUTH_MODE=readonly` set (contest URL) or `password` + non-default `JUDGE_PASSWORD` / `ADMIN_PASSWORD` (operator-on-VPS)
+- [ ] `BNBAGENT_AUTH_SECRET` set to a stable value (`openssl rand -hex 32`) if using `password` mode
 - [ ] BscScan + 8004scan deep links work
 
 Full details: [`docs/operations.md`](docs/operations.md).
