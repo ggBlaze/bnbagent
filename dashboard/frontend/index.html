@@ -30,6 +30,7 @@
   --blue:      #7dd3fc;          /* electric blue for live */
   --green:     #4ade80;
   --red:       #f87171;
+  --yellow:    #fbbf24;          /* warning amber */
   --pink:      #f472b6;
   --purple:    #a78bfa;
   --orange:    #fb923c;
@@ -614,7 +615,7 @@ body::before {
           </p>
           <div class="field">
             <label>Mode</label>
-            <select id="wiz-mode">
+            <select id="wiz-mode" onchange="populateRpcsForMode()">
               <option value="testnet">BSC Testnet (chain 97) — recommended for first run</option>
               <option value="mainnet">BSC Mainnet (chain 56) — uses real funds</option>
               <option value="replay">Replay mode (no live network)</option>
@@ -1483,6 +1484,29 @@ const WIZ = {
     replay: [],
   },
 };
+
+// When the user changes the network dropdown, populate the RPC textarea with
+// the defaults for that mode. Refuses to clobber custom RPCs the user typed —
+// the textarea must be empty or match one of the known default sets.
+function populateRpcsForMode() {
+  const mode = $('wiz-mode').value;
+  const ta = $('wiz-rpcs');
+  if (!ta) return;
+  const current = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
+  const allDefaults = new Set([
+    ...WIZ.rpcs.testnet,
+    ...WIZ.rpcs.mainnet,
+    ...WIZ.rpcs.replay,
+  ]);
+  const isDefault = current.length === 0 || current.every(r => allDefaults.has(r));
+  if (!isDefault) {
+    // user typed custom RPCs — don't overwrite silently; hint with a yellow border
+    ta.style.borderColor = 'var(--yellow)';
+    return;
+  }
+  ta.value = (WIZ.rpcs[mode] || []).join('\n');
+  ta.style.borderColor = '';
+}
 
 async function wizardLoad() {
   const s = await jget('/api/setup');
