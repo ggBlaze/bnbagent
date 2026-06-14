@@ -29,36 +29,68 @@ log = logging.getLogger("mcp.server")
 
 # v2.0.8-M3: module-level so it can be imported and unit-tested.
 # Same behavior as before; just hoisted out of main() for testability.
+#
+# v2.1.6 (Aura): Rewrote as a PURE ASGI middleware instead of subclassing
+# starlette.middleware.base.BaseHTTPMiddleware. BaseHTTPMiddleware wraps
+# the downstream response in a body-stream iterator that is known to
+# misbehave when the downstream emits a streaming response (SSE) AND a
+# subsequent request hits a 404 — the previous request's send callable
+# is still held in scope, and the iterator trips on a stale
+# `http.response.start` with `content-length: 0`. Pure ASGI middlewares
+# don't buffer the response, so the bug class is eliminated.
 try:
-    from starlette.middleware.base import BaseHTTPMiddleware
-    from starlette.responses import JSONResponse
+    import json as _json
 
-    class _TokenAuthMiddleware(BaseHTTPMiddleware):
-        """Optional Bearer-token auth for the MCP SSE transport.
+    class _TokenAuthMiddleware:
+        """Optional Bearer-token auth for the MCP SSE transport (pure ASGI).
 
         If BNBAGENT_MCP_TOKEN is set, every SSE / messages request must
-        carry a matching Authorization: Bearer <token> header. If unset,
+        carry a matching Authorization: Bearer *** header. If unset,
         the server logs a WARNING and accepts unauthenticated requests
         (safe for localhost binding). The token is never logged, never
         written to disk, never exposed in /api/* responses.
         """
 
         def __init__(self, app, token: str | None = None):
-            super().__init__(app)
+            self.app = app
             self._token = token
 
-        async def dispatch(self, request, call_next):
+        async def __call__(self, scope, receive, send):
+            # Lifespan / websocket etc. just pass through.
+            if scope["type"] != "http":
+                await self.app(scope, receive, send)
+                return
+            # No token configured → localhost is safe, pass through.
             if self._token is None:
-                return await call_next(request)
-            auth = request.headers.get("authorization", "")
-            if not auth.startswith("Bearer ") or auth[7:] != self._token:
-                return JSONResponse(
-                    {"error": "missing or invalid Bearer token"},
-                    status_code=401,
-                )
-            return await call_next(request)
+                await self.app(scope, receive, send)
+                return
+            # Look for the Authorization header in the raw ASGI scope.
+            # (We do NOT use starlette.requests.Request here, because
+            # constructing one has its own side effects in some
+            # starlette versions, and we want the auth check to be
+            # dependency-free.)
+            auth_value = ""
+            for name, value in scope.get("headers", []):
+                if name == b"authorization":
+                    auth_value = value.decode("latin-1", errors="replace")
+                    break
+            if not auth_value.startswith("Bearer ") or auth_value[7:] != self._token:
+                body = _json.dumps({"error": "missing or invalid Bearer token"}).encode()
+                await send({
+                    "type": "http.response.start",
+                    "status": 401,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(body)).encode()),
+                    ],
+                })
+                await send({"type": "http.response.body", "body": body})
+                return
+            # Token valid → pass through unmodified.
+            await self.app(scope, receive, send)
 except ImportError:
-    # starlette not installed (e.g. minimal env without MCP extra)
+    # stdlib json is always present in supported Pythons; the try/except
+    # is kept for symmetry with the historical shape of this block.
     _TokenAuthMiddleware = None  # type: ignore
 
 
