@@ -23,6 +23,16 @@ fi
 
 export PYTHONPATH="$ROOT:${PYTHONPATH:-}"
 
+# Resolve the Python interpreter. Prefers the venv (if activated by the
+# caller) or the system `python3`. Works on Ubuntu 24+/26+ where `python`
+# is not on PATH by default. Falls back to `python` for very old systems.
+PY="$(command -v python3 || command -v python)"
+if [[ -z "$PY" ]]; then
+  err "no python3 or python on PATH. Install Python 3.10+ or run 'bash install.sh' first."
+  exit 1
+fi
+export PY
+
 say()  { printf "\033[1;36m[bnbagent]\033[0m %s\n" "$*"; }
 ok()   { printf "\033[1;32m[bnbagent]\033[0m %s\n" "$*"; }
 err()  { printf "\033[1;31m[bnbagent]\033[0m %s\n" "$*" >&2; }
@@ -34,8 +44,7 @@ case "${1:-}" in
   --replay)
     say "running 7-day synthetic replay (no live network)…"
     set +e
-    python -m backtest.replay \
-        --tape data/synthetic_week.json \
+    "$PY" -m backtest.replay \
         --report data/reports/replay.html \
         --equity "$EQUITY"
     rc=$?
@@ -44,11 +53,11 @@ case "${1:-}" in
     # and exit non-zero on any breach so this script is CI-friendly.
     metrics_json="${BNBAGENT_REPLAY_METRICS:-data/reports/replay.json}"
     if [[ -f "$metrics_json" ]]; then
-      sharpe=$(python -c "import json,sys; print(json.load(open('$metrics_json')).get('sharpe', 0.0))")
-      max_dd=$(python -c "import json,sys; print(json.load(open('$metrics_json')).get('max_drawdown_pct', 0.0))")
-      breaches=$(python -c "import json,sys; print(json.load(open('$metrics_json')).get('breaches', 0))")
+      sharpe=$("$PY" -c "import json,sys; print(json.load(open('$metrics_json')).get('sharpe', 0.0))")
+      max_dd=$("$PY" -c "import json,sys; print(json.load(open('$metrics_json')).get('max_drawdown_pct', 0.0))")
+      breaches=$("$PY" -c "import json,sys; print(json.load(open('$metrics_json')).get('breaches', 0))")
       ok "replay: sharpe=$sharpe maxDD=$max_dd% breaches=$breaches"
-      python -c "
+      "$PY" -c "
 import json, sys
 m = json.load(open('$metrics_json'))
 breach = (m.get('sharpe', 0.0) < 0.0) or (m.get('max_drawdown_pct', 0.0) > 8.0) or (m.get('breaches', 0) > 0)
@@ -59,20 +68,20 @@ sys.exit(1 if breach else 0)
     ;;
   --repl)
     say "opening Python REPL with components pre-loaded (p is the boot dict)…"
-    exec python -i -c "from core.boot import boot; from decimal import Decimal; p = boot(Decimal('$EQUITY')); print('p =', list(p.keys()))"
+    exec "$PY" -i -c "from core.boot import boot; from decimal import Decimal; p = boot(Decimal('$EQUITY')); print('p =', list(p.keys()))"
     ;;
   "")
     say "starting agent (equity=\$$EQUITY) and dashboard on http://localhost:$DASHBOARD_PORT"
     say "Ctrl+C to stop."
     echo
     # run dashboard in the background, agent in the foreground so Ctrl+C stops both
-    python -m dashboard.backend.main >"logs/dashboard.log" 2>&1 &
+    "$PY" -m dashboard.backend.main >"logs/dashboard.log" 2>&1 &
     DASH_PID=$!
     trap 'kill $DASH_PID 2>/dev/null || true' INT TERM EXIT
     # give the dashboard a moment to bind
     sleep 1
     ok "dashboard PID=$DASH_PID → http://localhost:$DASHBOARD_PORT"
-    python -m core.main --equity "$EQUITY" --config config/config.yaml --policy config/policy.yaml
+    "$PY" -m core.main --equity "$EQUITY" --config config/config.yaml --policy config/policy.yaml
     ;;
   *)
     echo "usage: bash bnbagent [--replay|--repl]" >&2
