@@ -40,6 +40,13 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent.parent
 HELPER = ROOT / "tests" / "integration" / "_replay_runner.py"
 
+# Marked slow because it spawns 3 subprocesses (~30s each) that run
+# the full 6-regime replay sweep. In CI / pre-commit you can skip it
+# with `pytest -m "not slow"` for fast feedback. In the full suite
+# it usually finishes in ~100s, but can stretch to >4min when the
+# live bot is eating CPU on the same host (env tax, not a regression).
+pytestmark = pytest.mark.slow
+
 # Three offsets chosen so that each `(offset mod 3600)` lands in a
 # different 300-second bin. The bug is in
 # `make_synthetic_week_hourly`: it buckets 5m bars by
@@ -80,7 +87,7 @@ def test_replay_is_deterministic_across_runs(tmp_path):
             env=env,
             capture_output=True,
             text=True,
-            timeout=240,
+            timeout=360,  # was 240; bumped 2026-06-14 to absorb env tax from live bot
         )
         if r.returncode != 0:
             pytest.fail(

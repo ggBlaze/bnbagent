@@ -56,6 +56,9 @@ packages = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "slow: long-running tests (>60s) that can be skipped with `-m 'not slow'` for fast feedback",
+]
 
 [tool.ruff]
 line-length = 100
