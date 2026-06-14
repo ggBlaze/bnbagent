@@ -17,7 +17,7 @@ import subprocess
 from pathlib import Path
 
 # Release version. Bump alongside pyproject.toml.
-__version__ = "2.1.6"
+__version__ = "2.1.7"
 
 
 def _read_git_commit() -> str:

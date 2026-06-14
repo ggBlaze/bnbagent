@@ -31,17 +31,19 @@ def auth_enabled_client(monkeypatch):
 
     # Save the original module-level state so we can restore on teardown.
     saved = {
-        "AUTH_ENABLED": auth_mod.AUTH_ENABLED,
+        "AUTH_MODE":     getattr(auth_mod, "AUTH_MODE", "disabled"),
+        "AUTH_ENABLED":  auth_mod.AUTH_ENABLED,
         "JUDGE_PASSWORD": auth_mod.JUDGE_PASSWORD,
         "ADMIN_PASSWORD": auth_mod.ADMIN_PASSWORD,
-        "SECRET": auth_mod.SECRET,
+        "SECRET":        auth_mod.SECRET,
     }
     # Patch env + module globals
     monkeypatch.setenv("BNBAGENT_AUTH_ENABLED", "true")
     monkeypatch.setenv("JUDGE_PASSWORD", "judge-test")
     monkeypatch.setenv("ADMIN_PASSWORD", "admin-test")
     monkeypatch.setenv("BNBAGENT_AUTH_SECRET", "test-secret-integration-98765")
-    auth_mod.AUTH_ENABLED   = True
+    auth_mod.AUTH_MODE     = "password"
+    auth_mod.AUTH_ENABLED  = True
     auth_mod.JUDGE_PASSWORD = "judge-test"
     auth_mod.ADMIN_PASSWORD = "admin-test"
     auth_mod.SECRET         = "test-secret-integration-98765"
@@ -354,3 +356,105 @@ def test_token_deploy_works_after_contest_with_env(auth_enabled_client, monkeypa
     })
     assert r.status_code == 200
     assert r.json()["result"]["symbol"] == "TST"
+
+
+
+# --- v2.1.7: readonly mode end-to-end -------------------------------------
+
+@pytest.fixture
+def readonly_client(monkeypatch):
+    """Build a TestClient with BNBAGENT_AUTH_MODE=readonly.
+
+    Follows the same patch-globals-not-reload pattern as
+    auth_enabled_client (reloading breaks the named binding in main.py).
+    """
+    from dashboard.backend import auth as auth_mod
+    from dashboard.backend import main as main_mod
+    saved = {
+        "AUTH_MODE":   getattr(auth_mod, "AUTH_MODE", "disabled"),
+        "AUTH_ENABLED": auth_mod.AUTH_ENABLED,
+        "SECRET":      auth_mod.SECRET,
+    }
+    # Set env + module globals
+    monkeypatch.setenv("BNBAGENT_AUTH_MODE", "readonly")
+    monkeypatch.setenv("BNBAGENT_AUTH_SECRET", "readonly-test-secret")
+    auth_mod.AUTH_MODE    = "readonly"
+    auth_mod.AUTH_ENABLED = False  # readonly is NOT enabled (no password gate)
+    auth_mod.SECRET       = "readonly-test-secret"
+    # Re-build the app so it picks up the patched auth module state
+    app = main_mod.build_app()
+    with TestClient(app) as client:
+        try:
+            yield client
+        finally:
+            for k, v in saved.items():
+                setattr(auth_mod, k, v)
+
+
+def test_readonly_mode_status_reports_mode(readonly_client):
+    """/api/auth/status returns mode=readonly and role=judge (auto-judge)."""
+    s = readonly_client.get("/api/auth/status").json()
+    assert s["mode"] == "readonly"
+    assert s["role"] == "judge"
+    # Legacy `enabled` flag stays False in readonly (no password gate)
+    assert s["enabled"] is False
+
+
+def test_readonly_mode_gets_pass(readonly_client):
+    """All public reads pass without any cookie."""
+    for path in ("/api/healthz", "/api/version", "/api/wallet/balances",
+                 "/api/data-source", "/api/llm/status", "/api/config",
+                 "/api/agent/personas"):
+        r = readonly_client.get(path)
+        assert r.status_code != 403, f"{path} returned 403 in readonly: {r.text}"
+        assert r.status_code != 401, f"{path} returned 401 in readonly: {r.text}"
+
+
+def test_readonly_mode_admin_posts_403(readonly_client):
+    """Every admin-only POST returns 403 with a clear readonly message."""
+    for path, body in (
+        ("/api/control",                    {"op": "kill"}),
+        ("/api/setup/config",               {"mode": "mainnet", "rpcs": ["https://x"]}),
+        ("/api/setup/wallet",               {"password": "x" * 10}),
+        ("/api/setup/reset",                {}),
+        ("/api/data-source/select",         {"tier": "x402"}),
+        ("/api/llm/key",                    {"provider": "openai", "key": "sk-test"}),
+        ("/api/llm/config",                 {"provider": "openai", "model": "x"}),
+        ("/api/wallet/export-mnemonic",     {"password": "x" * 10}),
+        ("/api/agent/personas/chat/reset",  {}),
+    ):
+        r = readonly_client.post(path, json=body)
+        assert r.status_code == 403, f"{path} expected 403, got {r.status_code}: {r.text}"
+        assert "readonly" in r.json()["detail"].lower(), \
+            f"{path} 403 detail should mention readonly: {r.json()['detail']}"
+
+
+def test_readonly_mode_login_endpoint_refuses(readonly_client):
+    """The login endpoint refuses in readonly mode (no way to escalate)."""
+    r = readonly_client.post("/api/auth/login", json={"password": "admin"})
+    assert r.status_code == 403
+    assert "readonly" in r.json()["detail"].lower() or "disabled" in r.json()["detail"].lower()
+
+
+def test_readonly_mode_chat_tools_passes(readonly_client):
+    """/api/chat/tools is gated by require_judge \u2014 readonly is judge, so it passes."""
+    r = readonly_client.get("/api/chat/tools")
+    assert r.status_code != 401
+    assert r.status_code != 403
+
+
+def test_readonly_mode_no_way_to_escalate_to_admin(readonly_client):
+    """Even forging a real admin cookie doesn't help in readonly mode.
+
+    The cookie is bypassed entirely; the mode itself caps the role at judge.
+    """
+    from dashboard.backend import auth as auth_mod
+    admin_token = auth_mod.make_token("admin")
+    r = readonly_client.post(
+        "/api/setup/reset",
+        json={},
+        cookies={auth_mod.COOKIE_NAME: admin_token},
+    )
+    # Should still 403 (readonly caps at judge, the cookie is ignored)
+    assert r.status_code == 403
+    assert "readonly" in r.json()["detail"].lower()

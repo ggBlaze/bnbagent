@@ -546,6 +546,115 @@ body::before {
   display: flex; align-items: center; gap: 8px;
 }
 
+/* === demo mode (readonly) ====================================== */
+#demo-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px;
+  background: rgba(198,242,78,0.08);
+  border-bottom: 1px solid var(--accent);
+  color: var(--accent);
+  font: 600 11px/1.4 'JetBrains Mono', monospace;
+  letter-spacing: 0.04em;
+}
+#demo-banner .demo-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: pulse 1.4s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+/* In demo mode, disable every mutation control with a clear visual
+   cue. The backend also returns 403 (defense in depth) — this is
+   purely UX. The kill switch and sleeve toggles are the most
+   prominent examples. */
+body.demo-mode .kill,
+body.demo-mode .toggle,
+body.demo-mode [data-mutation="true"] {
+  opacity: 0.35;
+  cursor: not-allowed !important;
+  filter: grayscale(0.6);
+  position: relative;
+}
+body.demo-mode .kill::after,
+body.demo-mode .toggle::after,
+body.demo-mode [data-mutation="true"]::after {
+  content: "\1F512"; /* lock */
+  position: absolute; top: 4px; right: 4px;
+  font-size: 10px; opacity: 0.6;
+}
+
+/* Also flag mutation buttons inside the wizard + Config pane. The
+   list is small enough that explicit selectors are clearer than a
+   generic data-attr sweep. */
+body.demo-mode #kill-btn,
+body.demo-mode #wiz-wallet-btn,
+body.demo-mode #ds-change-button,
+body.demo-mode #llm-wiz-status-line,
+body.demo-mode #wiz-wiz-btn,
+body.demo-mode button[onclick^="wizardReset"],
+body.demo-mode button[onclick^="wizardSign"],
+body.demo-mode button[onclick^="wizardCreateWallet"],
+body.demo-mode button[onclick^="dsChangeOpen"],
+body.demo-mode button[onclick^="llmWizSet"],
+body.demo-mode button[onclick^="llmKeySet"],
+body.demo-mode button[onclick^="llmKeyTest"],
+body.demo-mode button[onclick^="personaEdit"],
+body.demo-mode button[onclick^="personaReset"],
+body.demo-mode button[onclick^="openExportMnemonic"],
+body.demo-mode button[onclick^="controlSleeve"],
+body.demo-mode button[onclick^="toggleKill"] {
+  opacity: 0.45;
+  cursor: not-allowed !important;
+  filter: grayscale(0.6);
+  position: relative;
+}
+body.demo-mode #kill-btn::after,
+body.demo-mode #wiz-wallet-btn::after,
+body.demo-mode #ds-change-button::after,
+body.demo-mode button[onclick^="wizardReset"]::after,
+body.demo-mode button[onclick^="wizardSign"]::after,
+body.demo-mode button[onclick^="wizardCreateWallet"]::after,
+body.demo-mode button[onclick^="dsChangeOpen"]::after,
+body.demo-mode button[onclick^="llmWizSet"]::after,
+body.demo-mode button[onclick^="llmKeySet"]::after,
+body.demo-mode button[onclick^="llmKeyTest"]::after,
+body.demo-mode button[onclick^="personaEdit"]::after,
+body.demo-mode button[onclick^="personaReset"]::after,
+body.demo-mode button[onclick^="openExportMnemonic"]::after,
+body.demo-mode button[onclick^="controlSleeve"]::after,
+body.demo-mode button[onclick^="toggleKill"]::after {
+  content: "\1F512 \A locked";
+  white-space: pre;
+  position: absolute; top: 2px; right: 4px;
+  font: 500 8px/1 'Inter', sans-serif; opacity: 0.7;
+}
+
+/* In demo mode, clicking a locked button just shows a hint instead
+   of letting the click through to the (broken) handler. */
+body.demo-mode .kill,
+body.demo-mode .toggle,
+body.demo-mode #kill-btn,
+body.demo-mode #wiz-wallet-btn,
+body.demo-mode #ds-change-button,
+body.demo-mode button[onclick^="wizardReset"],
+body.demo-mode button[onclick^="wizardSign"],
+body.demo-mode button[onclick^="wizardCreateWallet"],
+body.demo-mode button[onclick^="dsChangeOpen"],
+body.demo-mode button[onclick^="llmWizSet"],
+body.demo-mode button[onclick^="llmKeySet"],
+body.demo-mode button[onclick^="llmKeyTest"],
+body.demo-mode button[onclick^="personaEdit"],
+body.demo-mode button[onclick^="personaReset"],
+body.demo-mode button[onclick^="openExportMnemonic"],
+body.demo-mode button[onclick^="controlSleeve"],
+body.demo-mode button[onclick^="toggleKill"] {
+  pointer-events: auto; /* keep the cursor: not-allowed, but allow title */
+}
+
 /* === capabilities strip (judges-first overview) ================ */
 .cap-strip {
   display: flex; flex-wrap: wrap; gap: 6px 10px;
@@ -664,9 +773,16 @@ body::before {
     <button id="nav-logs"   onclick="showPane('logs')">Logs</button>
     <button id="nav-replay" onclick="showPane('replay')">Replay</button>
     <span class="live" id="setup-badge" style="display:none; border-color:var(--accent-2); color:var(--accent-2);"><span class="pulse" style="background:var(--accent-2); box-shadow:0 0 0 0 var(--accent-2);"></span><span>setup required</span></span>
+    <span class="live" id="demo-badge" style="display:none; border-color:var(--accent); color:var(--accent);"><span class="pulse" style="background:var(--accent); box-shadow:0 0 0 0 var(--accent);"></span><span>demo</span></span>
     <span class="live"><span class="pulse"></span><span id="updated">live</span></span>
   </nav>
 </header>
+
+<!-- ============== DEMO MODE BANNER (readonly) ============== -->
+<div id="demo-banner" style="display:none;">
+  <span class="demo-dot"></span>
+  <span><strong>DEMO MODE</strong> — public read-only view. All mutations disabled. Live data, chat, and ledgers are read-only.</span>
+</div>
 
 <!-- ============== SHELL ============== -->
 <div class="shell">
@@ -1366,6 +1482,69 @@ async function loadVersion() {
   }
 }
 loadVersion();
+
+// --- auth mode (disabled | password | readonly) ----------------------------
+// Set by loadAuthStatus() on page load. APP_MODE === 'readonly' means the
+// public read-only demo (the Coolify URL judges hit during the contest).
+// 'disabled' means local dev. 'password' means an operator must log in
+// (frontend login flow not implemented yet — that's a v2.1.8 item).
+let APP_MODE = 'disabled';
+let APP_ROLE = 'admin';
+
+async function loadAuthStatus() {
+  const s = await jget('/api/auth/status');
+  if (!s) return;
+  APP_MODE = s.mode || (s.enabled ? 'password' : 'disabled');
+  APP_ROLE = s.role || (APP_MODE === 'readonly' ? 'judge' : 'admin');
+  applyAuthMode();
+}
+
+function applyAuthMode() {
+  const banner = $('demo-banner');
+  const badge  = $('demo-badge');
+  if (APP_MODE === 'readonly') {
+    if (banner) banner.style.display = 'flex';
+    if (badge)  badge.style.display  = '';
+    document.body.classList.add('demo-mode');
+  } else {
+    if (banner) banner.style.display = 'none';
+    if (badge)  badge.style.display  = 'none';
+    document.body.classList.remove('demo-mode');
+  }
+}
+loadAuthStatus();
+
+// Demo-mode guard: in readonly mode, clicking a locked control shows a
+// short banner hint instead of letting the click bubble to a handler that
+// will 403 anyway. Belt-and-suspenders on top of the CSS pointer-events.
+document.addEventListener('click', (e) => {
+  if (APP_MODE !== 'readonly') return;
+  const t = e.target.closest('button, .toggle, .kill, [data-mutation="true"]');
+  if (!t) return;
+  // The elements that should be allowed in demo mode (read-only stuff)
+  // are buttons that point to GETs (refresh, view, etc.). Anything with
+  // a write-style onclick is locked. Simple heuristic: if the element
+  // has onclick that contains any of the locked action names, suppress.
+  const oc = t.getAttribute('onclick') || '';
+  const lockedPrefixes = [
+    'wizardReset', 'wizardSign', 'wizardCreateWallet', 'dsChangeOpen',
+    'llmWizSet', 'llmKeySet', 'llmKeyTest',
+    'personaEdit', 'personaReset',
+    'openExportMnemonic', 'controlSleeve', 'toggleKill',
+  ];
+  if (lockedPrefixes.some(p => oc.startsWith(p))) {
+    e.preventDefault();
+    e.stopPropagation();
+    showDemoLockedHint(t);
+  }
+}, true);
+
+function showDemoLockedHint(el) {
+  // Briefly flash a tooltip via the title attribute; cleanest UX in 6 lines.
+  const old = el.getAttribute('title') || '';
+  el.setAttribute('title', '\ud83d\udd12 Demo mode: this action is locked. The operator can unlock by setting BNBAGENT_AUTH_MODE=password in the host env.');
+  setTimeout(() => el.setAttribute('title', old), 3500);
+}
 
 async function jget(path) { try { const r = await fetch(path); return await r.json(); } catch { return {}; } }
 async function jpost(path, body) {

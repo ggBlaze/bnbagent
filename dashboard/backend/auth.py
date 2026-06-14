@@ -1,20 +1,26 @@
-"""2-mode password wrapper for the public demo.
+"""3-mode auth wrapper for the dashboard.
 
-v2.1.5: the dashboard is going on a public VPS via Coolify. We need
-a way to gate the "operator" controls (setup wizard, policy sign,
-persona edit, registration, kill switch, wallet export) from the
-"judge demo" controls (live state, chat, replay, persona read).
+v2.1.5: 2-mode password wrapper for the public demo (Coolify).
+v2.1.7: added `readonly` mode — passwordless public view where every
+mutation route returns 403. Built for the BNB HACK 2026 contest
+submission URL: judges can hit the page, see the agent live (live
+state, sleeves, holdings, chat, replay), but cannot change anything.
+The operator can SSH in and flip the env var to `password` to do
+operator work, or to `disabled` to remove the wrapper entirely.
 
-Two passwords, two roles:
+Three modes, one env var:
+  * BNBAGENT_AUTH_MODE=disabled   (default) -> no auth, every request is admin
+  * BNBAGENT_AUTH_MODE=password              -> JUDGE/ADMIN_PASSWORD gate
+  * BNBAGENT_AUTH_MODE=readonly              -> no auth, mutations return 403
+
+Backward compat: BNBAGENT_AUTH_ENABLED=true is treated as
+BNBAGENT_AUTH_MODE=password. BNBAGENT_AUTH_ENABLED=false (or unset)
+is treated as BNBAGENT_AUTH_MODE=disabled. The new var wins if both
+are set, with a startup log line.
+
+Two passwords, two roles (only meaningful in `password` mode):
   * JUDGE_PASSWORD -> "judge" role -> read-mostly demo
   * ADMIN_PASSWORD -> "admin" role -> full operator access
-
-A single flag controls whether auth is on at all:
-  * BNBAGENT_AUTH_ENABLED=true (default OFF) -> password required
-  * BNBAGENT_AUTH_ENABLED=false              -> no auth, everyone is admin
-
-The OFF mode is for local dev: `bash bnbagent` on a laptop doesn't need
-a password. The ON mode is for the Coolify public deploy.
 
 Session is a signed cookie (HMAC-SHA256, stdlib only — no new dep).
 Cookie carries {role, exp}; expired cookies are rejected. The secret
@@ -40,11 +46,32 @@ log = logging.getLogger(__name__)
 # --- configuration ---------------------------------------------------------
 
 Role = Literal["judge", "admin"]
+AuthMode = Literal["disabled", "password", "readonly"]
+VALID_MODES = ("disabled", "password", "readonly")
 
-# Public, so the frontend can read its own role.
-AUTH_ENABLED: bool = os.environ.get("BNBAGENT_AUTH_ENABLED", "false").lower() in (
-    "1", "true", "yes", "on",
-)
+
+def _resolve_mode() -> AuthMode:
+    """Pick the active mode. New var wins; old var is the back-compat shim."""
+    raw = os.environ.get("BNBAGENT_AUTH_MODE", "").strip().lower()
+    if raw:
+        if raw not in VALID_MODES:
+            log.warning(
+                "BNBAGENT_AUTH_MODE=%r is not one of %s. Defaulting to 'disabled'.",
+                raw, VALID_MODES,
+            )
+            return "disabled"
+        return raw  # type: ignore[return-value]
+    # Backward compat: BNBAGENT_AUTH_ENABLED=true -> password, else disabled.
+    enabled = os.environ.get("BNBAGENT_AUTH_ENABLED", "false").lower() in (
+        "1", "true", "yes", "on",
+    )
+    return "password" if enabled else "disabled"
+
+
+AUTH_MODE: AuthMode = _resolve_mode()
+# Back-compat alias. New code should branch on AUTH_MODE.
+AUTH_ENABLED: bool = AUTH_MODE in ("password",)
+
 # Default passwords are intentionally obvious — they're dev defaults.
 # In production, set both env vars to non-guessable values (or random
 # ones via `openssl rand -hex 32`).
@@ -65,7 +92,7 @@ _SECRET_FROM_ENV = os.environ.get("BNBAGENT_AUTH_SECRET", "")
 if _SECRET_FROM_ENV:
     SECRET: str = _SECRET_FROM_ENV
 else:
-    if AUTH_ENABLED:
+    if AUTH_MODE == "password":
         log.warning(
             "BNBAGENT_AUTH_SECRET is not set. Using a dev-only fallback; "
             "sessions will be invalidated on every restart. Set "
@@ -73,6 +100,9 @@ else:
             "for production."
         )
     SECRET = _DEV_FALLBACK_SECRET
+
+# Log the active mode at import time so deploy logs are self-explanatory.
+log.info("dashboard auth mode: %s", AUTH_MODE)
 
 
 # --- cookie sign / verify --------------------------------------------------
@@ -126,10 +156,16 @@ def parse_token(token: str) -> Role | None:
 # --- request-level role resolution ----------------------------------------
 
 def _role_from_request(request: Request) -> Role | None:
-    """Read the session cookie and return the role. When AUTH_ENABLED is
-    off, returns 'admin' (bypass) without inspecting the cookie."""
-    if not AUTH_ENABLED:
+    """Resolve the request's effective role for the current AUTH_MODE.
+
+    * disabled -> everyone is admin (no checks, no cookie)
+    * readonly -> everyone is judge (mutations will 403, reads pass)
+    * password -> read the signed cookie, return role or None
+    """
+    if AUTH_MODE == "disabled":
         return "admin"
+    if AUTH_MODE == "readonly":
+        return "judge"
     return parse_token(request.cookies.get(COOKIE_NAME, ""))
 
 
@@ -142,7 +178,11 @@ def require_role(min_role: Role):
     """Factory for a FastAPI dependency that requires at least `min_role`.
 
     Order: admin > judge. Admin can do anything a judge can.
-    When AUTH_ENABLED is off, every request is treated as admin.
+
+    * disabled mode -> every request is treated as admin (no checks)
+    * readonly mode -> admin-only routes return 403 (no way to escalate
+      to admin from the public URL; the operator must flip the env var)
+    * password mode -> check the signed cookie
     """
     required_level = 1 if min_role == "judge" else 2
 
@@ -156,9 +196,16 @@ def require_role(min_role: Role):
             )
         level = 2 if role == "admin" else 1
         if level < required_level:
+            # Different error message in readonly mode so the operator's
+            # logs make it obvious why a write was rejected.
+            detail = (
+                f"readonly mode: mutations disabled ({min_role}-only route)"
+                if AUTH_MODE == "readonly"
+                else f"role '{role}' cannot access {min_role}-only route"
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"role '{role}' cannot access {min_role}-only route",
+                detail=detail,
             )
         return role
 
@@ -173,7 +220,11 @@ require_judge = require_role("judge")
 # --- login / logout helpers (called from main.py) -------------------------
 
 def check_password(password: str) -> Role | None:
-    """Return the role for a given password, or None if it's neither."""
+    """Return the role for a given password, or None if it's neither.
+
+    Only meaningful in `password` mode. The /api/auth/login endpoint
+    refuses to authenticate in any other mode.
+    """
     if password == ADMIN_PASSWORD:
         return "admin"
     if password == JUDGE_PASSWORD:
@@ -183,5 +234,12 @@ def check_password(password: str) -> Role | None:
 
 def is_admin_request(request: Request) -> bool:
     """Cheap predicate for handlers that want to branch on admin without
-    raising. Returns True for admin, False for judge, False for no auth."""
+    raising. Returns True for admin, False for judge, False for no auth.
+    In readonly mode this is always False (everyone is judge)."""
     return _role_from_request(request) == "admin"
+
+
+def current_mode() -> AuthMode:
+    """Return the active mode (for /api/auth/status and the frontend)."""
+    return AUTH_MODE
+

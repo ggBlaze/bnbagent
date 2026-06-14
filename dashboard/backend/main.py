@@ -252,11 +252,24 @@ def build_app() -> FastAPI:
         role = _auth.current_role(request)
         return JSONResponse({
             "enabled": _auth.AUTH_ENABLED,
-            "role": role,
+            "mode":   _auth.current_mode(),
+            "role":   role,
         })
 
     @app.post("/api/auth/login")
     async def auth_login(body: dict, response: Response):
+        # Only meaningful in `password` mode. In `disabled` the wrapper
+        # is bypassed anyway (no login needed), in `readonly` the
+        # public URL must not be able to escalate to admin via the
+        # password gate.
+        if _auth.AUTH_MODE != "password":
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"login is disabled in {(_auth.AUTH_MODE or 'unknown')} mode. "
+                    "Only the 'password' mode uses the JUDGE/ADMIN gate."
+                ),
+            )
         password = body.get("password", "")
         role = _auth.check_password(password)
         if role is None:

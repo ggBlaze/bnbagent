@@ -200,3 +200,119 @@ def test_require_judge_accepts_both_roles():
                 "headers": [(b"cookie", f"bnbagent_session={token}".encode())],
             })
             assert auth_mod.require_judge(req) == role
+
+
+# --- v2.1.7: 3-mode auth (disabled | password | readonly) -----------------
+
+def test_auth_mode_disabled_by_default():
+    """No env vars set -> mode='disabled', every request is admin."""
+    with patch.dict("os.environ", {}, clear=False):
+        # remove any set vars
+        import os
+        for k in ("BNBAGENT_AUTH_MODE", "BNBAGENT_AUTH_ENABLED",
+                  "BNBAGENT_AUTH_SECRET", "JUDGE_PASSWORD", "ADMIN_PASSWORD"):
+            os.environ.pop(k, None)
+        import importlib
+        import dashboard.backend.auth as auth_mod
+        importlib.reload(auth_mod)
+        assert auth_mod.AUTH_MODE == "disabled"
+        assert auth_mod.AUTH_ENABLED is False  # back-compat alias
+        assert auth_mod.current_mode() == "disabled"
+
+
+def test_auth_mode_password_via_legacy_flag():
+    """BNBAGENT_AUTH_ENABLED=true (no BNBAGENT_AUTH_MODE) -> mode='password'."""
+    with patch.dict("os.environ", {"BNBAGENT_AUTH_ENABLED": "true",
+                                  "BNBAGENT_AUTH_SECRET": "test-secret-12345"},
+                   clear=False):
+        import importlib
+        import dashboard.backend.auth as auth_mod
+        importlib.reload(auth_mod)
+        assert auth_mod.AUTH_MODE == "password"
+        assert auth_mod.AUTH_ENABLED is True
+
+
+def test_auth_mode_new_var_wins_over_legacy():
+    """BNBAGENT_AUTH_MODE takes precedence over the legacy flag."""
+    with patch.dict("os.environ", {
+        "BNBAGENT_AUTH_MODE": "readonly",
+        "BNBAGENT_AUTH_ENABLED": "true",   # would say password, but mode wins
+        "BNBAGENT_AUTH_SECRET": "test-secret-12345",
+    }, clear=False):
+        import importlib
+        import dashboard.backend.auth as auth_mod
+        importlib.reload(auth_mod)
+        assert auth_mod.AUTH_MODE == "readonly"
+
+
+def test_auth_mode_invalid_value_defaults_to_disabled():
+    """Unknown mode -> disabled + warning log (not crash)."""
+    with patch.dict("os.environ", {"BNBAGENT_AUTH_MODE": "garbage"}, clear=False):
+        import importlib
+        import dashboard.backend.auth as auth_mod
+        importlib.reload(auth_mod)
+        assert auth_mod.AUTH_MODE == "disabled"
+
+
+def test_auth_mode_readonly_everyone_is_judge():
+    """In readonly mode, no cookie is needed and every request is 'judge'."""
+    with patch.dict("os.environ", {"BNBAGENT_AUTH_MODE": "readonly"},
+                   clear=False):
+        import importlib
+        from fastapi import Request
+        import dashboard.backend.auth as auth_mod
+        importlib.reload(auth_mod)
+        # No cookie at all
+        req = Request(scope={"type": "http", "headers": []})
+        assert auth_mod.current_role(req) == "judge"
+        assert auth_mod.is_admin_request(req) is False
+        # Judge-only route passes
+        assert auth_mod.require_judge(req) == "judge"
+        # Admin-only route is 403
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc:
+            auth_mod.require_admin(req)
+        assert exc.value.status_code == 403
+        assert "readonly" in exc.value.detail.lower()
+
+
+def test_auth_mode_readonly_ignores_admin_cookie():
+    """Even if someone forges an admin cookie, readonly mode treats them as judge.
+
+    The signed cookie is bypassed entirely in readonly mode \u2014 there's no
+    way to escalate from a public URL.
+    """
+    with patch.dict("os.environ", {
+        "BNBAGENT_AUTH_MODE": "readonly",
+        "BNBAGENT_AUTH_SECRET": "test-secret-12345",
+    }, clear=False):
+        import importlib
+        from fastapi import Request
+        import dashboard.backend.auth as auth_mod
+        importlib.reload(auth_mod)
+        admin_token = auth_mod.make_token("admin")
+        req = Request(scope={
+            "type": "http",
+            "headers": [(b"cookie", f"bnbagent_session={admin_token}".encode())],
+        })
+        # Even with a real admin cookie, readonly mode downgrades to judge
+        assert auth_mod.current_role(req) == "judge"
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException):
+            auth_mod.require_admin(req)
+
+
+def test_check_password_only_meaningful_in_password_mode():
+    """check_password works in any mode (returns the role), but only
+    password mode actually issues sessions via /api/auth/login."""
+    with patch.dict("os.environ", {"BNBAGENT_AUTH_MODE": "readonly"},
+                   clear=False):
+        import importlib
+        import dashboard.backend.auth as auth_mod
+        importlib.reload(auth_mod)
+        # The function still classifies passwords correctly, but the
+        # login endpoint refuses non-password modes (verified in the
+        # integration test).
+        assert auth_mod.check_password("admin") == "admin"
+        assert auth_mod.check_password("judge") == "judge"
+        assert auth_mod.check_password("nope")  is None
