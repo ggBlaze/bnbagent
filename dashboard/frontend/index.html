@@ -529,6 +529,23 @@ body::before {
 .ds-banner .ds-banner-tier { color: var(--accent); font-weight: 600; }
 .ds-banner button { margin-left: auto; }
 
+/* === LLM brain wizard step ===================================== */
+.llm-wiz-status {
+  padding: 10px 12px;
+  margin: 0 0 18px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px;
+  min-height: 32px;
+  display: flex; align-items: center;
+}
+.llm-wiz-status .line { margin: 0; }
+
+.brain-card {
+  border-left: 3px solid var(--accent);
+}
+.brain-card h4 {
+  display: flex; align-items: center; gap: 8px;
+}
+
 /* === capabilities strip (judges-first overview) ================ */
 .cap-strip {
   display: flex; flex-wrap: wrap; gap: 6px 10px;
@@ -702,8 +719,9 @@ body::before {
           <div class="step active" id="stp-1"><div class="num">1</div><div>Network</div></div>
           <div class="step"        id="stp-2"><div class="num">2</div><div>Wallet</div></div>
           <div class="step"        id="stp-3"><div class="num">3</div><div>Data source</div></div>
-          <div class="step"        id="stp-4"><div class="num">4</div><div>Sign Policy</div></div>
-          <div class="step"        id="stp-5"><div class="num">5</div><div>Ready</div></div>
+          <div class="step"        id="stp-4"><div class="num">4</div><div>🧠 Brain</div></div>
+          <div class="step"        id="stp-5"><div class="num">5</div><div>Sign Policy</div></div>
+          <div class="step"        id="stp-6"><div class="num">6</div><div>Ready</div></div>
         </div>
 
         <!-- Step 1: Network -->
@@ -840,7 +858,46 @@ body::before {
           </div>
         </div>
 
-        <!-- Step 4: Sign Policy -->
+        <!-- Step 4: 🧠 LLM Brain (optional, skippable) -->
+        <div class="wizard-step" id="step-llm">
+          <h3 style="font:600 16px/1.2 'Inter'; margin: 0 0 4px;">Give your agent a brain</h3>
+          <p style="font:400 12px/1.5 'Inter'; color:var(--fg-dim); margin: 0 0 18px;">
+            <strong style="color:var(--fg);">Optional.</strong> Without an LLM, the agent uses rule-based risk review only.
+            With one, the <em>advisor</em> + <em>reviewer</em> + <em>token_module</em> agents add an LLM-reinforced second opinion on every trade and token deploy.
+            You can always change this later from the Config pane.
+          </p>
+          <div class="llm-wiz-status" id="llm-wiz-status">
+            <div class="line dim" style="font:400 11px/1.4 'JetBrains Mono';">— checking…</div>
+          </div>
+          <div class="field">
+            <label>Provider</label>
+            <select id="llm-wiz-provider">
+              <option value="openrouter">OpenRouter (default)</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
+              <option value="oai_compat">OAI-compatible (custom base URL)</option>
+              <option value="local">Local (no key needed)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>API key <span class="mono" id="llm-wiz-env-var" style="color:var(--fg-dimmer); margin-left:6px;">—</span></label>
+            <div style="display:flex; gap:8px;">
+              <input id="llm-wiz-key" type="password" placeholder="sk-…" autocomplete="off" style="flex:1;" />
+              <button type="button" class="btn primary" onclick="llmWizSet()">Set</button>
+              <button type="button" class="btn" onclick="llmWizTest()">Test</button>
+            </div>
+            <div id="llm-wiz-status-line" class="hint" style="font:400 10px/1.4 'Inter'; color:var(--fg-dim); margin-top:6px;">
+              No key set.
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn" onclick="wizardBack(3)">← Back</button>
+            <button class="btn" onclick="wizardLlmSkip()">Skip — run with rule-based review only</button>
+            <button class="btn primary" onclick="wizardLlmNext()">Continue →</button>
+          </div>
+        </div>
+
+        <!-- Step 5: Sign Policy -->
         <div class="wizard-step" id="step-4">
           <h3 style="font:600 16px/1.2 'Inter'; margin: 0 0 4px;">Sign the User Policy</h3>
           <p style="font:400 12px/1.5 'Inter'; color:var(--fg-dim); margin: 0 0 18px;">
@@ -866,12 +923,12 @@ body::before {
           </div>
           <div id="wiz-sign-result"></div>
           <div class="actions">
-            <button class="btn" onclick="wizardBack(3)">← Back</button>
+            <button class="btn" onclick="wizardBack(4)">← Back</button>
             <button class="btn primary" onclick="wizardSign()">Sign Policy</button>
           </div>
         </div>
 
-        <!-- Step 5: Done -->
+        <!-- Step 6: Done -->
         <div class="wizard-step" id="step-5">
           <div class="complete-card">
             <div class="check">✓</div>
@@ -1682,33 +1739,44 @@ async function wizardLoad() {
   // pre-fill form with existing values
   $('wiz-mode').value = s.mode || 'testnet';
   $('wiz-rpcs').value = (s.rpcs || []).join('\n');
-  // if setup is already complete, jump to step 5 (Ready)
+  // if setup is already complete, jump to step 6 (Ready)
   if (s.is_complete) {
     renderFinalSummary(s);
-    gotoStep(5);
+    gotoStep(6);
   } else {
     // Jump to the first incomplete step. The order is:
     //   1 = Network  (mode + rpcs)
     //   2 = Wallet   (wallet_address)
     //   3 = Data source (configurable later from Config pane)
-    //   4 = Sign Policy (policy_signed)
+    //   4 = LLM Brain (optional \u2014 user can skip from the step itself)
+    //   5 = Sign Policy (policy_signed)
     if (!s.mode || !s.rpcs || (s.rpcs || []).length === 0) gotoStep(1);
     else if (!s.wallet_address) gotoStep(2);
-    else if (!s.policy_signed) gotoStep(4);
+    else if (!s.policy_signed) gotoStep(5);
     else gotoStep(3);  // only data source left \u2014 user can revisit from Config pane
   }
-  // populate step-4 evaluator field
+  // populate step-5 evaluator field
   $('wiz-eval').value = s.evaluator_address || '';
   // pre-fill the data source step
   dsInit();
+  // refresh the LLM brain status (no-op if not on step 4, but harmless)
+  llmWizRefreshStatus();
 }
 
 function gotoStep(n) {
   WIZ.step = n;
-  // The data-source step DOM id is `step-data-source` (kept as a named
-  // anchor for clarity; it's now step 3 in the flow, not step 2).
-  const idFor = i => i === 3 ? 'step-data-source' : `step-${i}`;
-  for (let i = 1; i <= 5; i++) {
+  // Map step indices to DOM ids. Two of the steps use named anchors
+  // (step-data-source for the data-source step, step-llm for the new
+  // LLM brain step) so the flow can shuffle around without renumbering
+  // every other pane.
+  const idFor = i => {
+    if (i === 3) return 'step-data-source';
+    if (i === 4) return 'step-llm';
+    if (i === 5) return 'step-4';   // Sign Policy pane keeps its old DOM id
+    if (i === 6) return 'step-5';   // Ready pane keeps its old DOM id
+    return `step-${i}`;
+  };
+  for (let i = 1; i <= 6; i++) {
     const el = $(idFor(i));
     if (el) el.classList.toggle('active', i === n);
     const stp = $(`stp-${i}`);
@@ -1720,6 +1788,10 @@ function gotoStep(n) {
   // Stop x402 polling when the user leaves the data-source step
   if (n !== 3 && typeof stopBasePolling === 'function') {
     stopBasePolling();
+  }
+  // Refresh the LLM status display when the user lands on step 4
+  if (n === 4 && typeof llmWizRefreshStatus === 'function') {
+    llmWizRefreshStatus();
   }
 }
 
@@ -1826,7 +1898,7 @@ async function wizardSign() {
   setTimeout(async () => {
     const s = await jget('/api/setup');
     renderFinalSummary(s);
-    gotoStep(5);   // advance to Ready
+    gotoStep(6);   // advance to Ready (was step 5 before the LLM step was added)
     checkSetupBadge();
   }, 1000);
 }
@@ -1843,7 +1915,46 @@ function renderFinalSummary(s) {
       <div class="kv"><span class="k">Keystore</span><span class="v mono">${s.keystore_path || '—'}</span></div>
       <div class="kv"><span class="k">CMC</span><span class="v">${s.cmc_api_key_set ? 'Pro API key set' : 'x402 micro-payments'}</span></div>
     </div>
+    <div class="panel brain-card" style="margin-top:12px;" id="wiz-brain-card">
+      <h4>🧠 Agent Brain <span class="meta" id="wiz-brain-meta">checking…</span></h4>
+      <div id="wiz-brain-body" style="font:500 12px/1.5 'JetBrains Mono'; color:var(--fg-dim);">
+        — checking LLM status…
+      </div>
+      <div class="actions" style="margin-top:10px;">
+        <button class="btn" onclick="showPane('setup'); gotoStep(4);">Configure / Change</button>
+      </div>
+    </div>
   `;
+  // Fetch LLM status and populate the brain card
+  refreshBrainCard();
+}
+
+async function refreshBrainCard() {
+  const body = $('wiz-brain-body');
+  const meta = $('wiz-brain-meta');
+  if (!body) return;
+  const [llm, cfg] = await Promise.all([jget('/api/llm/status'), jget('/api/config')]);
+  const chat = cfg && cfg.agents && cfg.agents.chat;
+  const provider = chat && chat.provider;
+  const model    = chat && chat.model;
+  const info     = provider && llm && llm[provider];
+  if (provider && model && chat.enabled) {
+    if (info && info.status === 'valid') {
+      body.innerHTML = `<div style="color:var(--green); font-size:14px;">✓ <span class="mono">${provider} / ${model}</span></div>
+        <div style="font:400 10px/1.5 'Inter'; color:var(--fg-dim); margin-top:6px;">LLM brain is live — advisor + reviewer + token_module agents will use it on every cycle.</div>`;
+      if (meta) meta.textContent = 'live';
+    } else if (info && info.status === 'missing-base') {
+      body.innerHTML = `<div style="color:var(--accent-2);">⚠ ${provider} key set but ${info.note || 'OAI_BASE missing'}</div>`;
+      if (meta) meta.textContent = 'incomplete';
+    } else {
+      body.innerHTML = `<div style="color:var(--accent-2);">⚠ ${provider} selected but no valid key — agent will use rule-based review.</div>`;
+      if (meta) meta.textContent = 'invalid';
+    }
+  } else {
+    body.innerHTML = `<div style="color:var(--fg-dim);">No LLM configured — agent uses rule-based risk review only. The advisor / reviewer / token_module agents will be disabled.</div>
+      <div style="font:400 10px/1.5 'Inter'; color:var(--fg-dimmer); margin-top:6px;">You can change this any time from the Config pane or by re-running the wizard.</div>`;
+    if (meta) meta.textContent = 'rule-based only';
+  }
 }
 
 async function wizardReset() {
@@ -2045,6 +2156,108 @@ async function dsChangeOpen() {
   await wizardLoad();
   gotoStep(3);
 }
+
+// --- 🧠 LLM Brain wizard step (step 4) -----------------------------------
+// Optional step. The agent works without an LLM (rule-based risk review
+// only); setting one enables the advisor / reviewer / token_module
+// agents. Reuses the same /api/llm/key and /api/llm/test endpoints as
+// the Config pane.
+
+const LLM_ENV_VARS = {
+  openrouter: 'OPENROUTER_API_KEY',
+  anthropic:  'ANTHROPIC_API_KEY',
+  openai:     'OPENAI_API_KEY',
+  oai_compat: 'OAI_API_KEY',
+  local:      '',
+};
+
+async function llmWizSet() {
+  const prov = $('llm-wiz-provider').value;
+  const key  = $('llm-wiz-key').value;
+  const out  = $('llm-wiz-status-line');
+  out.textContent = '';
+  if (prov === 'local') {
+    out.innerHTML = '<span style="color:var(--fg-dim);">Local provider has no key. Set <code class="mono">$LOCAL_LLM_BASE</code> in <code class="mono">.env</code> to point at your local LLM, then click <strong>Continue \u2192</strong>.</span>';
+    return;
+  }
+  if (!key) {
+    out.innerHTML = '<span style="color:var(--red);">Enter a key in the field first.</span>';
+    return;
+  }
+  const r = await jpost('/api/llm/key', { provider: prov, key });
+  if (r && r.ok) {
+    out.innerHTML = `<span style="color:var(--green);">\u2713 ${r.note || 'Saved.'}</span>`;
+    $('llm-wiz-key').value = '';
+    await llmWizRefreshStatus();
+  } else {
+    out.innerHTML = `<span style="color:var(--red);">${r && r.error ? r.error : 'failed to save key'}</span>`;
+  }
+}
+
+async function llmWizTest() {
+  const prov = $('llm-wiz-provider').value;
+  const out  = $('llm-wiz-status-line');
+  out.innerHTML = '<span style="color:var(--fg-dim);">Testing\u2026</span>';
+  const r = await jpost('/api/llm/test', { provider: prov });
+  if (!r) {
+    out.innerHTML = '<span style="color:var(--red);">Test failed (endpoint offline?)</span>';
+    return;
+  }
+  if (r.status === 'valid') {
+    out.innerHTML = `<span style="color:var(--green);">\u2713 ${r.note || 'key verified'}</span>`;
+  } else if (r.status === 'missing') {
+    out.innerHTML = '<span style="color:var(--accent-2);">No key set yet. Enter one and click <strong>Set</strong>.</span>';
+  } else if (r.status === 'missing-base') {
+    out.innerHTML = `<span style="color:var(--accent-2);">${r.note || 'OAI_BASE missing'}</span>`;
+  } else {
+    out.innerHTML = `<span style="color:var(--red);">\u2717 ${r.note || r.status}</span>`;
+  }
+  await llmWizRefreshStatus();
+}
+
+async function llmWizRefreshStatus() {
+  const root = $('llm-wiz-status');
+  if (!root) return;
+  const s = await jget('/api/llm/status');
+  const prov = $('llm-wiz-provider');
+  if (prov) {
+    const envVar = LLM_ENV_VARS[prov.value] || '\u2014';
+    const ev = $('llm-wiz-env-var');
+    if (ev) ev.textContent = envVar ? '($' + envVar + ')' : '';
+  }
+  if (!s) {
+    root.innerHTML = '<div class="line dim" style="font:400 11px/1.4 \'JetBrains Mono\';">\u2014</div>';
+    return;
+  }
+  // /api/llm/status returns a map of provider -> {status, note}
+  // Show the active provider's status prominently.
+  const cur = prov ? prov.value : 'openrouter';
+  const info = (s && s[cur]) || (s && s.active) || null;
+  if (info && (info.status === 'valid' || info.model)) {
+    const model = info.model ? ` \u00b7 ${info.model}` : '';
+    root.innerHTML = `<div class="line" style="font:500 11px/1.4 'JetBrains Mono'; color:var(--green);">\u2713 ${cur}${model}</div>`;
+  } else if (info && info.status === 'missing-base') {
+    root.innerHTML = `<div class="line" style="font:500 11px/1.4 'JetBrains Mono'; color:var(--accent-2);">\u26a0 ${cur}: ${info.note || 'OAI_BASE missing'}</div>`;
+  } else {
+    root.innerHTML = `<div class="line dim" style="font:400 11px/1.4 'JetBrains Mono';">\u2014 no LLM configured for <span class="mono">${cur}</span>. The agent will use rule-based risk review only.</div>`;
+  }
+}
+
+async function wizardLlmSkip() {
+  // Skip without setting a key \u2014 advance to Sign Policy. The Ready
+  // step will show "no LLM configured" so the user knows the agent is
+  // running in rule-based mode.
+  gotoStep(5);
+}
+
+async function wizardLlmNext() {
+  // The "Continue" path is identical to skip when no key is set \u2014 the
+  // LLM is optional. We just refresh the status display so the Ready
+  // step has the latest snapshot, then advance.
+  await llmWizRefreshStatus();
+  gotoStep(5);
+}
+
 
 async function dsBannerTick() {
   // Polls /api/data-source and updates the persistent banner on the
