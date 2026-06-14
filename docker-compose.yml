@@ -1,39 +1,76 @@
-version: "3.9"
+# BNB Agent — docker-compose for Coolify / local production.
+#
+# Coolify picks this up automatically when you point it at the repo.
+# The service maps port 8000 to the host (Coolify's reverse proxy
+# terminates TLS in front). The bnbagent_data named volume holds
+# the runtime state (~/.bnbagent/: persona overrides, decision log,
+# keystore if you mount one, replay reports, etc.) so a container
+# rebuild doesn't wipe your demo state.
+#
+# Environment variables are loaded from .env in the same directory
+# (gitignored). For Coolify, set them in the service UI instead.
+#
+# Quick start (local):
+#   cp .env.example .env
+#   $EDITOR .env   # fill in MINIMAX_API_KEY, JUDGE_PASSWORD, etc.
+#   docker compose up -d
+#   open http://localhost:8000
 
 services:
-  ipfs:
-    image: ipfs/kubo:latest
-    ports: ["5001:5001", "4001:4001", "8080:8080"]
-    volumes: ["ipfs_data:/data/ipfs"]
-
-  postgres:
-    image: postgres:16-alpine
+  bnbagent:
+    build: .
+    image: bnbagent:latest
+    container_name: bnbagent
+    restart: unless-stopped
+    ports:
+      - "8000:8000"     # dashboard + (optional) MCP SSE if port matches BNBAGENT_MCP_PORT
+      - "8765:8765"     # MCP SSE — only if you set BNBAGENT_MCP_PORT=8765
+    env_file:
+      - .env            # gitignored; ships defaults from .env.example
     environment:
-      POSTGRES_DB: bnbagent
-      POSTGRES_USER: bnbagent
-      POSTGRES_PASSWORD: bnbagent
-    ports: ["5432:5432"]
-    volumes: ["pg_data:/var/lib/postgresql/data"]
-
-  agent:
-    build: ./infra/docker
-    depends_on: [ipfs, postgres]
-    env_file: .env
-    volumes: ["./:/app"]
-    working_dir: /app
-    command: ["python", "-m", "core.main"]
-    restart: unless-stopped
-
-  dashboard:
-    build: ./infra/docker
-    depends_on: [agent]
-    env_file: .env
-    ports: ["${BNBAGENT_DASHBOARD_PORT:-8000}:8000"]
-    volumes: ["./:/app"]
-    working_dir: /app
-    command: ["python", "-m", "uvicorn", "dashboard.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
-    restart: unless-stopped
+      # --- Mode ---
+      BNBAGENT_MODE: ${BNBAGENT_MODE:-testnet}
+      BNBAGENT_LOG_LEVEL: ${BNBAGENT_LOG_LEVEL:-INFO}
+      BNBAGENT_DASHBOARD_PORT: "8000"
+      # --- Auth (v2.1.5): 2-mode password wrapper ---
+      # Set to "true" in production (the public demo). Keep "false" for local dev.
+      BNBAGENT_AUTH_ENABLED: ${BNBAGENT_AUTH_ENABLED:-true}
+      BNBAGENT_AUTH_SECRET: ${BNBAGENT_AUTH_SECRET:-}
+      BNBAGENT_AUTH_COOKIE_SECURE: ${BNBAGENT_AUTH_COOKIE_SECURE:-true}
+      # Default passwords are "judge" and "admin" — set these in .env!
+      JUDGE_PASSWORD: ${JUDGE_PASSWORD:-judge}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      # --- LLM (the AI brain) ---
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      # OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENROUTER_API_KEY can also be set
+      # if you switch agents.<x>.provider in providers.yaml. MiniMax M3
+      # is the default in v2.1.5.
+      # --- Network endpoints (overridable for private RPCs) ---
+      BSC_RPCS: ${BSC_RPCS:-https://bsc-dataseed.binance.org,https://bsc-dataseed1.binance.org}
+      BASE_RPCS: ${BASE_RPCS:-https://mainnet.base.org,https://base.publicnode.com}
+      # --- Data source (CMC + x402) ---
+      CMC_API_KEY: ${CMC_API_KEY:-}
+      CMC_X402_BASE: ${CMC_X402_BASE:-https://api.coinmarketcap.com/agent-hub}
+      # --- IPFS (local daemon in the container would be ideal; for
+      #     the demo, leave empty and the agent falls back to metadata-
+      #     only mode for ERC-8004 + ERC-8183 windows). ---
+      IPFS_API: ${IPFS_API:-/ip4/127.0.0.1/tcp/5001}
+    volumes:
+      - bnbagent_data:/home/bnbagent/.bnbagent   # runtime state
+      - bnbagent_logs:/home/bnbagent/logs        # uvicorn + agent logs
+      - ./data:/home/bnbagent/data               # reports + competition register cache
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
-  ipfs_data:
-  pg_data:
+  bnbagent_data:
+  bnbagent_logs:

@@ -690,41 +690,55 @@ The hardening commits are:
 
 ## 17. Deployment
 
-### Local development
+### Local development (no auth)
 
 ```bash
 bash install.sh && bash bnbagent
 ```
 
-### Public dashboard (for judges / live replay)
+`BNBAGENT_AUTH_ENABLED` defaults to `false`, so no password is required. The dashboard is open. Use this on your laptop.
+
+### Public demo (2-mode password wrapper, v2.1.5+)
+
+For the Coolify VPS / public URL, set the auth flag and two passwords in `.env` (gitignored; placeholders live in `.env.example`):
 
 ```bash
-# On a VPS with a public IP
-git clone <repo> bnbagent && cd bnbagent
-bash install.sh
-export TWAK_KEYSTORE=$HOME/.twak/wallet.json
-export TWAK_PWD=...               # use systemd-creds or a secrets manager
-bash bnbagent                     # foreground, or use systemd / docker
+BNBAGENT_AUTH_ENABLED=true
+BNBAGENT_AUTH_SECRET=$(openssl rand -hex 32)   # stable across restarts
+JUDGE_PASSWORD=see-the-agent-running
+ADMIN_PASSWORD=operate-the-agent
+BNBAGENT_AUTH_COOKIE_SECURE=true              # required when behind TLS
+MINIMAX_API_KEY=sk-cp-...                     # the AI brain
 ```
 
-Reverse proxy with TLS (Caddy is easiest):
+Two roles are enforced by FastAPI dependency injection:
+- **`judge`** — can see Live, Chat, Replay, Tokens (read), and use the chat agent. *Cannot* edit policy, sign, run registration, change personas, or hit the kill switch.
+- **`admin`** — full operator access (judge + setup + sign + register + kill switch + wallet export).
 
+The cookie is HMAC-SHA256 signed (stdlib only, no new dep), 1-day expiry, `httponly + samesite=strict`. The signature uses `BNBAGENT_AUTH_SECRET`; if you forget to set it the dev fallback is used and you'll see a warning at startup. Sessions are invalidated on every restart without a real secret.
+
+### Coolify / docker-compose
+
+```bash
+cp .env.example .env
+$EDITOR .env                                  # fill in the keys
+docker compose up -d                          # builds Dockerfile, runs on :8000
+```
+
+The `Dockerfile` ships a single Python 3.12 image that runs the dashboard backend (FastAPI on :8000) + the MCP SSE server (on :8765 if `BNBAGENT_MCP_PORT=8765`). Healthcheck is `GET /api/healthz` every 30s. `bnbagent_data` and `bnbagent_logs` named volumes persist runtime state across container rebuilds.
+
+For Coolify: point it at the repo, set the env vars in the service UI, expose port 8000. Coolify's reverse proxy handles TLS termination in front.
+
+### Reverse proxy with TLS (if not using Coolify's proxy)
+
+Caddy:
 ```
 bnbagent.example {
   reverse_proxy 127.0.0.1:8000
-  basic_auth {
-    judge    JDJhJDE0JDc...      # bcrypt hash
-  }
 }
 ```
 
-### Docker (optional, see `infra/`)
-
-```bash
-docker compose -f infra/docker-compose.yml up
-```
-
-This brings up the agent, the dashboard, a local IPFS node, and a local BSC testnet fork.
+`BNBAGENT_AUTH_COOKIE_SECURE=true` is required when running behind TLS so the browser keeps the cookie.
 
 ### Production checklist (pre-live-replay)
 
@@ -735,6 +749,8 @@ This brings up the agent, the dashboard, a local IPFS node, and a local BSC test
 - [ ] At least 1 ERC-8183 job in `Completed` state on mainnet
 - [ ] Backtest report `data/reports/replay.html` is committed
 - [ ] Dashboard reachable at a public URL with TLS + auth
+- [ ] `BNBAGENT_AUTH_ENABLED=true` + non-default `JUDGE_PASSWORD` / `ADMIN_PASSWORD`
+- [ ] `BNBAGENT_AUTH_SECRET` set to a stable value (`openssl rand -hex 32`)
 - [ ] BscScan + 8004scan deep links work
 
 Full details: [`docs/operations.md`](docs/operations.md).

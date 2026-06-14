@@ -61,7 +61,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, Body
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, Body, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -74,6 +74,7 @@ except ImportError:
     DASHBOARD_STATE = {}
 
 from core.control import read_control, write_control
+from . import auth as _auth
 from core.setup import (
     SetupState, load_setup_state, set_runtime_config, generate_wallet,
     import_wallet, sign_current_policy, reset as reset_setup,
@@ -234,6 +235,61 @@ def build_app() -> FastAPI:
         return HTMLResponse("", status_code=204)
 
     # ------------------------------------------------------------------ api
+
+    # --- v2.1.5: 2-mode password wrapper for the public demo ---
+    # BNBAGENT_AUTH_ENABLED=true (default OFF) gates operator-only
+    # routes. Two passwords: JUDGE_PASSWORD and ADMIN_PASSWORD, both
+    # defaulting to obvious dev values. See dashboard/backend/auth.py
+    # for the full contract (cookie format, expiry, env vars).
+    @app.get("/api/auth/status")
+    async def auth_status(request: Request):
+        # Public endpoint — returns the current role (or null). The
+        # frontend calls this on load to decide whether to show the
+        # login form. Always 200; the role field is what matters.
+        role = _auth.current_role(request)
+        return JSONResponse({
+            "enabled": _auth.AUTH_ENABLED,
+            "role": role,
+        })
+
+    @app.post("/api/auth/login")
+    async def auth_login(body: dict, response: Response):
+        password = body.get("password", "")
+        role = _auth.check_password(password)
+        if role is None:
+            # Don't leak which password was wrong — single 401 either way.
+            raise HTTPException(status_code=401, detail="bad password")
+        token = _auth.make_token(role)
+        # In production (https) the cookie should be 'secure'; in local
+        # dev (http) the browser would drop a secure cookie, so we
+        # only set it when the operator explicitly opts in via
+        # BNBAGENT_AUTH_COOKIE_SECURE=true. The reverse proxy (Coolify /
+        # Caddy) terminates TLS, so the FastAPI app sees http by default.
+        secure_cookie = os.environ.get("BNBAGENT_AUTH_COOKIE_SECURE", "false").lower() in (
+            "1", "true", "yes", "on",
+        )
+        # Set the cookie on the injected Response. We return a dict
+        # (NOT a JSONResponse) so FastAPI wraps it in a default
+        # JSONResponse while preserving the cookies/headers we set on
+        # the injected response parameter.
+        response.set_cookie(
+            key=_auth.COOKIE_NAME,
+            value=token,
+            max_age=_auth.COOKIE_MAX_AGE,
+            httponly=True,
+            samesite="strict",
+            secure=secure_cookie,
+            path="/",
+        )
+        return {"ok": True, "role": role}
+
+    @app.post("/api/auth/logout")
+    async def auth_logout(response: Response):
+        response.delete_cookie(_auth.COOKIE_NAME, path="/")
+        # Return a dict (not JSONResponse) so FastAPI preserves the
+        # Set-Cookie: <name>=; Max-Age=0 header that delete_cookie sets.
+        return {"ok": True}
+
     @app.get("/api/healthz")
     async def healthz():
         return {"status": "ok", "ts": int(time.time()),
@@ -340,7 +396,7 @@ def build_app() -> FastAPI:
             "error":             cache.get("stderr") if not cache.get("ok") else None,
         })
 
-    @app.post("/api/competition/register")
+    @app.post("/api/competition/register", dependencies=[Depends(_auth.require_admin)])
     async def competition_register(payload: dict = Body(default_factory=dict)):
         """Trigger `npx twak compete register` via the script wrapper.
 
@@ -385,7 +441,7 @@ def build_app() -> FastAPI:
             "stderr":  err_buf.getvalue(),
         })
 
-    @app.post("/api/competition/register/emit-mcp")
+    @app.post("/api/competition/register/emit-mcp", dependencies=[Depends(_auth.require_admin)])
     async def competition_register_emit_mcp():
         """Print the MCP `competition_register` action the user can drive
         from any MCP client (Claude Code, Goose, Cursor, etc.). Useful
@@ -430,7 +486,7 @@ def build_app() -> FastAPI:
         return JSONResponse(_state().get("control_log", []))
 
     # ----------------------------------------------------------------- control
-    @app.post("/api/control")
+    @app.post("/api/control", dependencies=[Depends(_auth.require_admin)])
     async def control(intent: dict):
         """Dashboard → agent intent. Validated, merged with existing control file."""
         allowed = {"kill", "resume", "kill_reason", "sleeves", "global_risk"}
@@ -549,7 +605,7 @@ def build_app() -> FastAPI:
             "mode": s.mode,
         })
 
-    @app.post("/api/setup/config")
+    @app.post("/api/setup/config", dependencies=[Depends(_auth.require_admin)])
     async def setup_config(body: dict):
         try:
             cfg = set_runtime_config(
@@ -563,7 +619,7 @@ def build_app() -> FastAPI:
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
-    @app.post("/api/setup/wallet")
+    @app.post("/api/setup/wallet", dependencies=[Depends(_auth.require_admin)])
     async def setup_wallet(body: dict):
         """Generate a new wallet. Returns ONLY the address; the private key
         is encrypted to disk and never leaves the host process."""
@@ -574,7 +630,7 @@ def build_app() -> FastAPI:
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
-    @app.post("/api/setup/wallet/import")
+    @app.post("/api/setup/wallet/import", dependencies=[Depends(_auth.require_admin)])
     async def setup_wallet_import(body: dict):
         """Import an existing private key. Returns ONLY the address; the key
         is encrypted to disk and never leaves the host process."""
@@ -586,7 +642,7 @@ def build_app() -> FastAPI:
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
-    @app.post("/api/setup/sign")
+    @app.post("/api/setup/sign", dependencies=[Depends(_auth.require_admin)])
     async def setup_sign(body: dict):
         """Sign the current policy.yaml with the unlocked wallet."""
         password = body.get("password", "")
@@ -596,7 +652,7 @@ def build_app() -> FastAPI:
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
-    @app.post("/api/setup/reset")
+    @app.post("/api/setup/reset", dependencies=[Depends(_auth.require_admin)])
     async def setup_reset():
         r = reset_setup()
         return JSONResponse({"ok": True, **r})
@@ -648,7 +704,7 @@ def build_app() -> FastAPI:
             "base_address": base_address,
         })
 
-    @app.post("/api/data-source/select")
+    @app.post("/api/data-source/select", dependencies=[Depends(_auth.require_admin)])
     async def data_source_select(body: dict):
         """Persist the user's data-source choice + hot-swap the live source.
 
@@ -725,7 +781,7 @@ def build_app() -> FastAPI:
                 log.warning("data_source: hot-swap failed: %s", e)
         return JSONResponse({"ok": True, "tier": tier})
 
-    @app.post("/api/data-source/cmc-key")
+    @app.post("/api/data-source/cmc-key", dependencies=[Depends(_auth.require_admin)])
     async def data_source_cmc_key(body: dict):
         """Persist the CMC Pro API key in local.yaml (user-state shadow)."""
         api_key = (body.get("api_key") or "").strip()
@@ -739,7 +795,7 @@ def build_app() -> FastAPI:
         _write_local(cfg)
         return JSONResponse({"ok": True})
 
-    @app.post("/api/data-source/base-rpcs")
+    @app.post("/api/data-source/base-rpcs", dependencies=[Depends(_auth.require_admin)])
     async def data_source_base_rpcs(body: dict):
         """Persist the Base RPC list. Each URL must be a valid http(s) URL."""
         rpcs = body.get("base_rpcs")
@@ -797,7 +853,7 @@ def build_app() -> FastAPI:
             "ready": balance_usdc >= 0.50,
         }
 
-    @app.post("/api/wallet/export-mnemonic")
+    @app.post("/api/wallet/export-mnemonic", dependencies=[Depends(_auth.require_admin)])
     async def post_export_mnemonic(payload: dict):
         """Return the TWAK mnemonic if the correct password is provided.
 
@@ -856,7 +912,7 @@ def build_app() -> FastAPI:
         s = _state()
         return s.get("components", {}).get("reviewers", {})
 
-    @app.post("/api/chat")
+    @app.post("/api/chat", dependencies=[Depends(_auth.require_judge)])
     async def chat_post(body: dict):
         ca = _chat_agent()
         if ca is None:
@@ -871,7 +927,7 @@ def build_app() -> FastAPI:
                 chunks.append(ev.text)
         return JSONResponse({"reply": "".join(chunks)})
 
-    @app.post("/api/chat/tool")
+    @app.post("/api/chat/tool", dependencies=[Depends(_auth.require_judge)])
     async def chat_tool(body: dict):
         ca = _chat_agent()
         if ca is None:
@@ -927,7 +983,7 @@ def build_app() -> FastAPI:
             "diverged": p.diverged, "path": str(p.path),
         })
 
-    @app.post("/api/agent/personas/{name}")
+    @app.post("/api/agent/personas/{name}", dependencies=[Depends(_auth.require_admin)])
     async def agent_persona_save(name: str, body: dict):
         loader = PersonaLoader(name)
         body_text = body.get("body", "")
@@ -938,7 +994,7 @@ def build_app() -> FastAPI:
             return JSONResponse({"error": str(e)}, status_code=400)
         return JSONResponse({"ok": True, "sha256": p.sha256, "diverged": p.diverged})
 
-    @app.post("/api/agent/personas/{name}/reset")
+    @app.post("/api/agent/personas/{name}/reset", dependencies=[Depends(_auth.require_admin)])
     async def agent_persona_reset(name: str):
         loader = PersonaLoader(name)
         try:
@@ -955,7 +1011,7 @@ def build_app() -> FastAPI:
             return JSONResponse({"providers": {}, "agents": {}})
         return JSONResponse(router.status())
 
-    @app.post("/api/llm/config")
+    @app.post("/api/llm/config", dependencies=[Depends(_auth.require_admin)])
     async def llm_config(body: dict):
         # Minimal: write agents/providers.yaml with the new per-agent routing.
         from pathlib import Path
@@ -987,7 +1043,7 @@ def build_app() -> FastAPI:
         # local: no key needed
     }
 
-    @app.post("/api/llm/key")
+    @app.post("/api/llm/key", dependencies=[Depends(_auth.require_admin)])
     async def llm_key_set(body: dict):
         provider = (body.get("provider") or "").strip()
         key = (body.get("key") or "").strip()
@@ -1018,7 +1074,7 @@ def build_app() -> FastAPI:
             "note": f"Saved to .env ({env_var}). Restart the agent (Ctrl+C then 'bash bnbagent') to apply.",
         })
 
-    @app.post("/api/llm/test")
+    @app.post("/api/llm/test", dependencies=[Depends(_auth.require_admin)])
     async def llm_key_test(body: dict):
         provider = (body.get("provider") or "").strip()
         all_providers = set(LLM_PROVIDER_ENV_VARS) | {"local"}
@@ -1121,7 +1177,7 @@ def build_app() -> FastAPI:
             return JSONResponse({"error": "TokenModule not loaded"}, status_code=503)
         return JSONResponse(tm.config)
 
-    @app.post("/api/tokens/deploy")
+    @app.post("/api/tokens/deploy", dependencies=[Depends(_auth.require_admin)])
     async def tokens_deploy(body: dict):
         s = _state()
         tm = s.get("components", {}).get("token_module")
@@ -1165,7 +1221,7 @@ def build_app() -> FastAPI:
             return JSONResponse({"skills": [], "note": "skill registry not loaded"})
         return JSONResponse({"skills": reg.list()})
 
-    @app.post("/api/skills/{name}/enable")
+    @app.post("/api/skills/{name}/enable", dependencies=[Depends(_auth.require_admin)])
     async def skills_enable(name: str):
         s = _state()
         reg = s.get("components", {}).get("skill_registry")
@@ -1177,7 +1233,7 @@ def build_app() -> FastAPI:
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
-    @app.post("/api/skills/{name}/disable")
+    @app.post("/api/skills/{name}/disable", dependencies=[Depends(_auth.require_admin)])
     async def skills_disable(name: str):
         s = _state()
         reg = s.get("components", {}).get("skill_registry")
