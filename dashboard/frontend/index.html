@@ -1508,11 +1508,73 @@ function applyAuthMode() {
     if (banner) banner.style.display = 'flex';
     if (badge)  badge.style.display  = '';
     document.body.classList.add('demo-mode');
+    applyLockedTooltips();
   } else {
     if (banner) banner.style.display = 'none';
     if (badge)  badge.style.display  = 'none';
     document.body.classList.remove('demo-mode');
+    clearLockedTooltips();
   }
+}
+
+// Tooltips for the readonly-mode locked controls (v2.1.7 polish from
+// Aura's review). The map keys are CSS selectors that match the same
+// elements we visually lock in CSS. Per-sleeve tooltips use a
+// function so the sleeve name (A/B/C + its strategy) shows in the
+// hover text. The click-guard still works on top of this \u2014 it
+// remembers the title via getAttribute() and restores it after the
+// 3.5s hint flash.
+const LOCKED_TOOLTIPS = {
+  '#kill-btn':          'Engage kill switch. Stops all new orders \u2014 open positions stay open. (Locked in demo mode \u2014 the operator can unlock by switching BNBAGENT_AUTH_MODE=password in the host env.)',
+  '#wiz-wallet-btn':    'Create or import the agent wallet. The key signs every transaction. (Locked in demo mode.)',
+  '#ds-change-button':  'Switch the data source tier (CMC Pro / x402 / binance). (Locked in demo mode.)',
+  'button[onclick^="wizardReset"]':           'Wipe wallet, signed policy, and config. Cannot be undone. (Locked in demo mode.)',
+  'button[onclick^="wizardSign"]':            'Sign the resolved policy.yaml with the agent key (EIP-191). (Locked in demo mode.)',
+  'button[onclick^="wizardCreateWallet"]':    'Encrypt the agent wallet to disk. (Locked in demo mode.)',
+  'button[onclick^="dsChangeOpen"]':          'Open the data source wizard. (Locked in demo mode.)',
+  'button[onclick^="llmWizSet"]':             'Save the LLM API key to .env. A restart is required to apply. (Locked in demo mode.)',
+  'button[onclick^="llmKeySet"]':             'Save the LLM API key to .env. A restart is required to apply. (Locked in demo mode.)',
+  'button[onclick^="llmKeyTest"]':            'Send a tiny test request to verify the LLM key works. (Locked in demo mode.)',
+  'button[onclick^="personaEdit"]':           'Edit the LLM persona prompt for this agent. (Locked in demo mode.)',
+  'button[onclick^="personaReset"]':          'Reset the persona to the pro default. (Locked in demo mode.)',
+  'button[onclick^="openExportMnemonic"]':    'Reveal the 12/24-word seed phrase. Requires the wallet password. (Locked in demo mode.)',
+  'button[onclick^="controlSleeve"]':         'Enable / disable this trading sleeve. (Locked in demo mode.)',
+  'button[onclick^="toggleKill"]':            'Engage or release the kill switch. (Locked in demo mode.)',
+  '[data-mutation="true"]':                   'Mutation control \u2014 locked in demo mode. The operator can unlock by switching BNBAGENT_AUTH_MODE=password in the host env.',
+};
+const SLEEVE_TOOLTIPS = {
+  A: 'Toggle Sleeve A (carry). Off = no new A-strategy orders. (Locked in demo mode.)',
+  B: 'Toggle Sleeve B (momentum). Off = no new B-strategy orders. (Locked in demo mode.)',
+  C: 'Toggle Sleeve C (mean-rev). Off = no new C-strategy orders. (Locked in demo mode.)',
+};
+
+function applyLockedTooltips() {
+  // Stash any pre-existing titles so we can restore them on mode exit.
+  for (const sel of Object.keys(LOCKED_TOOLTIPS)) {
+    document.querySelectorAll(sel).forEach((el) => {
+      if (el.dataset.tipOriginal === undefined) {
+        el.dataset.tipOriginal = el.getAttribute('title') || '';
+      }
+      el.setAttribute('title', LOCKED_TOOLTIPS[sel]);
+    });
+  }
+  // Per-sleeve toggles
+  document.querySelectorAll('.toggle[data-sleeve]').forEach((el) => {
+    const sleeve = (el.dataset.sleeve || '').toUpperCase();
+    const txt = SLEEVE_TOOLTIPS[sleeve];
+    if (!txt) return;
+    if (el.dataset.tipOriginal === undefined) {
+      el.dataset.tipOriginal = el.getAttribute('title') || '';
+    }
+    el.setAttribute('title', txt);
+  });
+}
+
+function clearLockedTooltips() {
+  document.querySelectorAll('[data-tip-original]').forEach((el) => {
+    el.setAttribute('title', el.dataset.tipOriginal || '');
+    delete el.dataset.tipOriginal;
+  });
 }
 loadAuthStatus();
 
