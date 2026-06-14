@@ -34,11 +34,13 @@ class TradeReviewer:
     """Layer 2 — per-trade veto."""
 
     CONFIDENCE_THRESHOLD = 0.70
-    # v2.1.5: bumped from 0.5s to 10s. MiniMax M3 (and any reasoning model)
-    # takes 4-7s per call due to its <think> block + JSON verdict output.
-    # The previous 0.5s caused every reviewer call to fall back to the
-    # heuristic, making the LLM effectively a no-op in production.
-    LATENCY_BUDGET_S = 10.0
+    # v2.1.5: the per-call timeout is read from self.routing.timeout_s
+    # (set by LLMRouter.for_agent() from agents.<name>.timeout_s in
+    # providers.yaml, auto-defaulted to 10s for reasoning models and
+    # 2s for fast chat models). The class constant below is the
+    # fallback when the agent has no routing (e.g. in unit tests
+    # that construct TradeReviewer() without a router).
+    LATENCY_BUDGET_S = 5.0
 
     def __init__(self, *, sleeve: str, components: dict, router: LLMRouter,
                  persona_name: str | None = None,
@@ -62,10 +64,14 @@ class TradeReviewer:
             return ReviewVerdict(allow=True, confidence=1.0, reason="llm_disabled",
                                  source="no_reviewer")
         persona = self.loader.load()
+        # v2.1.5: per-routing timeout (reasoning models get 10s, fast
+        # models get 2s). Fall back to the class constant if the
+        # routing has no timeout_s (e.g. unit tests with synthetic LLMs).
+        budget = getattr(self.routing, "timeout_s", None) or self.LATENCY_BUDGET_S
         try:
             verdict = await asyncio.wait_for(
                 self._llm_review(persona.system, proposed, sleeve_state, market_snapshot),
-                timeout=self.LATENCY_BUDGET_S,
+                timeout=budget,
             )
         except asyncio.TimeoutError:
             log.warning("reviewer[%s] LLM timeout — falling back to heuristic", self.sleeve)
@@ -99,7 +105,12 @@ class TradeReviewer:
                           market: dict) -> ReviewVerdict:
         user = self._render_user_prompt(proposed, sleeve_state, market)
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-        raw = await llm_complete(self.routing, messages, response_format={"type": "json_object"})
+        # v2.1.5: pass the per-routing timeout through to llm_complete so
+        # the inner HTTP call budget matches the outer wait_for budget.
+        inner_timeout = getattr(self.routing, "timeout_s", None) or self.LATENCY_BUDGET_S
+        raw = await llm_complete(self.routing, messages,
+                                response_format={"type": "json_object"},
+                                timeout_s=inner_timeout)
         if not raw:
             return self._heuristic_decision(sleeve_state, source="llm_disabled")
         try:

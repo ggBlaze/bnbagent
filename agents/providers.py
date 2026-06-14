@@ -332,6 +332,28 @@ class AgentRouting:
     temperature: float = 0.2
     enabled: bool = False
     reason: str = ""
+    # v2.1.5: per-agent timeout in seconds. Operators set this in
+    # providers.yaml under agents.<name>.timeout_s; the router auto-
+    # defaults based on model name (reasoning models get more). The
+    # reviewer (and any other latency-sensitive caller) reads from
+    # here instead of a class constant, so the same code works for
+    # both fast (gpt-4o-mini) and slow (MiniMax M3 with thinking) models.
+    timeout_s: float = 5.0
+
+
+def _default_timeout_for_model(model: str) -> float:
+    """Pick a sane per-call timeout for a given model name.
+
+    Reasoning models (MiniMax M3, OpenAI o1/o3, DeepSeek R1) emit a
+    think block and typically take 4-7s per call. Fast chat models
+    (haiku, mini, flash) return in 1-2s. Default is 5s.
+    """
+    m = (model or "").lower()
+    if "minimax" in m or "o1" in m or "o3" in m or "r1" in m or "reasoning" in m:
+        return 10.0
+    if "haiku" in m or "mini" in m or "flash" in m or "nano" in m:
+        return 2.0
+    return 5.0
 
 
 class LLMRouter:
@@ -350,6 +372,9 @@ class LLMRouter:
         model = agent_cfg.get("model", "")
         max_tokens = int(agent_cfg.get("max_tokens", 1024))
         temperature = float(agent_cfg.get("temperature", 0.2))
+        # v2.1.5: per-agent timeout. Explicit 'timeout_s' wins; otherwise
+        # auto-default from the model name (reasoning models get more).
+        timeout_s = float(agent_cfg.get("timeout_s") or _default_timeout_for_model(model))
 
         providers = self.config.get("providers") or {}
         prov_cfg = providers.get(provider_name) or {}
@@ -359,10 +384,12 @@ class LLMRouter:
         if not base:
             return AgentRouting(provider_name=provider_name, client=None, model=model,
                                 max_tokens=max_tokens, temperature=temperature,
+                                timeout_s=timeout_s,
                                 enabled=False, reason="no base url")
         if provider_name != "local" and not key:
             return AgentRouting(provider_name=provider_name, client=None, model=model,
                                 max_tokens=max_tokens, temperature=temperature,
+                                timeout_s=timeout_s,
                                 enabled=False, reason="no api key")
         try:
             client = self._cache.get(provider_name)
@@ -371,10 +398,12 @@ class LLMRouter:
                 self._cache[provider_name] = client
             return AgentRouting(provider_name=provider_name, client=client, model=model,
                                 max_tokens=max_tokens, temperature=temperature,
+                                timeout_s=timeout_s,
                                 enabled=True, reason="ok")
         except Exception as e:
             return AgentRouting(provider_name=provider_name, client=None, model=model,
                                 max_tokens=max_tokens, temperature=temperature,
+                                timeout_s=timeout_s,
                                 enabled=False, reason=f"build failed: {e}")
 
     def status(self) -> dict:
