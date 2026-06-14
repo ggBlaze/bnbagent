@@ -670,8 +670,8 @@ body::before {
 
         <div class="steps">
           <div class="step active" id="stp-1"><div class="num">1</div><div>Network</div></div>
-          <div class="step"        id="stp-2"><div class="num">2</div><div>Data source</div></div>
-          <div class="step"        id="stp-3"><div class="num">3</div><div>Wallet</div></div>
+          <div class="step"        id="stp-2"><div class="num">2</div><div>Wallet</div></div>
+          <div class="step"        id="stp-3"><div class="num">3</div><div>Data source</div></div>
           <div class="step"        id="stp-4"><div class="num">4</div><div>Sign Policy</div></div>
           <div class="step"        id="stp-5"><div class="num">5</div><div>Ready</div></div>
         </div>
@@ -702,7 +702,7 @@ body::before {
           </div>
         </div>
 
-        <!-- Step 2: Data source -->
+        <!-- Step 3: Data source (was step 2 before reorder; same EVM key covers BSC + Base) -->
         <div class="wizard-step" id="step-data-source">
           <h3 style="font:600 16px/1.2 'Inter'; margin: 0 0 4px;">Pick a data source</h3>
           <p style="font:400 12px/1.5 'Inter'; color:var(--fg-dim); margin: 0 0 18px;">
@@ -767,13 +767,14 @@ body::before {
           </div>
           <div id="ds-result"></div>
           <div class="actions">
-            <button class="btn" onclick="wizardBack(1)">← Back</button>
+            <button class="btn" onclick="wizardBack(2)">← Back</button>
             <button class="btn primary" id="ds-continue" onclick="dsContinue()">Continue →</button>
           </div>
         </div>
 
-        <!-- Step 3: Wallet -->
-        <div class="wizard-step" id="step-3">
+        <!-- Step 2: Wallet (was step 3 before reorder; moved up so the same
+             EVM key can be used for BSC trading + x402 Base USDC payments) -->
+        <div class="wizard-step" id="step-2">
           <h3 style="font:600 16px/1.2 'Inter'; margin: 0 0 4px;">Create or import a wallet</h3>
           <p style="font:400 12px/1.5 'Inter'; color:var(--fg-dim); margin: 0 0 18px;">
             The wallet is encrypted with AES-256-GCM at <code style="color:var(--accent);">~/.twak/wallet.json</code>
@@ -803,7 +804,7 @@ body::before {
           </div>
           <div id="wiz-wallet-result"></div>
           <div class="actions">
-            <button class="btn" onclick="wizardBack(2)">← Back</button>
+            <button class="btn" onclick="wizardBack(1)">← Back</button>
             <button class="btn" type="button" id="wiz-wallet-export" onclick="openExportMnemonic()" style="display:none;">Export secret phrase</button>
             <button class="btn primary" id="wiz-wallet-btn" onclick="wizardCreateWallet()">Create Wallet</button>
           </div>
@@ -1651,10 +1652,15 @@ async function wizardLoad() {
     renderFinalSummary(s);
     gotoStep(5);
   } else {
-    // jump to first incomplete step
-    if (!s.wallet_address) gotoStep(1);
-    else if (!s.evaluator_address || !s.policy_signed) gotoStep(3);
-    else gotoStep(1);
+    // Jump to the first incomplete step. The order is:
+    //   1 = Network  (mode + rpcs)
+    //   2 = Wallet   (wallet_address)
+    //   3 = Data source (configurable later from Config pane)
+    //   4 = Sign Policy (policy_signed)
+    if (!s.mode || !s.rpcs || (s.rpcs || []).length === 0) gotoStep(1);
+    else if (!s.wallet_address) gotoStep(2);
+    else if (!s.policy_signed) gotoStep(4);
+    else gotoStep(3);  // only data source left \u2014 user can revisit from Config pane
   }
   // populate step-4 evaluator field
   $('wiz-eval').value = s.evaluator_address || '';
@@ -1664,9 +1670,9 @@ async function wizardLoad() {
 
 function gotoStep(n) {
   WIZ.step = n;
-  // Map step indices to DOM ids (the data-source step is a one-off
-  // slot that doesn't share the step-N pattern).
-  const idFor = i => i === 2 ? 'step-data-source' : `step-${i}`;
+  // The data-source step DOM id is `step-data-source` (kept as a named
+  // anchor for clarity; it's now step 3 in the flow, not step 2).
+  const idFor = i => i === 3 ? 'step-data-source' : `step-${i}`;
   for (let i = 1; i <= 5; i++) {
     const el = $(idFor(i));
     if (el) el.classList.toggle('active', i === n);
@@ -1677,7 +1683,7 @@ function gotoStep(n) {
     }
   }
   // Stop x402 polling when the user leaves the data-source step
-  if (n !== 2 && typeof stopBasePolling === 'function') {
+  if (n !== 3 && typeof stopBasePolling === 'function') {
     stopBasePolling();
   }
 }
@@ -1711,7 +1717,7 @@ async function wizardNext(from) {
       alert('config error: ' + r.error);
       return;
     }
-    gotoStep(2);   // advance to Data source
+    gotoStep(2);   // advance to Wallet
   }
 }
 
@@ -1755,7 +1761,7 @@ async function wizardCreateWallet() {
     addressBox(r.address, 'Agent address (this EOA signs every tx)');
   // Reveal the export-mnemonic button now that a wallet exists
   $('wiz-wallet-export').style.display = '';
-  // advance to step 3 after a beat
+  // advance to step 3 (Data source) after a beat
   setTimeout(() => gotoStep(3), 800);
 }
 
@@ -1993,8 +1999,8 @@ async function dsContinue() {
     return;
   }
   out.innerHTML = bannerHtml('ok', `Data source set to <code>${tier}</code>.`);
-  // advance to wallet step
-  setTimeout(() => gotoStep(3), 400);
+  // advance to step 4 (Sign Policy)
+  setTimeout(() => gotoStep(4), 400);
 }
 
 async function dsChangeOpen() {
@@ -2002,8 +2008,7 @@ async function dsChangeOpen() {
   // straight to the data-source wizard step.
   showPane('setup');
   await wizardLoad();
-  gotoStep(2);
-  dsInit();
+  gotoStep(3);
 }
 
 async function dsBannerTick() {
