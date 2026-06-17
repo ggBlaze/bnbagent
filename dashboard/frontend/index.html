@@ -436,6 +436,9 @@ body::before {
 .steps .step.done        { color: var(--green); }
 .wizard-step { display: none; }
 .wizard-step.active { display: block; animation: rise 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+/* v2.1.8 (UX1): step indicators are clickable for back-nav after setup. */
+.steps .step { cursor:pointer; transition: opacity 0.15s; }
+.steps .step:hover { opacity: 0.78; }
 .field { margin: 14px 0; }
 .field label {
   display: block; font: 500 11px/1 'Inter'; color: var(--fg-dim);
@@ -832,12 +835,12 @@ body.demo-mode button[onclick^="toggleKill"] {
         <h2>BNB Agent Setup <span class="sub">Six steps. Pick your network → wallet → data source → brain → policy → live.</span></h2>
 
         <div class="steps">
-          <div class="step active" id="stp-1"><div class="num">1</div><div>Network</div></div>
-          <div class="step"        id="stp-2"><div class="num">2</div><div>Wallet</div></div>
-          <div class="step"        id="stp-3"><div class="num">3</div><div>Data source</div></div>
-          <div class="step"        id="stp-4"><div class="num">4</div><div>🧠 Brain</div></div>
-          <div class="step"        id="stp-5"><div class="num">5</div><div>Sign Policy</div></div>
-          <div class="step"        id="stp-6"><div class="num">6</div><div>Ready</div></div>
+          <div class="step active" id="stp-1" onclick="wizardJump(1)"><div class="num">1</div><div>Network</div></div>
+          <div class="step"        id="stp-2" onclick="wizardJump(2)"><div class="num">2</div><div>Wallet</div></div>
+          <div class="step"        id="stp-3" onclick="wizardJump(3)"><div class="num">3</div><div>Data source</div></div>
+          <div class="step"        id="stp-4" onclick="wizardJump(4)"><div class="num">4</div><div>🧠 Brain</div></div>
+          <div class="step"        id="stp-5" onclick="wizardJump(5)"><div class="num">5</div><div>Sign Policy</div></div>
+          <div class="step"        id="stp-6" onclick="wizardJump(6)"><div class="num">6</div><div>Ready</div></div>
         </div>
 
         <!-- Step 1: Network -->
@@ -2080,6 +2083,17 @@ async function wizardLoad() {
   dsInit();
   // refresh the LLM brain status (no-op if not on step 4, but harmless)
   llmWizRefreshStatus();
+}
+
+// v2.1.8 (UX1): clickable step indicators. The operator can jump
+// to any of the 6 steps after the initial walkthrough — back-nav to
+// fix a mistaken mode/RPC/policy without having to Reset Everything.
+// gotoStep preserves form values (it just toggles `.active`), so a
+// jump is non-destructive. Any save still happens through the
+// step's own "Continue" / "Save" button.
+function wizardJump(n) {
+  if (typeof n !== 'number' || n < 1 || n > 6) return;
+  gotoStep(n);
 }
 
 function gotoStep(n) {
