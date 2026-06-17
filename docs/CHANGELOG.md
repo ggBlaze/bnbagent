@@ -105,8 +105,7 @@ FIXED:    x402 mode in v2.1.6 was effectively non-trading because
         HybridDataSource in this release routes OHLCV to Binance
         so the sleeves actually fire trades. A bug that would have
         lost 7 days of contest window to "0 trades" is now closed.
-TESTS:  +13 new tests (was 438, now 461 → was 461, now 468 with
-        the slow marker deselecting 1):
+TESTS:  +37 new tests (was 438, now 475):
         - 7 in tests/unit/test_auth.py (3-mode resolution, readonly
           behavior, opt-out safety)
         - 6 in tests/integration/test_auth.py (readonly end-to-end
@@ -122,6 +121,13 @@ TESTS:  +13 new tests (was 438, now 461 → was 461, now 468 with
         - 2 in tests/unit/test_binance.py (per-symbol resilience for
           both OHLCV and quotes)
         - 1 marker registration in pyproject.toml (slow)
+        - 3 in tests/unit/test_setup.py (Aura, 991c123: import_wallet
+          and generate_wallet both write data_source.base_address,
+          stale entries are overwritten)
+        - 3 in tests/integration/test_wallet_save_password.py
+          (Aura, 50febf2: opt-in flag writes TWAK_PWD to .env,
+          missing flag leaves .env untouched, existing line is
+          replaced in place)
 
 ## v2.1.6 — Hard date-lock Token Module + 2-key wallet protection (2026-06-13)
 
@@ -165,7 +171,7 @@ CHANGED: `docs/compliance.md` "No token launches" row notes that the
         lock is now enforced in code, not just in docs.
 CHANGED: `docs/submission.md` "Token Module testnet deploy" checklist
         row notes the contest lock.
-TESTS:  +23 new tests (438/438 passing; was 415):
+TESTS:  +23 new tests (438 tests passing; was 415):
         - 17 in tests/unit/test_token_lock.py (date + env boundaries)
         - 6 in tests/integration/test_auth.py (env-gated routes)
 
