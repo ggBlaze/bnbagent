@@ -70,10 +70,16 @@ from fastapi.staticfiles import StaticFiles
 
 log = logging.getLogger(__name__)
 
-try:
-    from core.main import DASHBOARD_STATE
-except ImportError:
-    DASHBOARD_STATE = {}
+# v2.1.8 (F1): the dashboard and the agent are sibling processes (per
+# `bash bnbagent`), so importing DASHBOARD_STATE from `core.main` here
+# would only ever return THIS process's empty dict. The real state
+# travels via `core/dashboard_state.py` (JSON snapshot file under
+# ~/.bnbagent/dashboard_state.json). We still keep a local
+# DASHBOARD_STATE dict for tests + same-process callers that mutate it
+# directly — `_state()` layers the two (file wins).
+DASHBOARD_STATE: dict = {}
+
+from core import dashboard_state as _ds_file
 
 from core.control import read_control, write_control
 from . import auth as _auth
@@ -94,7 +100,20 @@ from agents.base import list_persona_names, read_persona_raw, PersonaLoader
 # ---------------------------------------------------------------------------
 
 def _state() -> dict:
-    return DASHBOARD_STATE or {}
+    """Return the live agent state.
+
+    Layered: the IPC snapshot from the agent process wins over any
+    in-process DASHBOARD_STATE (which only callers in the same process
+    can populate, like unit tests). Missing keys fall through.
+    """
+    file_state = _ds_file.read_state()
+    if not file_state:
+        return DASHBOARD_STATE or {}
+    if not DASHBOARD_STATE:
+        return file_state
+    merged = dict(DASHBOARD_STATE)
+    merged.update(file_state)
+    return merged
 
 
 # v2.1.3: dotenv helpers for the LLM API key UI. The keys are env vars

@@ -99,6 +99,16 @@ async def run(args):
         "cmc_charges_view": [],
     })
 
+    # v2.1.8 (F1): seed the IPC snapshot file before the first heartbeat
+    # so the sidebar (mode/chain/wallet/identity) populates immediately
+    # on dashboard load, not 1s later. The heartbeat refreshes it each
+    # tick afterward.
+    try:
+        from . import dashboard_state as _ds_file
+        _ds_file.write_state(DASHBOARD_STATE)
+    except Exception as e:
+        log.warning("dashboard_state seed write failed: %s", e)
+
     agent = Agent(policy, portfolio, dashboard_state=DASHBOARD_STATE, reviewers=llm_components["reviewers"])
 
     # Instantiate sleeves

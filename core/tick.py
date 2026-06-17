@@ -135,7 +135,20 @@ class Agent:
                                     floor_status.get("notional"))
             except Exception as e:
                 log.warning("daily_floor tick failed: %s", e)
+            # v2.1.8 (F1): publish to the IPC file so the sibling-process
+            # dashboard sees this tick. Best-effort: write_state swallows
+            # disk errors so a bad mount doesn't break the trading loop.
+            self._publish_dashboard_state()
             await asyncio.sleep(1.0)
+
+    def _publish_dashboard_state(self) -> None:
+        """v2.1.8 (F1): write self.dashboard_state to the IPC snapshot
+        file the dashboard reads from. Non-JSON-serializable values (a
+        few of the entries under `components` are class instances) are
+        coerced to their str() representation by write_state; the
+        dashboard only consumes the dict-shaped entries anyway."""
+        from . import dashboard_state as _ds_file
+        _ds_file.write_state(self.dashboard_state)
 
     # --- convenience: check policy + log + return result ---
 
