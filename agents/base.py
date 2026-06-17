@@ -39,6 +39,53 @@ import yaml
 log = logging.getLogger(__name__)
 
 
+# v2.1.8 (P3): shared JSON extractor — originally `_extract_json_object`
+# in agents/reviewer.py (F3). Lifted here so the advisor and any future
+# agent that asks the LLM for JSON can reuse the same brace-balanced
+# scanner. Handles unclosed <think>, alt tags like <thinking>, markdown
+# fences (```json … ```), and prose around the object. The reviewer
+# still re-exports it under the old name for back-compat.
+_FENCE_OPEN_RE = re.compile(r"```(?:json)?\s*\n", re.IGNORECASE)
+
+
+def extract_json_object(s: str) -> str:
+    """Return the first balanced JSON object found in `s`.
+
+    Raises ValueError if no balanced object is found; callers catch and
+    fall back to their heuristic (reviewer) or veto (advisor)."""
+    if not s:
+        raise ValueError("empty input")
+    # Strip markdown fences. The opening line is ```json\n or ```\n;
+    # the closing is ```. Treat them all as delimiters and remove.
+    cleaned = _FENCE_OPEN_RE.sub("", s).replace("```", "")
+    start = cleaned.find("{")
+    if start < 0:
+        raise ValueError("no '{' found in response")
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(cleaned)):
+        c = cleaned[i]
+        if esc:
+            esc = False
+            continue
+        if in_str:
+            if c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return cleaned[start:i + 1]
+    raise ValueError("unbalanced '{' — no matching '}' before end of input")
+
+
 PRO_DEFAULTS_DIR = Path("agents/_pro_defaults")
 SHIPPED_PERSONAS_DIR = Path("agents/personas")
 RUNTIME_PERSONAS_DIR = Path("~/.bnbagent/personas").expanduser()

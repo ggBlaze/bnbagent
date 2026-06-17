@@ -21,7 +21,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from agents.base import PersonaLoader, llm_complete
+from agents.base import PersonaLoader, llm_complete, extract_json_object
 from agents.providers import AgentRouting, LLMRouter
 from core.control import write_control
 from core.portfolio import Portfolio
@@ -144,7 +144,13 @@ class StrategyAdvisor:
             return Advice(raw=raw, actions=[{"type": "no_op", "reason": "llm_empty"}],
                           confidence=0.0, parsed_ok=True, error="llm_empty")
         try:
-            data = json.loads(raw)
+            # v2.1.8 (P3): scan past prose / fences / unclosed-think
+            # prefixes so the parse survives any wrapping the model adds.
+            # Same helper used by the reviewer (F3). Production failure
+            # mode this fixes: ```json\n{... fenced responses landing
+            # in parsed_ok=False, advisor falling back to no_op.
+            obj = extract_json_object(raw)
+            data = json.loads(obj)
             actions = data.get("actions", [])
             confidence = float(data.get("confidence", 0))
             return Advice(raw=raw, actions=actions, confidence=confidence, parsed_ok=True)

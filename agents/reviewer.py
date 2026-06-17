@@ -16,72 +16,18 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from agents.base import PersonaLoader, llm_complete
+from agents.base import PersonaLoader, llm_complete, extract_json_object
 from agents.providers import AgentRouting, LLMRouter
 from core.risk import ProposedTrade
 
 log = logging.getLogger(__name__)
 
 
-# v2.1.8 (F3): markdown-fence prefix used by some models that don't
-# honor response_format={"type":"json_object"}. Stripped before the
-# brace-balance scan so the scan starts at the JSON itself.
-_FENCE_OPEN_RE = re.compile(r"```(?:json)?\s*\n", re.IGNORECASE)
-
-
-def _extract_json_object(s: str) -> str:
-    """Return the first balanced JSON object found in `s`.
-
-    The MiniMax M3 reasoning model (and a few others) wraps the actual
-    JSON in `<think>...</think>` blocks. `agents.base.llm_complete`
-    already strips well-formed `<think>` blocks, but the response can
-    still arrive with:
-
-      - an unclosed `<think>` (truncated when max_tokens hits),
-      - a different tag (`<thinking>`, `<reasoning>`, ...),
-      - a markdown fence (```json ... ```),
-      - prose around the object,
-      - multiple JSON objects (only the first is the verdict).
-
-    A bare `json.loads(s)` chokes on any of those with `Expecting value:
-    line 1 column 1 (char 0)`. This scanner ignores everything before
-    the first `{` and tracks string literals + escapes so braces inside
-    strings don't bias the depth counter.
-
-    Raises ValueError if no balanced object is found — the reviewer
-    catches that and falls back to its heuristic, same as before.
-    """
-    if not s:
-        raise ValueError("empty input")
-    # Strip markdown fences. The opening line is ```json\n or ```\n;
-    # the closing is ```. Treat them all as delimiters and remove.
-    cleaned = _FENCE_OPEN_RE.sub("", s).replace("```", "")
-    start = cleaned.find("{")
-    if start < 0:
-        raise ValueError("no '{' found in response")
-    depth = 0
-    in_str = False
-    esc = False
-    for i in range(start, len(cleaned)):
-        c = cleaned[i]
-        if esc:
-            esc = False
-            continue
-        if in_str:
-            if c == "\\":
-                esc = True
-            elif c == '"':
-                in_str = False
-            continue
-        if c == '"':
-            in_str = True
-        elif c == "{":
-            depth += 1
-        elif c == "}":
-            depth -= 1
-            if depth == 0:
-                return cleaned[start:i + 1]
-    raise ValueError("unbalanced '{' — no matching '}' before end of input")
+# v2.1.8 (P3): the brace-balanced JSON extractor was lifted into
+# agents/base.py so the advisor (and any future agent) can use it too.
+# Keep the old name as a back-compat alias for any caller that imports
+# `from agents.reviewer import _extract_json_object`.
+_extract_json_object = extract_json_object
 
 
 @dataclass
