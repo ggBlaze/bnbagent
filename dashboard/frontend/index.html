@@ -2072,6 +2072,13 @@ function gotoStep(n) {
   if (n === 4 && typeof llmWizRefreshStatus === 'function') {
     llmWizRefreshStatus();
   }
+  // Refresh the data-source step's address label every time the user
+  // enters it. Defense-in-depth: covers reset+re-import, radio
+  // pre-checked scenarios (where change event doesn't fire), and
+  // any other path that lands on step 3 with a stale label.
+  if (n === 3 && typeof dsRefreshAddress === 'function') {
+    dsRefreshAddress();
+  }
 }
 
 function bannerHtml(kind, text) {
@@ -2290,10 +2297,15 @@ async function dsInit() {
   // populate the base address from the setup summary (re-fetched every
   // call so a wallet imported AFTER the wizard first opened shows up)
   await dsRefreshAddress();
-  // wire radio change + add RPC button (only once)
+  // wire radio change + click + add RPC button (only once). We
+  // listen on BOTH change and click because change only fires when
+  // the value actually changes — if the radio was pre-checked
+  // (e.g. tier=x402 in local.yaml after a reset) clicking it again
+  // fires no change event but we still want to refresh the label.
   if (!_dsInited) {
     document.querySelectorAll('input[name="ds-tier"]').forEach(r => {
       r.addEventListener('change', dsRadioChange);
+      r.addEventListener('click', dsRadioChange);
     });
     $('ds-add-base-rpc').addEventListener('click', () => {
       if (_dsBaseRpcs.length >= 5) return;
