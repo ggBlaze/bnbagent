@@ -87,16 +87,33 @@ def _wei_to_human(raw: Optional[int], decimals: int) -> str:
 
 
 def _connect_first(rpcs: list[str], timeout: float = 5.0):
-    """Try each RPC in order; return the first connected Web3, or None."""
+    """Try each RPC in order; return the first connected Web3, or None.
+
+    web3.py 7.x renamed geth_poa_middleware → ExtraDataToPOAMiddleware
+    and moved it to web3.middleware.proof_of_authority. The pre-fix
+    code did `from web3.middleware import geth_poa_middleware` inside
+    a try/except that returned None on ImportError — making EVERY
+    RPC look unreachable on web3.py 7.x, even when curl works. The
+    fix tries the new path first, falls back to 6.x, and only
+    returns None if Web3 itself can't be imported.
+    """
+    from web3 import Web3
+    # web3.py 7.x path first, fall back to 6.x. Both imports may
+    # fail on a stripped web3 install; treat middleware as optional
+    # rather than failing the whole RPC connect.
+    _POA = None
     try:
-        from web3 import Web3
-        from web3.middleware import geth_poa_middleware
+        from web3.middleware.proof_of_authority import ExtraDataToPOAMiddleware as _POA  # type: ignore
     except ImportError:
-        return None
+        try:
+            from web3.middleware import geth_poa_middleware as _POA  # type: ignore
+        except ImportError:
+            log.debug("no POA middleware available on this web3 version")
     for url in rpcs:
         try:
             w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": timeout}))
-            w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+            if _POA is not None:
+                w3.middleware_onion.inject(_POA, layer=0)
             if w3.is_connected():
                 return w3
         except Exception as e:

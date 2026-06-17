@@ -147,9 +147,20 @@ def _read_registration_from_chain(address: str, rpc_url: str = "https://bsc-data
         # without web3 installed (the contest registration can be done
         # at a later time from a different machine if needed).
         from web3 import Web3
-        from web3.middleware import geth_poa_middleware
+        # web3.py 7.x renamed geth_poa_middleware → ExtraDataToPOAMiddleware
+        # and moved it to web3.middleware.proof_of_authority. Try the new
+        # path first, fall back to 6.x. Without this, registration on
+        # web3.py 7.x silently fails (same bug as core/balances.py).
+        try:
+            from web3.middleware.proof_of_authority import ExtraDataToPOAMiddleware as _POA  # type: ignore
+        except ImportError:
+            try:
+                from web3.middleware import geth_poa_middleware as _POA  # type: ignore
+            except ImportError:
+                _POA = None
         w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 10}))
-        w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+        if _POA is not None:
+            w3.middleware_onion.inject(_POA, layer=0)
         if not w3.is_connected():
             return {"registered": "unknown", "reason": f"could not connect to {rpc_url}"}
         # The event is `Registered(address,uint256,string)`. We just
