@@ -33,6 +33,29 @@ from pathlib import Path
 from . import logger as agent_logger
 from .boot import boot
 from .tick import Agent
+
+
+# v2.1.8 (A bugfix): module-level helper so unit tests can exercise the
+# wait-pattern in isolation. Returns when EITHER of the two events is
+# set — not when both. Cancels the other waiter so it doesn't leak into
+# the event loop as a phantom pending task.
+async def _wait_either(*events: asyncio.Event) -> None:
+    waiters = [asyncio.create_task(e.wait()) for e in events]
+    try:
+        done, pending = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+        for p in pending:
+            p.cancel()
+        # Surface any exceptions from the completed waiters (asyncio
+        # would otherwise swallow them since the caller doesn't await
+        # the individual tasks).
+        for d in done:
+            d.result()
+    finally:
+        # Belt-and-suspenders: ensure no waiter survives a CancelledError
+        # on the outer task.
+        for w in waiters:
+            if not w.done():
+                w.cancel()
 from agents.providers import LLMRouter, load_providers_config
 from agents.advisor import StrategyAdvisor
 from agents.reviewer import TradeReviewer
@@ -152,7 +175,12 @@ async def run(args):
         except NotImplementedError:
             pass
 
-    await stop_evt.wait()
+    # v2.1.8 (A bugfix): wait on EITHER the OS-signal Event OR the
+    # agent's internal _shutdown (which the heartbeat sets when the
+    # dashboard's restart endpoint writes a control-IPC marker). Before
+    # this fix, _heartbeat's _shutdown.set() never reached run(),
+    # the process kept running, and the bash wrapper never saw exit 75.
+    await _wait_either(stop_evt, agent._shutdown)
     await agent.stop()
     log.info("agent stopped cleanly")
     # v2.1.8 (A): if the heartbeat received a restart request via the
