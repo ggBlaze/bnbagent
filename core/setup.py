@@ -104,6 +104,42 @@ def _save_yaml(path: Path, data: dict) -> None:
     path.write_text(yaml.safe_dump(data, sort_keys=False, default_flow_style=False))
 
 
+def _persist_base_address_if_unset(address: str) -> None:
+    """Write the wallet's address to `config/local.yaml` under
+    `data_source.base_address` so the wizard's x402 step + the
+    /api/data-source/x402-balance endpoint can find it.
+
+    Mirrors the same write in core/boot.py:153-159. The wizard calls
+    `import_wallet` / `generate_wallet` BEFORE the agent boots, so
+    without this write `data_source.base_address` stays at whatever
+    the previous boot wrote (which may be an ephemeral key from a
+    prior session, or the placeholder from local.yaml.example), and
+    the data-source step + x402 balance polling would target the
+    wrong address.
+
+    Always writes on import/generate — the freshly-imported/gener
+    wallet's address is by definition the operator's current intent.
+    If the operator wants to poll a DIFFERENT address's USDC balance
+    for x402 funding (advanced multi-sig scenario), they can set it
+    by editing local.yaml after import; the wizard path always wins
+    here.
+    """
+    try:
+        cfg = _load_merged_config()
+        ds = cfg.setdefault("data_source", {})
+        ds["base_address"] = Web3.to_checksum_address(address)
+        write_local(cfg)
+    except Exception as e:
+        # Persistence is best-effort here. The wallet itself was
+        # already encrypted to disk by create_keystore / import_keystore;
+        # if the config write fails the operator can fix local.yaml by
+        # hand and the next boot() call will retry.
+        import logging
+        logging.getLogger(__name__).warning(
+            "could not persist data_source.base_address: %s", e
+        )
+
+
 def load_setup_state() -> SetupState:
     """Read everything from disk and assemble the operator summary.
 
@@ -202,12 +238,15 @@ def generate_wallet(password: str) -> dict:
     acct = Account.from_mnemonic(mnemonic)
     result = create_keystore(password, account=acct, mnemonic=mnemonic)
     result["mnemonic"] = mnemonic  # surface once to the operator
+    _persist_base_address_if_unset(result["address"])
     return result
 
 
 def import_wallet(private_key_hex: str, password: str) -> dict:
     """Import an existing private key, encrypt with `password`."""
-    return import_keystore(private_key_hex, password)
+    result = import_keystore(private_key_hex, password)
+    _persist_base_address_if_unset(result["address"])
+    return result
 
 
 def sign_current_policy(password: str) -> dict:
