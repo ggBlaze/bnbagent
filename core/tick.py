@@ -140,8 +140,16 @@ class Agent:
             }
             stats["kill_switch"] = self.portfolio.kill_switch
             stats["kill_reason"] = self.portfolio.kill_reason
+            # v2.1.8 (UX2): write updated_at INSIDE stats too — the
+            # frontend reads `stats.updated_at` for the "Updated" field
+            # and the WS handler reads it for the `ts` envelope. Pre-fix
+            # only the top-level `updated_at` was set, so sys-updated
+            # always showed "—" and the WS ts always fell back to
+            # wall-clock. Keep top-level as well for back-compat.
+            now_ts = int(__import__('time').time())
+            stats["updated_at"] = now_ts
             self.dashboard_state["stats"] = stats
-            self.dashboard_state["updated_at"] = int(__import__('time').time())
+            self.dashboard_state["updated_at"] = now_ts
             # v2.1.4: daily trade floor tick. The module throttles
             # itself to once per UTC day; the per-second call is just
             # a cheap clock check.
