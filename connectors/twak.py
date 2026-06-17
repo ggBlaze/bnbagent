@@ -112,7 +112,31 @@ class TWAKWallet:
             addr = blob["address"]
             key = _decrypt_keystore(blob, pwd)
             return cls(address=addr, key=key, password=pwd, keystore_path=keystore)
-        # dev fallback: ephemeral random key (do not use in production)
+        # v2.1.8 (#7): if the operator declared a keystore but the file
+        # is missing OR the password isn't set, FAIL LOUDLY. Silently
+        # falling through to the ephemeral path means the agent runs
+        # with a wallet the operator never authorized — observed live
+        # when the agent booted before the wizard's wallet-import step
+        # had written ~/.twak/wallet.json. The "two different wallets"
+        # symptom in the dashboard was exactly this fallthrough.
+        if keystore:
+            ks_path = Path(keystore).expanduser()
+            if not ks_path.exists():
+                raise RuntimeError(
+                    f"TWAK_KEYSTORE={keystore!r} but the file does not exist "
+                    f"at {ks_path}. Import a wallet via the dashboard wizard "
+                    f"(or copy an existing wallet.json), or unset TWAK_KEYSTORE "
+                    f"to fall back to an ephemeral dev wallet."
+                )
+            if not pwd:
+                raise RuntimeError(
+                    f"TWAK_KEYSTORE is set ({keystore!r}) but TWAK_PWD is empty. "
+                    f"Set TWAK_PWD to the keystore's password, or unset both "
+                    f"to fall back to an ephemeral dev wallet."
+                )
+        # dev fallback: ephemeral random key (do not use in production).
+        # Only reachable when NEITHER TWAK_KEYSTORE nor BNBAGENT_PRIVATE_KEY
+        # is declared — the test/replay/fresh-install path.
         acct = Account.create()
         log.warning("TWAKWallet: no keystore + no BNBAGENT_PRIVATE_KEY — generated ephemeral key %s",
                     acct.address)
