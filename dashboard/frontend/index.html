@@ -2229,7 +2229,12 @@ async function wizardReset() {
   $('wiz-pwd').value = '';
   $('wiz-pwd2').value = '';
   $('wiz-pwd-sign').value = '';
-  gotoStep(1);
+  // Re-fetch /api/setup + re-init the data-source step. Without this,
+  // _dsInited stays true from the pre-reset session and the data-source
+  // step keeps showing the OLD wallet_address in #ds-base-address
+  // (the user just wiped). wizardLoad() resets _dsInited via dsInit()
+  // and refetches everything from the server.
+  await wizardLoad();
   checkSetupBadge();
 }
 
