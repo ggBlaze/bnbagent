@@ -689,7 +689,13 @@ def build_app() -> FastAPI:
                 cmc_api_key=str(body.get("cmc_api_key", "")),
                 cmc_x402_base=body.get("cmc_x402_base"),
             )
-            return JSONResponse({"ok": True, "config": cfg})
+            # v2.1.8 (P6): saving config changes mode/chain/RPCs in
+            # local.yaml, but the running agent has its config frozen
+            # in memory from boot. Signal restart_required so the
+            # frontend can auto-fire /api/agent/restart and the
+            # operator doesn't have to remember to click Restart Agent
+            # after every wizard save.
+            return JSONResponse({"ok": True, "config": cfg, "restart_required": True})
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 

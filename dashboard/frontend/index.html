@@ -2150,6 +2150,16 @@ async function wizardNext(from) {
       alert('config error: ' + r.error);
       return;
     }
+    // v2.1.8 (P6): the running agent has its config frozen from boot,
+    // so the new mode/chain/RPCs we just saved won't take effect until
+    // it re-execs. The backend signals this via restart_required. We
+    // fire /api/agent/restart in the background (no need to block the
+    // wizard flow on it); the agent comes back within ~5s and the
+    // dashboard's next refresh picks it up.
+    if (r.restart_required) {
+      // Best-effort, don't await — wizard continues even if restart fails.
+      jpost('/api/agent/restart', { reason: 'wizard config save' });
+    }
     gotoStep(2);   // advance to Wallet
   }
 }
