@@ -2036,6 +2036,27 @@ async function wizardLoad() {
   }
   // populate step-5 evaluator field
   $('wiz-eval').value = s.evaluator_address || '';
+  // If a wallet is already on disk, surface that on step 2 so the
+  // operator knows they don't need to import again. They CAN re-import
+  // to replace it (the import form still works), but the empty form
+  // was previously indistinguishable from "no wallet yet" and tricked
+  // the operator into thinking setup was incomplete.
+  const wizRes = $('wiz-wallet-result');
+  if (wizRes) {
+    if (s.wallet_address) {
+      wizRes.innerHTML =
+        bannerHtml('ok',
+          `Wallet already imported at <code class="mono">${s.wallet_address}</code>. ` +
+          `Leave the fields blank and click Continue → to keep it, or import a different key to replace.`) +
+        addressBox(s.wallet_address, 'Agent address (this EOA signs every tx)');
+      // Reveal the export-mnemonic button so the operator can recover
+      // the phrase without re-entering the wizard from scratch.
+      const exportBtn = $('wiz-wallet-export');
+      if (exportBtn) exportBtn.style.display = '';
+    } else {
+      wizRes.innerHTML = '';
+    }
+  }
   // pre-fill the data source step
   dsInit();
   // refresh the LLM brain status (no-op if not on step 4, but harmless)
