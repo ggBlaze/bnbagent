@@ -1251,6 +1251,17 @@ def build_app() -> FastAPI:
                     headers={"Authorization": f"Bearer {key}"},
                     timeout=10,
                 )
+            elif provider == "minimax":
+                # v2.1.5+: MiniMax (Anthropic competitor; OpenAI-compatible
+                # chat-completions endpoint at api.minimaxi.chat). The
+                # base in providers.yaml is bare (no /v1); the chat client
+                # appends /v1/chat/completions, so /v1/models is the
+                # matching auth probe.
+                r = httpx.get(
+                    "https://api.minimaxi.chat/v1/models",
+                    headers={"Authorization": f"Bearer {key}"},
+                    timeout=10,
+                )
             elif provider == "oai_compat":
                 base = _get_env_var_from_dotenv("OAI_BASE") or ""
                 if not base:
