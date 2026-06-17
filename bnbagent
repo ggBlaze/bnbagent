@@ -87,7 +87,24 @@ sys.exit(1 if breach else 0)
     # give the dashboard a moment to bind
     sleep 1
     ok "dashboard PID=$DASH_PID → http://localhost:$DASHBOARD_PORT"
-    "$PY" -m core.main --equity "$EQUITY" --config config/config.yaml --policy config/policy.yaml
+    # v2.1.8 (A): the dashboard's POST /api/agent/restart writes a
+    # restart marker to ~/.bnbagent/control.json; the agent's heartbeat
+    # picks it up on its next tick and exits with code 75. We loop on
+    # exit 75 to re-exec so wizard config changes take effect without
+    # the operator having to Ctrl+C and re-launch. Any other exit code
+    # (0 = clean shutdown, 130 = SIGINT, non-zero = crash) breaks the
+    # loop so the wrapper stops alongside the agent.
+    while true; do
+      set +e
+      "$PY" -m core.main --equity "$EQUITY" --config config/config.yaml --policy config/policy.yaml
+      rc=$?
+      set -e
+      if [[ $rc -ne 75 ]]; then
+        break
+      fi
+      ok "agent requested restart (exit 75) — re-launching"
+    done
+    exit $rc
     ;;
   *)
     echo "usage: bash bnbagent [--replay|--repl]" >&2

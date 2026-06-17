@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -97,3 +98,46 @@ def apply_control(policy: dict, portfolio) -> list[str]:
         c["_applied_lines"] = msgs
         write_control(c)
     return msgs
+
+
+# --- v2.1.8 (A): restart-agent flow ---------------------------------------
+#
+# Dashboard POST /api/agent/restart → request_restart() writes a marker.
+# Agent heartbeat → is_restart_requested() polls; on True it clears the
+# marker, sets _restart_pending, triggers graceful shutdown. core.main
+# exits with code 75 when _restart_pending. The bash wrapper loops on
+# exit 75 to re-exec the agent process.
+#
+# The marker lives under a separate "restart" key on the same control
+# file so apply_control() doesn't have to know about it (and so the
+# existing kill/sleeve/risk fields aren't disturbed by clear).
+
+_DEFAULT_RESTART_REASON = "manual restart request"
+
+
+def request_restart(reason: str | None = None) -> None:
+    """Write a restart marker to the control file.
+
+    Idempotent: a second call updates the timestamp + reason; the agent
+    only consumes one restart per heartbeat tick anyway.
+    """
+    c = read_control()
+    c["restart"] = {
+        "reason": reason or _DEFAULT_RESTART_REASON,
+        "requested_at": time.time(),
+    }
+    write_control(c)
+
+
+def is_restart_requested() -> bool:
+    """True if a restart has been requested and not yet consumed."""
+    return bool(read_control().get("restart"))
+
+
+def clear_restart_request() -> None:
+    """Consume the marker. Preserves all other control fields so an
+    in-flight kill/sleeve override survives the restart cycle."""
+    c = read_control()
+    if "restart" in c:
+        del c["restart"]
+        write_control(c)

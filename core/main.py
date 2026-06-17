@@ -155,6 +155,10 @@ async def run(args):
     await stop_evt.wait()
     await agent.stop()
     log.info("agent stopped cleanly")
+    # v2.1.8 (A): if the heartbeat received a restart request via the
+    # control IPC, signal main() to exit 75. The bash wrapper loops on
+    # exit 75 to re-exec; any other exit code is a permanent stop.
+    return bool(getattr(agent, "_restart_pending", False))
 
 
 def main():
@@ -164,7 +168,11 @@ def main():
     p.add_argument("--config", default="config/config.yaml")
     p.add_argument("--log-level", default=os.environ.get("BNBAGENT_LOG_LEVEL", "INFO"))
     args = p.parse_args()
-    asyncio.run(run(args))
+    restart_requested = asyncio.run(run(args))
+    # v2.1.8 (A): exit 75 → bash wrapper re-execs. Any other exit (0,
+    # signal, exception) → wrapper stops.
+    if restart_requested:
+        sys.exit(75)
 
 
 if __name__ == "__main__":

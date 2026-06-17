@@ -772,6 +772,25 @@ def build_app() -> FastAPI:
         r = reset_setup()
         return JSONResponse({"ok": True, **r})
 
+    # v2.1.8 (A): trigger an agent restart from the dashboard. Writes the
+    # restart marker to ~/.bnbagent/control.json; the running agent's
+    # heartbeat picks it up on its next tick (≤1s), gracefully shuts
+    # down with exit code 75, and the `bnbagent` bash wrapper re-execs.
+    # Use this after changing config in the wizard (mode, RPCs, etc.)
+    # so the live agent picks up the new settings without the operator
+    # having to Ctrl+C and re-launch from the terminal.
+    @app.post("/api/agent/restart", dependencies=[Depends(_auth.require_admin)])
+    async def agent_restart(body: dict | None = Body(default=None)):
+        from core.control import request_restart, read_control
+        reason = (body or {}).get("reason", "") or "dashboard restart button"
+        request_restart(reason=reason)
+        r = read_control().get("restart", {})
+        return JSONResponse({
+            "ok": True,
+            "reason": r.get("reason"),
+            "requested_at": r.get("requested_at"),
+        })
+
     # ------------------------------------------------------------- data source
     @app.get("/api/data-source")
     async def data_source_get():

@@ -62,6 +62,11 @@ class Agent:
         self.dashboard_state = dashboard_state or {}
         self.reviewers: dict = reviewers or {}
         self._shutdown = asyncio.Event()
+        # v2.1.8 (A): set by _heartbeat when a restart was requested
+        # via the control IPC. core.main reads this after wait_shutdown
+        # and exits with code 75; the bash wrapper loops on 75 to
+        # re-exec the agent process.
+        self._restart_pending: bool = False
         # v2.1.4: floor-trade tracking. Each entry is a dict with
         # pos_id, sleeve, symbol, open_ts, close_at, reason. The
         # heartbeat checks for entries whose close_at <= now and
@@ -94,8 +99,24 @@ class Agent:
         await self._shutdown.wait()
 
     async def _heartbeat(self):
-        from .control import apply_control
+        from .control import apply_control, is_restart_requested, clear_restart_request
         while not self._shutdown.is_set():
+            # v2.1.8 (A): check for a dashboard-issued restart request
+            # BEFORE doing any work. If present, set _restart_pending +
+            # _shutdown so core.main exits with code 75 and the bash
+            # wrapper re-execs the agent. We consume the marker so the
+            # next process boot doesn't re-trigger.
+            try:
+                if is_restart_requested():
+                    log.info("restart requested via control IPC — shutting down")
+                    clear_restart_request()
+                    self._restart_pending = True
+                    self._shutdown.set()
+                    # Still publish one final snapshot below so the
+                    # dashboard sees the agent's last state during the
+                    # restart window.
+            except Exception as e:
+                log.warning("restart-request check failed: %s", e)
             # Pull any pending intents from the dashboard / control file
             try:
                 msgs = apply_control(self.policy, self.portfolio)
