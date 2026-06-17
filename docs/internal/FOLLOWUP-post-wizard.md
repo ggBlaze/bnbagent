@@ -5,8 +5,13 @@
 > all green when each suite is run alone. **Not yet pushed.** F5 is an
 > operational reminder.
 >
+> **Update (2026-06-17 later):** B (load .env at boot) + A (restart-
+> agent endpoint + bash loop) also landed (commits bbc17f6, 7-ish).
+> P1 was **resolved as a side effect** of B's test-env scrub. Full
+> suite is now 541/541. See **P1.RESOLVED** + new P5 below.
+>
 > See the **Post-merge open items** section at the bottom for
-> follow-ups surfaced during the work.
+> remaining follow-ups.
 
 This file captures the **remaining infrastructure bugs and
 features** that were discovered while bringing up the dashboard +
@@ -336,22 +341,17 @@ In the next session, remind the user that:
 These are smaller follow-ups discovered while landing the main four.
 None are blocking; pick up when convenient.
 
-### P1. Pre-existing test-ordering flake (5 tests)
+### P1. Pre-existing test-ordering flake (5 tests) — **RESOLVED 2026-06-17**
 
-Running the full mixed suite in one process (`pytest tests`) makes
-these 5 tests fail; running each in isolation passes them. Reproducible
-on `main` BEFORE the post-wizard fixes landed (confirmed via
-`git stash` + re-run). Not caused by F1–F4.
-
-  - `tests/unit/test_advisor.py::test_can_only_tighten`
-  - `tests/unit/test_advisor.py::test_cannot_loosen_with_higher_value`
-  - `tests/unit/test_advisor.py::test_tighten_sleeve_respects_lower_value_only`
-  - `tests/unit/test_advisor.py::test_unknown_key_vetoed`
-  - `tests/unit/test_providers.py::test_router_status_with_key`
-
-Likely cause: an integration test sets env / .env / module-level router
-state that the advisor + providers tests then pick up. Fix is probably
-a fixture that resets `agents.providers._cache` / env between tests.
+Was: 5 tests failing when run after integration tests (test_advisor x4
++ test_router_status_with_key). Root cause: the integration test for
+the dashboard imported `dashboard.backend.main` which (after B) calls
+`load_dotenv()` at module top — the operator's `MINIMAX_API_KEY`
+leaked into `os.environ` for the rest of the test session, breaking
+later tests that asserted the key was absent. Fixed via an autouse
+conftest fixture (`_scrub_dotenv_from_test_env`) that enumerates
+every key in `.env` and `monkeypatch.delenv`s it. Tests that want a
+specific value still set it via their own monkeypatch.
 
 ### P2. x402 nonce uniqueness
 
@@ -391,3 +391,32 @@ Fix: have each component expose a `to_dashboard_dict()` method and
 have `_publish_dashboard_state()` call those. Or: the dashboard
 endpoints that need method calls should ask the agent for that data
 over the control IPC (`core/control.py`).
+
+### P5. UI button for the restart endpoint
+
+A (restart-agent) shipped the endpoint at `POST /api/agent/restart` +
+the bash wrapper loop on exit 75. There's no frontend button yet — the
+endpoint works via `curl`. Wizard "Save & Restart" buttons should call
+this endpoint after persisting changes (mode, RPCs, etc.) so the live
+agent picks them up without an operator-side restart.
+
+Smallest implementation: a "Restart Agent" button in the dashboard
+header that POSTs to `/api/agent/restart`, then polls `/api/healthz`
++ `/api/stats.updated_at` until the timestamp advances (= new agent
+booted). Show "restart requested — waiting for agent" while polling.
+
+### P6. Wizard "Save" should auto-trigger a restart
+
+Composition of A + the wizard config save: when the operator saves a
+new mode / chain / RPCs in the wizard, the response should include
+`restart_required: true` and the UI either prompts or auto-fires the
+restart endpoint. Avoids the current confusion where saving mainnet
+config still leaves the agent in testnet until the operator notices
+and manually restarts.
+
+### P7. Wallet keystore separation from agent restart
+
+Empty `~/.twak/` after a restart (observed 2026-06-17) suggests
+either an over-broad reset or a missing-keystore boot path that
+silently regenerates. Investigate whether `reset_setup` or the
+wizard's "Reset" wipes the wallet, and whether boot.py recreates it.
