@@ -39,6 +39,12 @@ class BinanceClient:
         # unknown ones. This matters for the hybrid x402+Binance
         # mode where the basket can include BEP-20s that aren't listed
         # on Binance.
+        #
+        # v2.1.8 (F2): cast `price` to float at the boundary. Binance
+        # returns numeric fields as JSON strings; downstream consumers
+        # (sleeve C arithmetic, dashboard tiles, backtest replay)
+        # expect numbers. Single coercion here keeps the rest of the
+        # codebase free of `float(str(...))` boilerplate.
         out = {}
         try:
             binance_symbols = [f"{s.upper()}USDT" for s in symbols]
@@ -48,7 +54,7 @@ class BinanceClient:
             rows = resp.json()
             for row in rows:
                 sym = row["symbol"].replace("USDT", "")
-                out[sym] = {"quote": {convert: {"price": row["price"]}}}
+                out[sym] = {"quote": {convert: {"price": float(row["price"])}}}
         except Exception as e:
             log.debug("binance: bulk /ticker/price failed (%s), falling back to per-symbol", e)
             for sym in symbols:
@@ -62,7 +68,7 @@ class BinanceClient:
                     if isinstance(row, list):
                         row = row[0] if row else None
                     if row and "price" in row:
-                        out[sym] = {"quote": {convert: {"price": row["price"]}}}
+                        out[sym] = {"quote": {convert: {"price": float(row["price"])}}}
                 except Exception as inner:
                     log.debug("binance: skip %s (%s)", sym, inner)
                     continue
@@ -93,11 +99,20 @@ class BinanceClient:
                 # CMCProClient + MockClient already use this shape; Binance was the
                 # odd one out and the inconsistency caused every tick to crash
                 # with AttributeError in the live PnL window.
+                #
+                # v2.1.8 (F2): cast OHLCV numeric fields to float. Binance
+                # returns each field as a JSON string; sleeve C does
+                # `quotes[-1]["close"] - quotes[-2]["close"]` directly and
+                # raised `TypeError: unsupported operand type(s) for -: 'str'
+                # and 'str'`. CMCProClient + MockClient already return floats;
+                # casting here makes the contract uniform.
                 out[sym] = {
                     "quotes": [
                         {
-                            "open": r[1], "high": r[2], "low": r[3], "close": r[4],
-                            "volume": r[5], "open_time": r[0], "close_time": r[6],
+                            "open": float(r[1]), "high": float(r[2]),
+                            "low": float(r[3]), "close": float(r[4]),
+                            "volume": float(r[5]),
+                            "open_time": r[0], "close_time": r[6],
                         }
                         for r in rows
                     ]

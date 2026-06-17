@@ -19,8 +19,10 @@ def test_quotes_latest_parses_ticker_price():
     import asyncio
     client = BinanceClient()
     result = asyncio.run(client.quotes_latest(["BTC", "ETH"]))
-    assert result["data"]["BTC"]["quote"]["USD"]["price"] == "50000.00"
-    assert result["data"]["ETH"]["quote"]["USD"]["price"] == "3000.00"
+    # v2.1.8 (F2): connector casts to float at the boundary; see
+    # tests/unit/test_binance_ohlcv_typing.py for the contract.
+    assert result["data"]["BTC"]["quote"]["USD"]["price"] == 50000.00
+    assert result["data"]["ETH"]["quote"]["USD"]["price"] == 3000.00
     assert client.tier == "binance"
 
 
@@ -36,11 +38,13 @@ def test_ohlcv_historical_parses_klines():
     client = BinanceClient()
     result = asyncio.run(client.ohlcv_historical(["BTC"], count=2))
     # Wrapped in 'quotes' to match the strategy-expected shape (CMCProClient +
-    # MockClient). See fix-p0 below for context.
+    # MockClient). v2.1.8 (F2): connector casts numeric fields to float so
+    # sleeve C can subtract candle closes directly. See
+    # tests/unit/test_binance_ohlcv_typing.py for the typing contract.
     candles = result["data"]["BTC"]["quotes"]
     assert len(candles) == 2
-    assert candles[0]["close"] == "105"
-    assert candles[1]["close"] == "110"
+    assert candles[0]["close"] == 105.0
+    assert candles[1]["close"] == 110.0
 
 
 @respx.mock
@@ -138,7 +142,8 @@ def test_quotes_latest_falls_back_to_per_symbol_on_bulk_400():
     client = BinanceClient()
     result = asyncio.run(client.quotes_latest(["BTC", "FOO", "ETH"]))
     assert "BTC" in result["data"]
-    assert result["data"]["BTC"]["quote"]["USD"]["price"] == "50000.00"
+    # v2.1.8 (F2): float at the boundary.
+    assert result["data"]["BTC"]["quote"]["USD"]["price"] == 50000.00
     assert "FOO" not in result["data"]
     assert "ETH" in result["data"]
-    assert result["data"]["ETH"]["quote"]["USD"]["price"] == "3000.00"
+    assert result["data"]["ETH"]["quote"]["USD"]["price"] == 3000.00
