@@ -2835,6 +2835,30 @@ function renderHoldings(b) {
   if (b.base_active === false && b.wallet) {
     blocks.push('<div class="line dim" style="font:400 9px/1.4 \'JetBrains Mono\'; margin-top:6px;">Base balances show only when x402 is the active data source.</div>');
   }
+  // Wallet-funded warning. The policy's per-trade notional cap is
+  // ~$3.50; one trade + a few gas txns needs at least ~0.01 BNB.
+  // Below that, every sleeve will circuit-breaker on balance.
+  // Show this banner ABOVE the chain blocks so it's the first thing
+  // the operator sees after refresh.
+  const FUNDED_THRESHOLD_BNB = '0.01';
+  const bscNative = b.bsc && b.bsc.native;
+  if (b.wallet && bscNative && parseFloat(bscNative.balance || '0') < parseFloat(FUNDED_THRESHOLD_BNB)) {
+    const fundBanner = `
+      <div class="banner warn" style="margin-bottom:10px;">
+        <span>⚠</span>
+        <div>
+          <strong>Wallet not funded.</strong>
+          Balance is <code class="mono">${fmtBal(bscNative.balance)} ${bscNative.symbol || 'BNB'}</code>
+          — every trade will circuit-breaker.
+          Send a small amount of ${bscNative.symbol || 'BNB'} on
+          ${b.chain_id === 56 ? 'BSC mainnet' : (b.chain_id === 97 ? 'BSC testnet' : 'this chain')}
+          to <code class="mono" style="user-select:all;">${b.wallet}</code>
+          to start trading. ~0.05 ${bscNative.symbol || 'BNB'} (~$30) is plenty for the
+          per-trade cap in the current policy.
+        </div>
+      </div>`;
+    blocks.unshift(fundBanner);
+  }
   root.innerHTML = blocks.join('');
   const meta = $('holdings-meta');
   if (meta) {
