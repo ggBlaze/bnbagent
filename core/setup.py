@@ -302,14 +302,21 @@ def sign_current_policy(password: str) -> dict:
     }
 
 
-def reset() -> dict:
+def reset(include_wallet: bool = False) -> dict:
     """Wipe operator state. Used by the 'Reset' button.
 
     Wipes only gitignored STATE files:
       - config/policy.yaml  (operator-signed, has their key)
       - config/local.yaml   (operator overrides)
-      - the keystore        (their encrypted wallet)
       - ~/.bnbagent/setup.json (cached summary for the dashboard)
+
+    v2.1.8 (P7): by default, KEEPS the encrypted wallet keystore at
+    ~/.twak/wallet.json. The operator imported it deliberately; a
+    config reset shouldn't take their wallet with it (forcing a
+    re-import for what they probably intended as just a config tweak).
+    Pass `include_wallet=True` to also delete the keystore — used for
+    wallet rotation, hand-off to another operator, or a truly-
+    everything wipe.
 
     Does NOT touch config/config.yaml — that's a TRACKED file
     with the shipped defaults (RPCs, base_rpcs, base_address
@@ -319,16 +326,18 @@ def reset() -> dict:
     "no base_rpcs configured".
     """
     removed = []
-    for p in [
+    targets = [
         Path("config/policy.yaml"),
         Path("config/local.yaml"),
-        _keystore_path(),
         SUMMARY_PATH,
-    ]:
+    ]
+    if include_wallet:
+        targets.insert(2, _keystore_path())
+    for p in targets:
         if p.exists():
             p.unlink()
             removed.append(str(p))
-    return {"removed": removed}
+    return {"removed": removed, "wallet_kept": not include_wallet}
 
 
 # --- env var helper --------------------------------------------------------

@@ -793,8 +793,12 @@ def build_app() -> FastAPI:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
     @app.post("/api/setup/reset", dependencies=[Depends(_auth.require_admin)])
-    async def setup_reset():
-        r = reset_setup()
+    async def setup_reset(body: dict | None = Body(default=None)):
+        # v2.1.8 (P7): wallet is preserved by default. Pass
+        # {"include_wallet": true} to also wipe ~/.twak/wallet.json
+        # (wallet rotation / hand-off / true factory-reset).
+        include_wallet = bool((body or {}).get("include_wallet", False))
+        r = reset_setup(include_wallet=include_wallet)
         return JSONResponse({"ok": True, **r})
 
     # v2.1.8 (A): trigger an agent restart from the dashboard. Writes the
