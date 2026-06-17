@@ -1871,7 +1871,26 @@ async function refresh() {
   $('sys-addr').textContent  = identity.agent_address ? shortHash(identity.agent_address) : '—';
   $('sys-wallet').textContent= config.chain_id === 56 ? 'TWAK' : 'TWAK (testnet)';
   $('sys-updated').textContent= stats.updated_at ? ts(stats.updated_at) + ' UTC' : '—';
-  $('updated').textContent   = stats.updated_at ? 'updated ' + ts(stats.updated_at) : 'live';
+  // v2.1.8 (UX3): freshness check. Anything older than ~10s means
+  // the agent is down or restarting — surface "agent offline" so the
+  // operator doesn't stare at a frozen page thinking it's fine.
+  // The polling itself is resilient (jget returns {} on fetch error)
+  // so this is purely a display state.
+  const updatedEl = $('updated');
+  if (updatedEl) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const age = stats.updated_at ? (nowSec - stats.updated_at) : Infinity;
+    if (!stats.updated_at) {
+      updatedEl.textContent = 'agent offline';
+      updatedEl.style.color = 'var(--accent-2)';
+    } else if (age > 10) {
+      updatedEl.textContent = `stale ${age}s — agent offline?`;
+      updatedEl.style.color = 'var(--accent-2)';
+    } else {
+      updatedEl.textContent = 'updated ' + ts(stats.updated_at);
+      updatedEl.style.color = '';
+    }
+  }
 
   // kill switch
   if (stats.kill_switch) {
