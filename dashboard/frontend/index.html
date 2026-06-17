@@ -981,6 +981,7 @@ body.demo-mode button[onclick^="toggleKill"] {
             <button class="btn" onclick="wizardBack(1)">← Back</button>
             <button class="btn" type="button" id="wiz-wallet-export" onclick="openExportMnemonic()" style="display:none;">Export secret phrase</button>
             <button class="btn primary" id="wiz-wallet-btn" onclick="wizardCreateWallet()">Create Wallet</button>
+            <button class="btn primary" id="wiz-wallet-continue" onclick="gotoStep(3)" style="display:none;">Continue →</button>
           </div>
         </div>
 
@@ -2042,19 +2043,28 @@ async function wizardLoad() {
   // was previously indistinguishable from "no wallet yet" and tricked
   // the operator into thinking setup was incomplete.
   const wizRes = $('wiz-wallet-result');
+  const wizBtn = $('wiz-wallet-btn');         // "Create / Import Wallet"
+  const wizCont = $('wiz-wallet-continue');   // "Continue →" (skip-step)
   if (wizRes) {
     if (s.wallet_address) {
       wizRes.innerHTML =
         bannerHtml('ok',
           `Wallet already imported at <code class="mono">${s.wallet_address}</code>. ` +
-          `Leave the fields blank and click Continue → to keep it, or import a different key to replace.`) +
+          `Click Continue → to keep it, or import a different key to replace.`) +
         addressBox(s.wallet_address, 'Agent address (this EOA signs every tx)');
       // Reveal the export-mnemonic button so the operator can recover
       // the phrase without re-entering the wizard from scratch.
       const exportBtn = $('wiz-wallet-export');
       if (exportBtn) exportBtn.style.display = '';
+      // Swap the primary CTA: hide Create/Import, show Continue.
+      // (Re-importing still works — they just paste a key into the
+      // form above and click Create Wallet again.)
+      if (wizBtn)  wizBtn.style.display  = 'none';
+      if (wizCont) wizCont.style.display = '';
     } else {
       wizRes.innerHTML = '';
+      if (wizBtn)  wizBtn.style.display  = '';
+      if (wizCont) wizCont.style.display = 'none';
     }
   }
   // pre-fill the data source step
