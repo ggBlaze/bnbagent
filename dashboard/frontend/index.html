@@ -1470,6 +1470,15 @@ body.demo-mode button[onclick^="toggleKill"] {
     <div style="font:300 10px/1.4 'JetBrains Mono'; color:var(--fg-dim); margin-top:6px;">
       Halts all new orders. Open positions stay open unless you also stop the agent.
     </div>
+
+    <h3 style="margin-top:18px;">Restart Agent</h3>
+    <button class="kill" id="restart-btn" onclick="restartAgent()"
+            title="Gracefully restart the agent process so it picks up new config / wallet / policy from disk. Dashboard stays online; only the agent re-execs.">
+      Restart Agent
+    </button>
+    <div style="font:300 10px/1.4 'JetBrains Mono'; color:var(--fg-dim); margin-top:6px;">
+      Re-execs the agent so wizard changes (mode, RPCs, wallet, policy) take effect. Dashboard stays connected.
+    </div>
   </aside>
 </div>
 
@@ -2723,6 +2732,51 @@ async function toggleKill() {
     : { kill: true, kill_reason: 'manual from dashboard @ ' + new Date().toISOString() });
   if (r.ok) refresh();
   else alert('control failed: ' + JSON.stringify(r));
+}
+
+/* === restart agent (v2.1.8 P5) ====================================
+ * POSTs to /api/agent/restart, which writes the restart marker to
+ * ~/.bnbagent/control.json. The agent's heartbeat picks it up within
+ * ~1s, exits with code 75, and the bash wrapper re-execs. We then
+ * poll /api/stats every 1s until stats.updated_at jumps past the
+ * pre-restart timestamp — that's the proof the new agent is alive
+ * and writing fresh IPC snapshots.
+ * The dashboard process itself doesn't restart, so the open WebSocket
+ * + the page state stay intact.
+ * =================================================================== */
+async function restartAgent() {
+  const btn = $('restart-btn');
+  if (!btn || btn.disabled) return;
+  if (!confirm('Restart the agent now? Open positions are unaffected; the agent re-execs to pick up new config.')) return;
+  const preStats = await jget('/api/stats');
+  const preTs = (preStats && preStats.updated_at) || 0;
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Restarting…';
+  try {
+    const r = await jpost('/api/agent/restart', { reason: 'dashboard button @ ' + new Date().toISOString() });
+    if (!r.ok) {
+      alert('restart failed: ' + JSON.stringify(r));
+      return;
+    }
+    // Poll every 1s for up to 30s. New agent comes back in ~3-5s typically.
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+      await new Promise(res => setTimeout(res, 1000));
+      const s = await jget('/api/stats');
+      const newTs = (s && s.updated_at) || 0;
+      if (newTs > preTs) {
+        btn.textContent = 'Restarted ✓';
+        await new Promise(res => setTimeout(res, 1500));
+        refresh();
+        return;
+      }
+    }
+    alert('restart requested but new agent timestamp did not advance within 30s. Check logs/agent.log.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
 }
 
 /* === sleeve toggles =============================================== */
