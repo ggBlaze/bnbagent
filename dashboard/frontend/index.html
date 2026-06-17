@@ -1017,6 +1017,18 @@ body.demo-mode button[onclick^="toggleKill"] {
               No key set.
             </div>
           </div>
+          <div class="field">
+            <label>Default model <span class="mono" id="llm-wiz-model-note" style="color:var(--fg-dimmer); margin-left:6px;">—</span></label>
+            <div style="display:flex; gap:8px;">
+              <select id="llm-wiz-model" style="flex:1;" disabled>
+                <option value="">— set the API key first —</option>
+              </select>
+              <button type="button" class="btn primary" id="llm-wiz-model-save" onclick="llmWizSaveModel()" disabled>Save model</button>
+            </div>
+            <div id="llm-wiz-model-status" class="hint" style="font:400 10px/1.4 'Inter'; color:var(--fg-dim); margin-top:6px;">
+              Sets the default model for the <strong>advisor</strong> agent. Use the Config pane to route individual agents.
+            </div>
+          </div>
           <div class="actions">
             <button class="btn" onclick="wizardBack(3)">← Back</button>
             <button class="btn" onclick="wizardLlmSkip()">Skip — run with rule-based review only</button>
@@ -1271,6 +1283,19 @@ body.demo-mode button[onclick^="toggleKill"] {
           </div>
         </div>
         <div id="llm-result" style="margin-top:10px;"></div>
+      </section>
+
+      <!-- v2.1.5: per-agent LLM routing. Each of the four agents
+           (advisor, reviewer, chat, token_module) can use a different
+           provider+model. Saves to .env as LLM_<AGENT>_PROVIDER /
+           LLM_<AGENT>_MODEL and is picked up by LLMRouter.for_agent
+           on the next agent restart. -->
+      <section class="panel" style="margin-top:14px;">
+        <h4>Per-agent LLM routing <span class="meta">advisor · reviewer · chat · token_module</span></h4>
+        <div id="llm-routing-table" style="margin-top:10px;">
+          <div class="line dim" style="font:400 11px/1.4 'JetBrains Mono';">— loading…</div>
+        </div>
+        <div id="llm-routing-result" style="margin-top:10px;"></div>
       </section>
 
       <!-- v2.1.3: Personas section. Lists all 4 personas (advisor /
@@ -1873,6 +1898,7 @@ function showPane(p) {
   if (p === 'config') refreshConfigPane();
   if (p === 'config') loadPersonaList();
   if (p === 'config') llmKeyRefreshStatus();
+  if (p === 'config' && typeof llmRoutingRender === 'function') llmRoutingRender();
   if (p === 'tokens') refreshTokenNotice();
   if (p === 'live') competitionRefresh();
 }
@@ -2496,6 +2522,73 @@ async function llmWizTest() {
   await llmWizRefreshStatus();
 }
 
+// Populate the wizard's model dropdown from /api/llm/models. Called
+// on provider change and after a successful key Set.
+async function llmWizRefreshModels() {
+  const prov = $('llm-wiz-provider').value;
+  const sel  = $('llm-wiz-model');
+  const btn  = $('llm-wiz-model-save');
+  const note = $('llm-wiz-model-note');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">\u2014 loading\u2026 \u2014</option>';
+  sel.disabled = true;
+  if (btn) btn.disabled = true;
+  // local + anthropic \u2192 no upstream /v1/models call (handled by backend)
+  const r = await jget('/api/llm/models?provider=' + encodeURIComponent(prov));
+  if (!r || r.ok === false) {
+    sel.innerHTML = '<option value="">\u2014 error loading models \u2014</option>';
+    if (note) note.textContent = (r && r.error) || 'failed to load';
+    return;
+  }
+  if (r.source === 'needs-key') {
+    sel.innerHTML = '<option value="">\u2014 set the API key first \u2014</option>';
+    if (note) note.textContent = r.note || ('set ' + (LLM_ENV_VARS[prov] || 'the key') + ' in .env');
+    return;
+  }
+  if (!r.models || r.models.length === 0) {
+    sel.innerHTML = '<option value="">\u2014 no models \u2014</option>';
+    if (note) note.textContent = 'provider returned an empty model list';
+    return;
+  }
+  sel.innerHTML = r.models.map(id =>
+    `<option value="${id.replace(/"/g, '&quot;')}">${id}</option>`).join('');
+  sel.disabled = false;
+  if (btn) btn.disabled = false;
+  // Pre-select the current routing (if any) so the operator sees what
+  // is active and only saves if they want to change it.
+  try {
+    const routing = await jget('/api/llm/routing');
+    const cur = routing && routing.advisor && routing.advisor.model;
+    if (cur && r.models.includes(cur)) {
+      sel.value = cur;
+    }
+  } catch (e) { /* non-fatal */ }
+  if (note) note.textContent = r.source === 'hardcoded'
+    ? 'showing built-in list (this provider has no /v1/models endpoint)'
+    : `showing ${r.models.length} model(s) from upstream`;
+}
+
+// Save the selected model as the default for the advisor agent
+// (wizard scope = single primary LLM; per-agent routing lives in the
+// Config pane). POST /api/llm/routing with agent=advisor.
+async function llmWizSaveModel() {
+  const prov = $('llm-wiz-provider').value;
+  const model = $('llm-wiz-model').value;
+  const out  = $('llm-wiz-model-status');
+  if (!model) {
+    out.innerHTML = '<span style="color:var(--red);">Pick a model first.</span>';
+    return;
+  }
+  const r = await jpost('/api/llm/routing', { agent: 'advisor', provider: prov, model });
+  if (!r || !r.ok) {
+    out.innerHTML = `<span style="color:var(--red);">${(r && r.error) || 'save failed'}</span>`;
+    return;
+  }
+  out.innerHTML =
+    `<span style="color:var(--green);">\u2713 Saved.</span> ` +
+    `<span style="color:var(--yellow);">Restart the agent (Ctrl+C the terminal running <code>bash bnbagent</code>, then re-run) so the new advisor model loads.</span>`;
+}
+
 async function llmWizRefreshStatus() {
   const root = $('llm-wiz-status');
   if (!root) return;
@@ -2522,6 +2615,23 @@ async function llmWizRefreshStatus() {
   } else {
     root.innerHTML = `<div class="line dim" style="font:400 11px/1.4 'JetBrains Mono';">\u2014 no LLM configured for <span class="mono">${cur}</span>. The agent will use rule-based risk review only.</div>`;
   }
+  // Repopulate the model dropdown to match the current provider (key
+  // already set + provider just picked) so the operator can pick a
+  // model without a separate "load models" click.
+  llmWizRefreshModels();
+}
+
+// Wire up the wizard provider dropdown so changing it repopulates the
+// model list immediately (instead of waiting until Set + status refresh).
+const _llmWizProvEl = $('llm-wiz-provider');
+if (_llmWizProvEl && !_llmWizProvEl.dataset.wired) {
+  _llmWizProvEl.dataset.wired = '1';
+  _llmWizProvEl.addEventListener('change', () => {
+    // Status line reflects the new provider's env var name
+    const ev = $('llm-wiz-env-var');
+    if (ev) ev.textContent = '($' + (LLM_ENV_VARS[_llmWizProvEl.value] || '') + ')';
+    llmWizRefreshModels();
+  });
 }
 
 async function wizardLlmSkip() {
@@ -2936,6 +3046,104 @@ async function llmKeyTest() {
 
 // Wire up the provider dropdown
 $('llm-provider').addEventListener('change', llmKeyOnProviderChange);
+
+/* ============================================================
+   v2.1.5: Per-agent LLM routing table (Config pane)
+   ============================================================ */
+
+const LLM_ROUTING_AGENTS = [
+  { id: 'advisor',       label: 'Advisor',      note: 'Pre-trade second opinion' },
+  { id: 'reviewer',      label: 'Reviewer',     note: 'Post-trade risk gate' },
+  { id: 'chat',          label: 'Chat',         note: 'Dashboard ↔ agent chat' },
+  { id: 'token_module',  label: 'Token module', note: 'Token deploy + metadata' },
+];
+const LLM_ROUTING_PROVIDERS = ['minimax', 'openrouter', 'anthropic', 'openai', 'oai_compat', 'local'];
+
+async function llmRoutingRender() {
+  const root = $('llm-routing-table');
+  const result = $('llm-routing-result');
+  if (result) result.innerHTML = '';
+  if (!root) return;
+  const routing = await jget('/api/llm/routing') || {};
+  // Fetch the provider list once (for the dropdowns); the model
+  // dropdowns are filled lazily on provider change.
+  const html = [`
+    <table style="width:100%; border-collapse: collapse; font:400 12px/1.4 'JetBrains Mono';">
+      <thead>
+        <tr style="text-align:left; color:var(--fg-dim); border-bottom:1px solid var(--border);">
+          <th style="padding:6px 8px;">Agent</th>
+          <th style="padding:6px 8px;">Provider</th>
+          <th style="padding:6px 8px;">Model</th>
+          <th style="padding:6px 8px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+  `];
+  for (const a of LLM_ROUTING_AGENTS) {
+    const cur = routing[a.id] || {};
+    const providerOpts = LLM_ROUTING_PROVIDERS.map(p =>
+      `<option value="${p}" ${p === cur.provider ? 'selected' : ''}>${p}</option>`
+    ).join('');
+    html.push(`
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px;">
+          <div style="font:500 12px/1.2 'Inter';">${a.label}</div>
+          <div style="font:400 10px/1.2 'Inter'; color:var(--fg-dim);">${a.note}</div>
+        </td>
+        <td style="padding:8px;">
+          <select id="lr-prov-${a.id}" style="min-width:140px;">${providerOpts}</select>
+        </td>
+        <td style="padding:8px;">
+          <input id="lr-model-${a.id}" type="text" placeholder="model id"
+                 value="${(cur.model || '').replace(/"/g, '&quot;')}"
+                 style="min-width:200px;" />
+          <div class="hint" id="lr-note-${a.id}" style="font:400 10px/1.4 'Inter'; color:var(--fg-dim); margin-top:2px;">
+            ${cur.provider && cur.enabled === false
+              ? `<span style="color:var(--red);">⚠ ${cur.reason || 'disabled'}</span>`
+              : (cur.model ? `currently: <span class="mono">${cur.model}</span>` : '')}
+          </div>
+        </td>
+        <td style="padding:8px; text-align:right;">
+          <button type="button" class="btn primary" onclick="llmRoutingSave('${a.id}')">Save</button>
+        </td>
+      </tr>
+    `);
+  }
+  html.push('</tbody></table>');
+  html.push(`<div class="hint" style="font:400 10px/1.4 'Inter'; color:var(--fg-dim); margin-top:8px;">
+    Saves to .env as <code class="mono">LLM_&lt;AGENT&gt;_PROVIDER</code> +
+    <code class="mono">LLM_&lt;AGENT&gt;_MODEL</code>. Restart the agent to apply.
+  </div>`);
+  root.innerHTML = html.join('');
+}
+
+async function llmRoutingSave(agent) {
+  const provEl = $('lr-prov-' + agent);
+  const modelEl = $('lr-model-' + agent);
+  const result = $('llm-routing-result');
+  if (!provEl || !modelEl) return;
+  const provider = provEl.value;
+  const model = (modelEl.value || '').trim();
+  if (result) result.innerHTML = '';
+  const r = await jpost('/api/llm/routing', { agent, provider, model });
+  if (!r || !r.ok) {
+    if (result) result.innerHTML =
+      `<span style="color:var(--red);">✗ ${(r && r.error) || 'save failed'}</span>`;
+    return;
+  }
+  if (result) result.innerHTML =
+    `<span style="color:var(--green);">✓ Saved ${agent} → ${provider} / ${model}.</span> ` +
+    `<span style="color:var(--yellow);">Restart the agent to apply.</span>`;
+  // Re-render so the "currently:" hint reflects the new value
+  llmRoutingRender();
+}
+
+// Hook into the existing Config pane open so the table is filled.
+// Look for the function that runs on Config pane show; if none, just
+// call llmRoutingRender on first load.
+if (typeof dsChangeOpen === 'function') {
+  // dsChangeOpen shows the data-source modal; not what we want. Skip.
+}
 
 /* ============================================================
    v2.1.3: Personas UI (Config pane) — list all 4 with view / edit / reset
