@@ -966,6 +966,16 @@ body.demo-mode button[onclick^="toggleKill"] {
               <input id="wiz-pwd2" type="password" placeholder="retype" />
             </div>
           </div>
+          <div class="field" style="margin-top: 8px;">
+            <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer; font-weight:400; color:var(--fg-dim);">
+              <input id="wiz-save-pwd" type="checkbox" style="margin-top:2px;" />
+              <span>
+                <strong style="color:var(--fg);">Save password to .env</strong> — so the agent can auto-decrypt the keystore on restart.
+                Without this, every restart boots with an ephemeral key and trades can't be signed for your real wallet.
+                <span style="display:block; margin-top:2px; color:var(--yellow);">⚠ .env is gitignored, but anyone with shell access can read it.</span>
+              </span>
+            </label>
+          </div>
           <div id="wiz-wallet-result"></div>
           <div class="actions">
             <button class="btn" onclick="wizardBack(1)">← Back</button>
@@ -2099,20 +2109,29 @@ async function wizardCreateWallet() {
     return;
   }
   const endpoint = mode === 'import' ? '/api/setup/wallet/import' : '/api/setup/wallet';
-  const body = mode === 'import' ? { private_key: pk, password: pwd } : { password: pwd };
+  const savePwd = $('wiz-save-pwd') && $('wiz-save-pwd').checked;
+  const body = mode === 'import'
+    ? { private_key: pk, password: pwd, save_password_to_env: savePwd }
+    : { password: pwd, save_password_to_env: savePwd };
   $('wiz-wallet-result').innerHTML = bannerHtml('info', 'encrypting…');
   const r = await jpost(endpoint, body);
   if (!r.ok) {
     $('wiz-wallet-result').innerHTML = bannerHtml('error', r.error || 'wallet creation failed');
     return;
   }
+  const restartHint = savePwd
+    ? bannerHtml('warn',
+        'Password saved to .env. Restart the agent (Ctrl+C the terminal running <code>bash bnbagent</code>, then re-run) so the next boot decrypts your keystore and signs with your real wallet.')
+    : '';
   $('wiz-wallet-result').innerHTML =
     bannerHtml('ok', `Wallet ready at <code class="mono">${r.path}</code>.`) +
-    addressBox(r.address, 'Agent address (this EOA signs every tx)');
+    addressBox(r.address, 'Agent address (this EOA signs every tx)') +
+    restartHint;
   // Reveal the export-mnemonic button now that a wallet exists
   $('wiz-wallet-export').style.display = '';
-  // advance to step 3 (Data source) after a beat
-  setTimeout(() => gotoStep(3), 800);
+  // advance to step 3 (Data source) after a beat (longer if we
+  // showed a restart hint so the operator can read it)
+  setTimeout(() => gotoStep(3), savePwd ? 2400 : 800);
 }
 
 async function wizardSign() {

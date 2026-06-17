@@ -687,7 +687,15 @@ def build_app() -> FastAPI:
         BNBAGENT_ALLOW_WALLET_IMPORT (default OFF in production). A
         judge who somehow gets the admin password should NOT be able
         to swap the operator's wallet for their own (which would let
-        them drain the funds, register a fake identity, etc.)."""
+        them drain the funds, register a fake identity, etc.).
+
+        v2.1.8: optional `save_password_to_env: true` body field. When
+        set, the typed password is also written to .env as TWAK_PWD
+        so the next `bash bnbagent` invocation can auto-decrypt the
+        keystore. Without this, every restart boots the agent with
+        an ephemeral key and trades can't be signed for the
+        operator's real wallet.
+        """
         if os.environ.get("BNBAGENT_ALLOW_WALLET_IMPORT", "").lower() not in (
             "1", "true", "yes", "on",
         ):
@@ -698,11 +706,30 @@ def build_app() -> FastAPI:
             )
         pk = body.get("private_key", "")
         password = body.get("password", "")
+        save_password_to_env = bool(body.get("save_password_to_env", False))
         try:
             r = import_wallet(pk, password)
-            return JSONResponse({"ok": True, **r})
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+        # Persist the password to .env (gitignored) so the next agent
+        # boot can decrypt the keystore. Strictly opt-in: the operator
+        # must tick "Save password to .env" in the wizard for this to
+        # fire. We also update os.environ so the running dashboard
+        # process picks it up immediately (the agent loop is a
+        # separate process and still needs a restart).
+        if save_password_to_env and password:
+            try:
+                _set_env_var_in_dotenv("TWAK_PWD", password)
+                os.environ["TWAK_PWD"] = password
+            except Exception as e:
+                return JSONResponse(
+                    {"ok": False,
+                     "error": f"keystore imported, but failed to save "
+                              f"password to .env: {e}",
+                     **r},
+                    status_code=500,
+                )
+        return JSONResponse({"ok": True, **r})
 
     @app.post("/api/setup/sign", dependencies=[Depends(_auth.require_admin)])
     async def setup_sign(body: dict):
