@@ -93,9 +93,37 @@ def init_ipfs(cfg: dict) -> IPFSClient:
 
 def register_identity(erc8004: ERC8004, ipfs: IPFSClient, wallet: TWAKWallet,
                      policy: dict, version: str = "1.0.0") -> dict:
-    """Build ERC-8004 metadata, pin to IPFS, register on-chain (or stub)."""
-    if Path("~/.bnbagent/identity.json").expanduser().exists():
-        return json.load(open(Path("~/.bnbagent/identity.json").expanduser()))
+    """Build ERC-8004 metadata, pin to IPFS, register on-chain (or stub).
+
+    v2.1.8 (#9): if a saved identity exists, reuse it ONLY when its
+    `agent_address` matches the current wallet. Mismatch (operator
+    imported a new wallet after a prior boot registered with an
+    ephemeral one) re-registers so /api/identity reflects the wallet
+    the operator actually controls. Same for a corrupt or
+    pre-v2.1.8 file with no `agent_address` field.
+    """
+    identity_path = Path("~/.bnbagent/identity.json").expanduser()
+    if identity_path.exists():
+        try:
+            saved = json.load(open(identity_path))
+        except Exception as e:
+            log.warning("identity.json corrupt (%s) — re-registering", e)
+            saved = None
+        if saved is not None:
+            saved_addr = saved.get("agent_address")
+            if saved_addr and saved_addr.lower() == wallet.address.lower():
+                return saved
+            if saved_addr:
+                log.warning(
+                    "identity.json was registered to %s but the current "
+                    "wallet is %s — re-registering on-chain",
+                    saved_addr, wallet.address,
+                )
+            else:
+                log.warning(
+                    "identity.json missing 'agent_address' (pre-v2.1.8?) — "
+                    "re-registering to attach to wallet %s", wallet.address,
+                )
 
     meta = {
         "name": "BNB Agent",
