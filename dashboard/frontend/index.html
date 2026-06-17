@@ -2237,11 +2237,9 @@ async function dsInit() {
     ? [...s.base_rpcs]
     : ['https://mainnet.base.org'];
   dsRenderRpcs();
-  // populate the base address from the setup summary
-  const setup = await jget('/api/setup');
-  const addr = setup && setup.wallet_address;
-  const addrEl = $('ds-base-address');
-  if (addrEl) addrEl.textContent = addr || '0x… (create wallet first)';
+  // populate the base address from the setup summary (re-fetched every
+  // call so a wallet imported AFTER the wizard first opened shows up)
+  await dsRefreshAddress();
   // wire radio change + add RPC button (only once)
   if (!_dsInited) {
     document.querySelectorAll('input[name="ds-tier"]').forEach(r => {
@@ -2255,6 +2253,16 @@ async function dsInit() {
   }
   dsRadioChange();
   _dsInited = true;
+
+// Re-read /api/setup and update the address label. Called from dsInit
+// AND from dsRadioChange (every tier pick) so the address never lags
+// behind a wallet import/generate that happened earlier in the wizard.
+async function dsRefreshAddress() {
+  const setup = await jget('/api/setup');
+  const addr = setup && setup.wallet_address;
+  const addrEl = $('ds-base-address');
+  if (addrEl) addrEl.textContent = addr || '0x… (create wallet first)';
+}
   // If the active tier is x402, the polling should already be running
   // (dsRadioChange calls startBasePolling). If the operator changes
   // the tier from a config pane, dsChangeOpen + dsInit covers it.
@@ -2301,6 +2309,11 @@ function dsRadioChange() {
   } else {
     stopBasePolling();
   }
+  // Refresh the address label on every tier pick — covers the case
+  // where the user imported a wallet AFTER the wizard first opened
+  // (dsInit only ran once then). The fetch is async and the label
+  // updates as soon as /api/setup responds.
+  dsRefreshAddress();
 }
 
 /* === x402 balance polling (v2.1) ===================================== */
