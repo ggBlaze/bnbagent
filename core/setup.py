@@ -255,13 +255,36 @@ def sign_current_policy(password: str) -> dict:
     In single-user setups the evaluator == the agent address == the signer.
     In multi-sig setups, pre-set `evaluator_address` in policy.yaml to a
     different address before calling this function; we won't overwrite it.
+
+    If config/policy.yaml doesn't exist (e.g. the operator clicked
+    Reset Everything and then went straight to step 5 without
+    manually running policy.policy_sign), we generate it from the
+    shipped DEFAULT_POLICY_BODY template with the unlocked wallet
+    as both evaluator and agent (the single-user case). The
+    multi-sig case (custom evaluator pre-set in policy.yaml) is
+    preserved by the existing-policy branch below — we never
+    overwrite a real evaluator_address.
     """
     from connectors.twak import TWAKWallet
+    import time
+    from policy.policy_sign import DEFAULT_POLICY_BODY
     acct = unlock_and_get_account(password)
     path = Path("config/policy.yaml")
     if not path.exists():
-        raise FileNotFoundError("config/policy.yaml missing — generate first")
-    doc = yaml.safe_load(path.read_text())
+        # Generate a fresh policy from the template with the unlocked
+        # wallet as both evaluator and agent. Operator can hand-edit
+        # policy.yaml after this if they need a multi-sig setup.
+        now = int(time.time())
+        evaluator = Web3.to_checksum_address(acct.address)
+        agent = evaluator
+        body_yaml = DEFAULT_POLICY_BODY.replace("__ISSUED__", str(now))
+        body_yaml = body_yaml.replace("__EXPIRES__", str(now + 30 * 24 * 3600))
+        body_yaml = body_yaml.replace("__EVAL__", evaluator)
+        body_yaml = body_yaml.replace("__AGENT__", agent)
+        body_yaml = body_yaml.replace("__SIG__", "0x" + "00" * 65)
+        doc = yaml.safe_load(body_yaml)
+    else:
+        doc = yaml.safe_load(path.read_text())
     existing_eval = str(doc.get("evaluator_address", "") or "").strip()
     # setdefault is fine if it's already a real address
     if not existing_eval or existing_eval == "0x" + "00" * 20 or existing_eval == "0":

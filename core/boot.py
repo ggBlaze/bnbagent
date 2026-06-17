@@ -33,6 +33,22 @@ def load_config(path: str = "config/config.yaml") -> dict:
 
 
 def load_policy(path: str = "config/policy.yaml") -> dict:
+    """Read + schema-validate config/policy.yaml. If the file is
+    missing (e.g. a fresh clone after `Reset Everything` wiped it),
+    auto-generate a dev-signed policy from the shipped template so
+    the agent can boot without manual intervention.
+
+    The auto-generated policy uses an EPHEMERAL key — not the
+    operator's wallet. The wizard's step 5 (Sign Policy) replaces
+    this with the operator's real signed policy before the agent
+    starts trading. This matches the install.sh fallback path
+    (which also signs with a dev key on first run)."""
+    p = Path(path)
+    if not p.exists():
+        log.warning("policy.yaml missing — generating dev-signed default; "
+                    "the operator should re-sign via the wizard before live trading")
+        from policy.policy_sign import _generate_dev_policy
+        _generate_dev_policy(str(p), "config/config.yaml")
     doc = yaml.safe_load(open(path))
     schema = json.load(open("config/policy.schema.json"))
     jsonschema.validate(doc, schema)
