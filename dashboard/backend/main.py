@@ -54,6 +54,13 @@ Endpoints
 """
 from __future__ import annotations
 
+# v2.1.8: load `.env` BEFORE any local imports so the dashboard sees the
+# operator's TWAK_PWD / MINIMAX_API_KEY / BNBAGENT_AUTH_MODE / etc. on
+# the very first request, without depending on the shell to source it.
+# Default override=False so a shell export wins over the file.
+from dotenv import load_dotenv as _load_dotenv
+_load_dotenv()
+
 import asyncio
 import json
 import logging

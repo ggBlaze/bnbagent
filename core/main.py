@@ -9,6 +9,16 @@ the agent still runs as a deterministic bot.
 """
 from __future__ import annotations
 
+# v2.1.8: load `.env` BEFORE any local imports so `os.environ` has the
+# operator's TWAK_PWD / TWAK_KEYSTORE / MINIMAX_API_KEY / BNBAGENT_*
+# before boot() / LLMRouter / TWAKWallet construction reads them.
+# `bash bnbagent` doesn't source .env; the agent owning its own env
+# load means `bash bnbagent` and `python -m core.main` behave the same.
+# Default override=False so a shell export wins over the file (ops
+# convention).
+from dotenv import load_dotenv as _load_dotenv
+_load_dotenv()
+
 import argparse
 import asyncio
 import json
