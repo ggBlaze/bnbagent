@@ -368,8 +368,20 @@ class LLMRouter:
     def for_agent(self, name: str) -> AgentRouting:
         agents = self.config.get("agents") or {}
         agent_cfg = agents.get(name) or {}
-        provider_name = agent_cfg.get("provider") or self.config.get("default") or "openrouter"
-        model = agent_cfg.get("model", "")
+        # v2.1.5: per-agent env-var override. The wizard's model
+        # selector persists the operator's choice to .env as
+        # LLM_<AGENT>_PROVIDER / LLM_<AGENT>_MODEL. These beat the
+        # providers.yaml values so the operator can change routing
+        # without editing a tracked file. Env-var names use the agent
+        # name uppercased (advisor → LLM_ADVISOR_*).
+        env_prefix = f"LLM_{name.upper()}"
+        provider_name = (
+            os.environ.get(f"{env_prefix}_PROVIDER")
+            or agent_cfg.get("provider")
+            or self.config.get("default")
+            or "openrouter"
+        )
+        model = os.environ.get(f"{env_prefix}_MODEL") or agent_cfg.get("model", "")
         max_tokens = int(agent_cfg.get("max_tokens", 1024))
         temperature = float(agent_cfg.get("temperature", 0.2))
         # v2.1.5: per-agent timeout. Explicit 'timeout_s' wins; otherwise

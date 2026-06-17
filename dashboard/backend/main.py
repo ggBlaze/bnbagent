@@ -1295,6 +1295,165 @@ def build_app() -> FastAPI:
                 "note": f"verification failed: {e}",
             })
 
+    # ---------------------------------------------------------- per-agent routing
+
+    # The four agents the wizard + Config pane let the operator route
+    # independently. Keep in sync with agents.providers.LLMRouter /
+    # providers.yaml (the YAML hardcodes these four).
+    _LLM_AGENT_NAMES = ("advisor", "reviewer", "chat", "token_module")
+
+    @app.get("/api/llm/routing")
+    async def llm_routing_get():
+        """Current per-agent {provider, model} as resolved by the
+        LLMRouter (env-var overrides win over providers.yaml). The
+        wizard's model selector and the Config pane's routing table
+        both read this to show what's active."""
+        from agents.providers import LLMRouter
+        try:
+            router = LLMRouter()
+        except Exception as e:
+            return JSONResponse({"error": f"router init failed: {e}"}, status_code=500)
+        out = {}
+        for name in _LLM_AGENT_NAMES:
+            r = router.for_agent(name)
+            out[name] = {
+                "provider": r.provider_name,
+                "model":    r.model,
+                "enabled":  r.enabled,
+                "reason":   r.reason,
+            }
+        return JSONResponse(out)
+
+    @app.post("/api/llm/routing", dependencies=[Depends(_auth.require_admin)])
+    async def llm_routing_set(body: dict):
+        """Persist a per-agent provider+model override to .env.
+
+        Body: { agent: 'advisor', provider: 'minimax', model: 'MiniMax-Mini' }
+        Writes LLM_<AGENT>_PROVIDER + LLM_<AGENT>_MODEL to .env.
+        Replaces existing lines (no duplicates). Strict input
+        validation: unknown agent or provider → 400.
+        """
+        agent = (body.get("agent") or "").strip().lower()
+        provider = (body.get("provider") or "").strip().lower()
+        model = (body.get("model") or "").strip()
+        if agent not in _LLM_AGENT_NAMES:
+            return JSONResponse(
+                {"ok": False, "error": f"unknown agent: {agent!r}; "
+                                       f"must be one of {list(_LLM_AGENT_NAMES)}"},
+                status_code=400,
+            )
+        if provider not in LLM_PROVIDER_ENV_VARS and provider != "local":
+            return JSONResponse(
+                {"ok": False, "error": f"unknown provider: {provider!r}; "
+                                       f"must be one of {list(LLM_PROVIDER_ENV_VARS) + ['local']}"},
+                status_code=400,
+            )
+        if not model:
+            return JSONResponse(
+                {"ok": False, "error": "model is required"},
+                status_code=400,
+            )
+        env_prefix = f"LLM_{agent.upper()}"
+        try:
+            _set_env_var_in_dotenv(f"{env_prefix}_PROVIDER", provider)
+            _set_env_var_in_dotenv(f"{env_prefix}_MODEL", model)
+            # Also update os.environ so the running dashboard process
+            # sees the change immediately. The agent loop is a separate
+            # process and still needs a restart to pick up the new
+            # routing in its LLMRouter.
+            os.environ[f"{env_prefix}_PROVIDER"] = provider
+            os.environ[f"{env_prefix}_MODEL"] = model
+        except Exception as e:
+            return JSONResponse(
+                {"ok": False, "error": f"failed to write .env: {e}"},
+                status_code=500,
+            )
+        return JSONResponse({
+            "ok": True,
+            "agent": agent,
+            "provider": provider,
+            "model": model,
+            "note": f"Saved to .env ({env_prefix}_PROVIDER + {env_prefix}_MODEL). "
+                    f"Restart the agent (Ctrl+C the terminal running `bash bnbagent`, "
+                    f"then re-run) to apply.",
+        })
+
+    @app.get("/api/llm/models")
+    async def llm_models_get(provider: str = ""):
+        """List available model ids for a provider, by hitting the
+        provider's /v1/models endpoint (OpenAI-compatible shape).
+
+        Returns a list of model id strings. The wizard dropdown uses
+        this to populate the model selector without hardcoding.
+
+        For providers without an OpenAI-compatible /v1/models
+        (anthropic), returns a small hardcoded list of well-known
+        models — the operator can still type any model id manually.
+        """
+        provider = (provider or "").strip().lower()
+        if provider not in LLM_PROVIDER_ENV_VARS and provider != "local":
+            return JSONResponse(
+                {"ok": False, "error": f"unknown provider: {provider!r}"},
+                status_code=400,
+            )
+        # Hardcoded lists for providers whose /v1/models endpoint
+        # either doesn't exist (anthropic) or we don't want to
+        # require a key just to enumerate.
+        HARDCODED = {
+            "anthropic": [
+                "claude-3-5-haiku-latest",
+                "claude-3-5-sonnet-latest",
+                "claude-opus-4-8",
+                "claude-sonnet-4-6",
+            ],
+        }
+        if provider in HARDCODED:
+            return JSONResponse({"provider": provider, "models": HARDCODED[provider],
+                                 "source": "hardcoded"})
+        if provider == "local":
+            return JSONResponse({"provider": provider, "models": ["local"],
+                                 "source": "hardcoded"})
+        # OpenAI-compatible providers — try /v1/models with the key
+        # already in .env. If no key set, return a generic placeholder
+        # so the dropdown isn't empty.
+        env_var = LLM_PROVIDER_ENV_VARS[provider]
+        key = _get_env_var_from_dotenv(env_var) or ""
+        # Base URLs per provider (must NOT include /v1)
+        BASES = {
+            "openai":     "https://api.openai.com",
+            "openrouter": "https://openrouter.ai/api",
+            "oai_compat": _get_env_var_from_dotenv("OAI_BASE") or "",
+            "minimax":    "https://api.minimaxi.chat",
+        }
+        base = BASES[provider]
+        if not base:
+            return JSONResponse(
+                {"ok": False, "error": f"OAI_BASE not set for {provider}"},
+                status_code=400,
+            )
+        if not key:
+            return JSONResponse({
+                "provider": provider, "models": [],
+                "source": "needs-key",
+                "note": f"set {env_var} in .env to enumerate models",
+            })
+        import httpx
+        try:
+            r = httpx.get(
+                f"{base.rstrip('/')}/v1/models",
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            data = r.json()
+            ids = sorted({m.get("id") for m in (data.get("data") or []) if m.get("id")})
+            return JSONResponse({"provider": provider, "models": ids, "source": "upstream"})
+        except Exception as e:
+            return JSONResponse(
+                {"ok": False, "provider": provider, "error": f"upstream call failed: {e}"},
+                status_code=502,
+            )
+
     # ---------------------------------------------------------- tokens (stub)
     @app.get("/api/tokens/config")
     async def tokens_config_get():
