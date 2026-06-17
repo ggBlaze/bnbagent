@@ -1144,21 +1144,41 @@ def build_app() -> FastAPI:
     @app.get("/api/agent/advisor")
     async def agent_advisor(limit: int = 20):
         adv = _advisor()
+        # v2.1.8 (UX4): cross-process — `adv` may be a dict snapshot
+        # (no .recent() method). Try the call; fall back to the IPC
+        # field `advisor_decisions` if the agent published it.
         if adv is None:
             return JSONResponse({"decisions": []})
-        return JSONResponse({"decisions": adv.recent(limit)})
+        try:
+            decisions = adv.recent(limit)
+        except (AttributeError, TypeError):
+            decisions = (_state().get("advisor_decisions") or [])[-limit:]
+        return JSONResponse({"decisions": decisions})
 
     @app.get("/api/agent/reviewer")
     async def agent_reviewer(limit: int = 50, sleeve: str | None = None):
         revs = _reviewers()
         out = []
+        # v2.1.8 (UX4): cross-process — `revs` values may be dicts
+        # (no .recent() method). Try each; fall back to the IPC field
+        # `reviewer_decisions` (a flat list keyed by sleeve).
         if sleeve:
-            r = revs.get(sleeve)
-            if r:
-                out = r.recent(limit)
+            r = revs.get(sleeve) if isinstance(revs, dict) else None
+            if r is not None:
+                try:
+                    out = r.recent(limit)
+                except (AttributeError, TypeError):
+                    out = [d for d in (_state().get("reviewer_decisions") or [])
+                           if d.get("sleeve") == sleeve][-limit:]
         else:
-            for r in revs.values():
-                out.extend(r.recent(limit))
+            if isinstance(revs, dict):
+                for r in revs.values():
+                    try:
+                        out.extend(r.recent(limit))
+                    except (AttributeError, TypeError):
+                        pass
+            if not out:
+                out = (_state().get("reviewer_decisions") or [])[-limit:]
         return JSONResponse({"decisions": out[-limit:]})
 
     @app.get("/api/agent/personas")
@@ -1204,7 +1224,11 @@ def build_app() -> FastAPI:
         router = s.get("components", {}).get("llm_router")
         if router is None:
             return JSONResponse({"providers": {}, "agents": {}})
-        return JSONResponse(router.status())
+        # v2.1.8 (UX4): router may be the live LLMRouter object (in-proc
+        # tests) OR a {status: {...}} dict (cross-process — P4
+        # serialization). Use _component_attr to read either shape.
+        status = _component_attr(router, "status", default={})
+        return JSONResponse(status or {"providers": {}, "agents": {}})
 
     @app.post("/api/llm/config", dependencies=[Depends(_auth.require_admin)])
     async def llm_config(body: dict):
