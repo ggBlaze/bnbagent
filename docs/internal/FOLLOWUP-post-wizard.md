@@ -6,12 +6,16 @@
 > operational reminder.
 >
 > **Update (2026-06-17 later):** B (load .env at boot) + A (restart-
-> agent endpoint + bash loop) also landed (commits bbc17f6, 7-ish).
-> P1 was **resolved as a side effect** of B's test-env scrub. Full
-> suite is now 541/541. See **P1.RESOLVED** + new P5 below.
+> agent endpoint + bash loop) also landed (commits bbc17f6, 3b5bc03,
+> d54f0ef). P1 was **resolved as a side effect** of B's test-env scrub.
 >
-> See the **Post-merge open items** section at the bottom for
-> remaining follow-ups.
+> **Update (2026-06-17 evening):** P3 / P4 / P5 / P6 / P7 all landed
+> (commits 610f933, 9acaae6, e03953e, acf9c75, 622ff6e, 173dfed,
+> bde5f79). Plus two restart-related bugs found during the work
+> (tasks #7, #8, #9). Full suite **569/569**. **Not yet pushed.**
+>
+> See **All-resolved tally** below; only follow-up left is a UI split
+> of the Reset button.
 
 This file captures the **remaining infrastructure bugs and
 features** that were discovered while bringing up the dashboard +
@@ -420,3 +424,43 @@ Empty `~/.twak/` after a restart (observed 2026-06-17) suggests
 either an over-broad reset or a missing-keystore boot path that
 silently regenerates. Investigate whether `reset_setup` or the
 wizard's "Reset" wipes the wallet, and whether boot.py recreates it.
+
+---
+
+## All-resolved tally (2026-06-17 evening)
+
+Everything in this doc is now landed locally. Order tackled, with
+commits:
+
+| # | Item | Commit |
+|---|---|---|
+| F2 | Sleeve C OHLCV float/string typing | `e160be1` |
+| F3 | Reviewer extract_json_object | `b998381` |
+| F4 | x402 canonical accepts-envelope | `c76a5cb` |
+| F1 | Agent → dashboard IPC via JSON file | `fe6d551` |
+| B  | load_dotenv at agent + dashboard boot | `bbc17f6` |
+| A  | Restart endpoint + heartbeat handler + bash loop | `3b5bc03` |
+| A bugfix | run() waits on EITHER stop_evt OR agent._shutdown | `d54f0ef` |
+| #7 | TWAKWallet.from_env fails loud when keystore missing | `610f933` |
+| #9 | identity.json re-registered on wallet mismatch | `9acaae6` |
+| P5 | Restart UI button + poll-for-new-boot | `e03953e` |
+| P6 | /api/setup/config returns restart_required → frontend auto-fires | `acf9c75` |
+| P3 | _extract_json_object lifted to agents/base.py; advisor uses it | `622ff6e` |
+| P4 | IPC enriches components with .status snapshots; /api/data-source uses _component_attr | `173dfed` |
+| P7 | reset() keeps wallet by default; include_wallet=true to wipe | `bde5f79` |
+
+Plus three docs commits and the running test count went from
+~430 (pre-F1) → 569 (post-P7).
+
+### One small thing still open
+
+**Frontend Reset button split** (UI-only). The backend now safely
+keeps the wallet by default; the frontend still has just one
+"Reset Everything" button with a generic confirmation. Operators
+should ideally see two clearly-labeled buttons:
+
+  - "Reset Config" → POST /api/setup/reset (default → wallet kept)
+  - "Wipe Everything" → POST /api/setup/reset with
+    `{"include_wallet": true}` and a double-confirm dialog
+
+Small JS + HTML change in dashboard/frontend/index.html.
