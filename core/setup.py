@@ -303,11 +303,25 @@ def sign_current_policy(password: str) -> dict:
 
 
 def reset() -> dict:
-    """Wipe operator state. Used by the 'Reset' button."""
+    """Wipe operator state. Used by the 'Reset' button.
+
+    Wipes only gitignored STATE files:
+      - config/policy.yaml  (operator-signed, has their key)
+      - config/local.yaml   (operator overrides)
+      - the keystore        (their encrypted wallet)
+      - ~/.bnbagent/setup.json (cached summary for the dashboard)
+
+    Does NOT touch config/config.yaml — that's a TRACKED file
+    with the shipped defaults (RPCs, base_rpcs, base_address
+    schema, etc). Wiping it broke x402 balance polling in v2.1.5+
+    because the default base_rpcs list only lives in that file;
+    without it /api/data-source/x402-balance returns 422
+    "no base_rpcs configured".
+    """
     removed = []
     for p in [
         Path("config/policy.yaml"),
-        Path("config/config.yaml"),
+        Path("config/local.yaml"),
         _keystore_path(),
         SUMMARY_PATH,
     ]:
