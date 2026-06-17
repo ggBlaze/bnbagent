@@ -93,17 +93,57 @@ def decode_payment_requirements(b64_header: str) -> PaymentRequirements:
         d = json.loads(raw)
     except Exception as e:
         raise X402Required(f"malformed payment header: {e}") from e
+
+    # v2.1.8 (F4): handle the canonical x402 envelope shape per
+    # github.com/coinbase/x402/.../x402Specs.ts. The 402 body is:
+    #   {"x402Version": 1, "accepts": [<PaymentRequirements>, ...]}
+    # We pick the first accept (matching the TS SDK's
+    # selectPaymentRequirements default). The pre-canonical flat-dict
+    # shape used by our own test fixtures still works because we fall
+    # through to the same key reads on `d` itself.
+    accepts = d.get("accepts")
+    if isinstance(accepts, list):
+        if not accepts:
+            raise X402Required("empty 'accepts' array in payment requirements")
+        d = accepts[0]
+        if not isinstance(d, dict):
+            raise X402Required("first 'accepts' entry is not an object")
+
+    # v2.1.8 (F4): maxAmountRequired arrives as a STRING per the spec
+    # (z.string().refine(isInteger)). int() handles both cases.
+    raw_amount = d.get("amount", d.get("maxAmountRequired", 0))
+    try:
+        amount = int(raw_amount)
+    except (TypeError, ValueError) as e:
+        raise X402Required(f"malformed amount {raw_amount!r}: {e}") from e
+
+    # v2.1.8 (F4): `maxTimeoutSeconds` is RELATIVE; `expiresAt`/`validBefore`
+    # are ABSOLUTE. Prefer absolute when present (older callers + tests),
+    # otherwise synthesize `now + maxTimeoutSeconds`. Fall back to 60s if
+    # neither is provided (matches the prior default).
+    if "expiresAt" in d:
+        expires_at = int(d["expiresAt"])
+    elif "validBefore" in d:
+        expires_at = int(d["validBefore"])
+    elif "maxTimeoutSeconds" in d:
+        expires_at = int(time.time()) + int(d["maxTimeoutSeconds"])
+    else:
+        expires_at = int(time.time()) + 60
+
     return PaymentRequirements(
         scheme=d.get("scheme", "exact"),
         network=d.get("network", "bsc"),
         token=d.get("token", d.get("asset", "")),
-        amount=int(d.get("amount", d.get("maxAmountRequired", 0))),
+        amount=amount,
         payTo=d.get("payTo", d.get("payToAddress", "")),
         nonce=d.get("nonce", ""),
-        expiresAt=int(d.get("expiresAt", d.get("validBefore", time.time() + 60))),
-        extra={k: v for k, v in d.items() if k not in
-               {"scheme", "network", "token", "asset", "amount",
-                "maxAmountRequired", "payTo", "payToAddress", "nonce", "expiresAt", "validBefore"}},
+        expiresAt=expires_at,
+        extra=dict(d.get("extra") or {}) if isinstance(d.get("extra"), dict) else {
+            k: v for k, v in d.items() if k not in
+            {"scheme", "network", "token", "asset", "amount",
+             "maxAmountRequired", "payTo", "payToAddress", "nonce",
+             "expiresAt", "validBefore", "maxTimeoutSeconds"}
+        },
     )
 
 
