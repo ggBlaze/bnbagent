@@ -167,9 +167,59 @@ class Agent:
         file the dashboard reads from. Non-JSON-serializable values (a
         few of the entries under `components` are class instances) are
         coerced to their str() representation by write_state; the
-        dashboard only consumes the dict-shaped entries anyway."""
+        dashboard only consumes the dict-shaped entries anyway.
+
+        v2.1.8 (P4): for each component that exposes a `.status`
+        property/method, pre-extract `{tier, status}` into a dict so
+        the dashboard's cross-process endpoints (e.g. /api/data-source)
+        can read the dict form instead of calling `.tier` / `.status`
+        on a `str(<obj>)` repr. Plain dicts (like `identity`) round
+        trip unchanged. Components without `.status` still fall back
+        to lossy `default=str` serialization downstream.
+        """
         from . import dashboard_state as _ds_file
-        _ds_file.write_state(self.dashboard_state)
+        snapshot = self._snapshot_for_publish(self.dashboard_state)
+        _ds_file.write_state(snapshot)
+
+    @staticmethod
+    def _snapshot_for_publish(state: dict) -> dict:
+        """Build a JSON-friendly copy of `state`, enriching components
+        with their `.status` snapshots so cross-process endpoints can
+        read keys instead of calling methods on a str.
+
+        Pure function — no I/O, no side effects. Same input always
+        produces the same output (modulo the component status, which
+        is whatever the component reports at the moment).
+        """
+        components = state.get("components") or {}
+        enriched: dict = {}
+        for name, comp in components.items():
+            if isinstance(comp, dict):
+                # Already serializable (e.g. identity, persona configs).
+                enriched[name] = comp
+                continue
+            status_attr = getattr(comp, "status", None)
+            if status_attr is None:
+                # No status surface — let write_state coerce via default=str.
+                enriched[name] = comp
+                continue
+            try:
+                value = status_attr() if callable(status_attr) else status_attr
+            except Exception:
+                enriched[name] = comp
+                continue
+            if not isinstance(value, dict):
+                enriched[name] = comp
+                continue
+            snap = {"status": value}
+            tier = getattr(comp, "tier", None)
+            if tier is not None:
+                snap["tier"] = tier
+            enriched[name] = snap
+        out = dict(state)
+        if components:
+            out["components"] = enriched
+        return out
 
     # --- convenience: check policy + log + return result ---
 

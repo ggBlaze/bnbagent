@@ -123,6 +123,25 @@ def _state() -> dict:
     return merged
 
 
+def _component_attr(comp, attr: str, default=None):
+    """v2.1.8 (P4): get an attribute / dict-key from a component that
+    may be either a live class instance (in-process tests) or a
+    `{tier, status}` dict snapshot the agent published into the IPC
+    file (cross-process). One helper, one shape, every endpoint.
+    """
+    if comp is None:
+        return default
+    if isinstance(comp, dict):
+        return comp.get(attr, default)
+    value = getattr(comp, attr, default)
+    if callable(value):
+        try:
+            return value()
+        except Exception:
+            return default
+    return value
+
+
 # v2.1.3: dotenv helpers for the LLM API key UI. The keys are env vars
 # referenced by $VAR substitution in agents/providers.yaml; the dashboard
 # writes them to .env (gitignored). Atomic-ish via .tmp + rename so a
@@ -821,17 +840,23 @@ def build_app() -> FastAPI:
         base_address = ds_cfg.get("base_address", "")
         if router is not None:
             base_rpcs = ds_cfg.get("base_rpcs", [])
+            # v2.1.8 (P4): `router` may be either a live DataSourceRouter
+            # (in-process tests) or a dict snapshot {tier, status} the
+            # agent published into the IPC file (cross-process). Handle
+            # both shapes via the small _component_attr helper.
+            router_tier = _component_attr(router, "tier", default="unknown")
+            router_status = _component_attr(router, "status", default={})
             # Prefer the live source's status (x402 carries base_rpcs there);
             # fall back to config.
             try:
                 src_status = router.source.status or {}
             except Exception:
-                src_status = {}
+                src_status = router_status if isinstance(router_status, dict) else {}
             if "base_rpcs" in src_status:
                 base_rpcs = src_status["base_rpcs"]
             return JSONResponse({
-                "tier": router.tier,
-                "status": router.status,
+                "tier": router_tier,
+                "status": router_status,
                 "base_rpcs": base_rpcs,
                 "base_address": base_address,
             })
