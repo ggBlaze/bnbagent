@@ -8,6 +8,28 @@ import yaml
 
 from core.boot import boot
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _protect_real_local_yaml():
+    """Belt-and-suspenders: snapshot the user's real config/local.yaml
+    before each test in this file and restore it after, in case a
+    future test regresses and writes to it without scoping.
+
+    Scope-limited to this file (autouse=True within this module only)
+    so it doesn't slow down the rest of the suite.
+    """
+    real = Path("config/local.yaml").resolve()
+    backup = real.read_bytes() if real.exists() else None
+    try:
+        yield
+    finally:
+        if backup is not None:
+            real.write_bytes(backup)
+        elif real.exists():
+            real.unlink()
+
 
 def _write_config(tmp_path: Path, ds: dict) -> Path:
     cfg = {

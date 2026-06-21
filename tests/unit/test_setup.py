@@ -116,7 +116,7 @@ def test_generate_wallet_path_writes_base_address_to_local_yaml(
     from core import config_paths
 
     new_acct = Account.create()
-    setup_mod._persist_base_address_if_unset(new_acct.address)
+    setup_mod._persist_base_address_if_unset(new_acct.address, base_dir=tmp_path)
 
     merged = config_paths.load_config(base_dir=tmp_path)
     ds = merged.get("data_source", {})
@@ -145,7 +145,7 @@ def test_persist_base_address_overwrites_stale_from_previous_boot(
     from core import config_paths
 
     new_acct = Account.create()
-    setup_mod._persist_base_address_if_unset(new_acct.address)
+    setup_mod._persist_base_address_if_unset(new_acct.address, base_dir=tmp_path)
 
     merged = config_paths.load_config(base_dir=tmp_path)
     assert merged["data_source"]["base_address"].lower() == new_acct.address.lower(), (
@@ -153,3 +153,35 @@ def test_persist_base_address_overwrites_stale_from_previous_boot(
         f"got {merged['data_source'].get('base_address')!r}, "
         f"expected {new_acct.address!r}"
     )
+
+
+def test_persist_base_address_uses_base_dir_kwarg(tmp_path, monkeypatch):
+    """v2.1.8: _persist_base_address_if_unset must accept base_dir so
+    tests can scope the read+write to a tmp dir. Without base_dir,
+    the function reads/writes the user's actual config/local.yaml via
+    Path.cwd(), clobbering the operator's user-state shadow.
+    """
+    from core import setup as setup_mod
+    from core import config_paths
+    from eth_account import Account
+
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump({
+        "mode": "replay",
+        "data_source": {},
+        "rpcs": ["http://localhost:8545"],
+        "chain_id": 97,
+        "tokens": {"bsc_tokens": ["WBNB"]},
+    }))
+    (cfg_dir / "local.yaml").write_text(yaml.safe_dump({
+        "data_source": {"base_address": "0x" + "9b" * 20},
+    }))
+
+    new_acct = Account.create()
+    setup_mod._persist_base_address_if_unset(
+        new_acct.address, base_dir=tmp_path,
+    )
+
+    merged = config_paths.load_config(base_dir=tmp_path)
+    assert merged["data_source"]["base_address"].lower() == new_acct.address.lower()

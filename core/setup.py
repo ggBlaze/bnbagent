@@ -104,12 +104,12 @@ def _save_yaml(path: Path, data: dict) -> None:
     path.write_text(yaml.safe_dump(data, sort_keys=False, default_flow_style=False))
 
 
-def _persist_base_address_if_unset(address: str) -> None:
+def _persist_base_address_if_unset(address: str, *, base_dir: Path | None = None) -> None:
     """Write the wallet's address to `config/local.yaml` under
     `data_source.base_address` so the wizard's x402 step + the
     /api/data-source/x402-balance endpoint can find it.
 
-    Mirrors the same write in core/boot.py:153-159. The wizard calls
+    Mirrors the same write in core/boot.py. The wizard calls
     `import_wallet` / `generate_wallet` BEFORE the agent boots, so
     without this write `data_source.base_address` stays at whatever
     the previous boot wrote (which may be an ephemeral key from a
@@ -123,12 +123,17 @@ def _persist_base_address_if_unset(address: str) -> None:
     for x402 funding (advanced multi-sig scenario), they can set it
     by editing local.yaml after import; the wizard path always wins
     here.
+
+    v2.1.8: added `base_dir` kwarg so tests can scope the read+write
+    to a tmp dir. Production callers (import_wallet, generate_wallet)
+    don't pass it; they want the cwd-relative write into the
+    user's real config/local.yaml.
     """
     try:
-        cfg = _load_merged_config()
+        cfg = _load_merged_config(base_dir=base_dir)
         ds = cfg.setdefault("data_source", {})
         ds["base_address"] = Web3.to_checksum_address(address)
-        write_local(cfg)
+        write_local(cfg, base_dir=base_dir)
     except Exception as e:
         # Persistence is best-effort here. The wallet itself was
         # already encrypted to disk by create_keystore / import_keystore;
