@@ -218,31 +218,65 @@ class CMCX402Client(_LedgerMixin):
             self._record(method, path, params, Decimal("0"), 200)
             return resp.json()
 
-        # 402 → sign + retry
+        # 402 → sign + retry. Parse the 402 challenge FIRST so we can sign
+        # for the actual chain/token the server is asking for and use the
+        # actual cost in the ledger. v2.1.8 (x402-fix): two bugs were
+        # observed live against the CMC x402 endpoint:
+        #   1. The EIP-712 domain used the configured defaults (Base/USDC)
+        #      while CMC was asking for a BSC token, so the facilitator
+        #      rejected every signed authorization and returned 402 again.
+        #   2. The spend counter was incremented the moment the signature
+        #      was built, regardless of whether the retry settled. So 1000
+        #      failed attempts of 0.01 USDC = "spent: 10 USDC" in the
+        #      ledger, even though zero actually moved.
+        # Both fixed here: derive chain_id/token from `req`, and only
+        # count spend on a successful (200) retry.
+        from .x402 import decode_payment_requirements
+        try:
+            req = decode_payment_requirements(resp.headers.get("PAYMENT-REQUIRED", ""))
+            cost = Decimal(req.amount) / Decimal(10 ** 6)  # USDC has 6 decimals
+            # Network → chain id. Accepts "eip155:<n>" or short names
+            # ("bsc", "base") per the x402 spec. Unknown networks fall
+            # back to the configured default rather than raising — the
+            # x402_pay call below will still validate.
+            if req.network.startswith("eip155:"):
+                network_chain_id = int(req.network.split(":", 1)[1])
+            elif req.network == "bsc":
+                network_chain_id = 56
+            elif req.network == "base":
+                network_chain_id = 8453
+            else:
+                network_chain_id = self.chain_id
+            payment_token = req.token or self.token_address
+        except Exception:
+            # Unparseable challenge → sign for the configured default
+            # and use a $0.01 fallback cost (current x402 price floor).
+            cost = Decimal("0.01")
+            network_chain_id = self.chain_id
+            payment_token = self.token_address
+
         try:
             payment_hdr = await x402_pay(
                 required_b64=resp.headers.get("PAYMENT-REQUIRED", ""),
                 wallet=self.wallet,
-                chain_id=self.chain_id,
+                chain_id=network_chain_id,
+                token_address=payment_token,
             )
         except X402Required as e:
             self._record(method, path, params, Decimal("0"), 402)
             raise
 
-        # Parse the actual amount from the 402 challenge so the ledger is
-        # accurate even if CMC prices a future endpoint at a different
-        # amount than $0.01. USDC has 6 decimals, so 10000 raw = $0.01.
-        from .x402 import decode_payment_requirements
-        try:
-            req = decode_payment_requirements(resp.headers.get("PAYMENT-REQUIRED", ""))
-            cost = Decimal(req.amount) / Decimal(10 ** 6)
-        except Exception:
-            cost = Decimal("0.01")  # safe fallback if the challenge is unparseable
-        self._x402_spend_today_usdc += cost
         headers["PAYMENT-SIGNATURE"] = payment_hdr
         resp2 = await self._client.request(method, url, params=params, headers=headers)
-        self._record(method, path, params, cost, resp2.status_code)
-        resp2.raise_for_status()
+        # Only count spend on a successful retry. A rejected signature
+        # (402 again), 4xx/5xx, or network error → no money moved → the
+        # cap stays where it was. The cap is a safety limit on real
+        # settlement, not on signature attempts.
+        if resp2.status_code != 200:
+            self._record(method, path, params, Decimal("0"), resp2.status_code)
+            resp2.raise_for_status()
+        self._x402_spend_today_usdc += cost
+        self._record(method, path, params, cost, 200)
         return resp2.json()
 
     async def quotes_latest(self, symbols: list[str], convert: str = "USD") -> dict:
