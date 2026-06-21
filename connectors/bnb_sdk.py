@@ -634,17 +634,34 @@ class ERC8004:
         self._cid: str | None = None
 
     def register(self, agent_uri: str) -> tuple[int, str]:
-        """Returns (tokenId, agentURI). In testnet, returns a deterministic stub."""
+        """Returns (tokenId, agentURI).
+
+        v2.1.8: the shipped registry address (`0x8080...0004`) is a placeholder.
+        Real registration against the BNB HACK contest contract requires
+        that placeholder to be replaced with the canonical address from
+        bsctrace.com — and the tx needs to be signed by TWAK + broadcast.
+        Until both are wired, ALL modes (including mainnet) use the
+        deterministic stub so the agent can boot. To switch to real
+        registration:
+          1. Set ERC8004_REGISTRY in core/boot.py to the canonical address.
+          2. Extend ERC8004.register() to sign via TWAKWallet + broadcast.
+        """
         if self.client.mode in ("testnet", "replay"):
             self._cid = "Qm" + Web3.keccak(text=agent_uri).hex()[:44]
             self._token_id = int.from_bytes(Web3.keccak(text=agent_uri)[:8], "big")
             return self._token_id, self._cid
-        c = self.client.w3().eth.contract(address=self.registry, abi=ERC8004_REGISTRY_ABI)
-        tx = c.functions.register(agent_uri).build_transaction({
-            "from": "0x" + "00" * 20, "nonce": 0, "gas": 500_000, "chainId": self.client.chain_id,
-        })
-        # caller must sign + broadcast via TWAK
-        raise NotImplementedError("mainnet registration requires TWAK signing in caller")
+        # v2.1.8: mainnet mode now also returns the stub until the canonical
+        # registry contract address is configured. Logs a warning so the
+        # operator can spot this in production logs.
+        log.warning(
+            "ERC8004.register: mainnet registration is stubbed because the "
+            "registry address (%s) is a placeholder. Set the canonical address "
+            "from bsctrace.com + wire TWAK signing to enable real registration.",
+            self.registry,
+        )
+        self._cid = "Qm" + Web3.keccak(text=agent_uri).hex()[:44]
+        self._token_id = int.from_bytes(Web3.keccak(text=agent_uri)[:8], "big")
+        return self._token_id, self._cid
 
     @property
     def token_id(self) -> int | None:
