@@ -71,3 +71,7 @@ agents/token_module.yaml
 .idea/
 *.swp
 *.swo
+
+# Ad-hoc backtest runs (not the committed meta-test fixtures replay_*.{html,json})
+data/reports/replay.html
+data/reports/replay.json
