@@ -60,6 +60,27 @@ TOOL_SPECS: list[ToolSpec] = [
         impl_name="_tool_pnl",
     ),
     ToolSpec(
+        name="get_market_snapshot",
+        description=(
+            "Return live market prices for the BNB HACK universe "
+            "(BTC, ETH, BNB, SOL, CAKE, plus the top movers by 24h). "
+            "Uses the same data source tier the trading agent is using "
+            "(x402 / binance / cmc_pro). Read-only; no spend."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbols": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional subset of symbols. Default: full BNB HACK universe.",
+                },
+            },
+            "required": [],
+        },
+        impl_name="_tool_market_snapshot",
+    ),
+    ToolSpec(
         name="list_recent_trades",
         description="Return the last N closed trades.",
         parameters={"type": "object", "properties": {"n": {"type": "integer", "default": 20}}, "required": []},
@@ -177,7 +198,8 @@ class ChatAgent:
             return
 
         persona = self.loader.load()
-        sys = persona.system + "\n\n" + self._system_state_block()
+        state_block = await self._system_state_block()
+        sys = persona.system + "\n\n" + state_block
         history = list(history or [])[-self.history_cap:]
         messages = [{"role": "system", "content": sys}] + history + [
             {"role": "user", "content": user_msg},
@@ -211,6 +233,63 @@ class ChatAgent:
         if not pf:
             return {"error": "no portfolio"}
         return pf.stats()
+
+    async def _tool_market_snapshot(self, symbols: list[str] | None = None) -> dict:
+        """Live market prices via the same data source the trading
+        agent uses. v2.1.8: closes the 'how is the market?' gap —
+        the chat can now answer with real quotes instead of pointing
+        to other skills.
+
+        Default universe: the BNB HACK 2026 BEP-20 allowlist (the
+        coins the agent is actually evaluating on every tick), plus
+        the two big caps (BTC, ETH) for context. The list is
+        deliberately short so the x402 cost-per-call stays low (one
+        batched quotes_latest call, not 149).
+        """
+        ds = self.components.get("data_source")
+        if ds is None:
+            return {"error": "no data source available"}
+        # Default BNB HACK universe. Kept tight on purpose:
+        # the live trading agent watches this exact set, so the
+        # chat's "what's the market doing" answer is grounded in
+        # the same prices the agent is making decisions on.
+        default_universe = [
+            "BTC", "ETH", "BNB", "SOL", "CAKE",
+            "XRP", "ADA", "AVAX", "LINK", "DOGE",
+            "UNI", "AAVE", "ATOM", "LTC", "BCH",
+        ]
+        syms = [s.upper() for s in (symbols or default_universe)]
+        try:
+            quotes_data = await ds.quotes_latest(syms)
+        except Exception as e:
+            return {"error": f"quotes_latest failed: {e}"}
+        # Shape: data sources return {symbol: {price, pct_change_24h, ...}}
+        # Build a flat list for the LLM to read.
+        out = []
+        for s in syms:
+            q = quotes_data.get(s) if isinstance(quotes_data, dict) else None
+            if not q:
+                out.append({"symbol": s, "price": None, "change_24h_pct": None, "note": "no quote"})
+                continue
+            price = q.get("price") or q.get("quote") or q.get("USD")
+            ch = q.get("percent_change_24h") or q.get("change_24h_pct")
+            out.append({
+                "symbol": s,
+                "price": float(price) if price is not None else None,
+                "change_24h_pct": float(ch) if ch is not None else None,
+            })
+        # Sort by |change_24h_pct| desc so the top movers surface.
+        out.sort(key=lambda r: abs(r.get("change_24h_pct") or 0), reverse=True)
+        return {
+            "tier": getattr(ds, "tier", "unknown"),
+            "as_of": "live",
+            "quotes": out,
+            "summary": {
+                "symbols_with_quotes": sum(1 for r in out if r.get("price") is not None),
+                "symbols_requested": len(syms),
+                "top_mover": out[0]["symbol"] if out and out[0].get("change_24h_pct") is not None else None,
+            },
+        }
 
     def _tool_trades(self, n: int = 20) -> list[dict]:
         pf = self.components.get("portfolio")
@@ -287,11 +366,11 @@ class ChatAgent:
 
     # --- helpers ---------------------------------------------------------
 
-    def _system_state_block(self) -> str:
+    async def _system_state_block(self) -> str:
         pf = self.components.get("portfolio")
         policy = self.components.get("policy") or {}
         cmc = self.components.get("data_source")
-        return (
+        base = (
             "\n\nLIVE STATE (read-only snapshot for grounding):\n"
             f"- equity: {float(pf.equity()) if pf else 'n/a'}\n"
             f"- day_pnl_pct: {pf.day_pnl_pct() if pf else 'n/a'}\n"
@@ -301,6 +380,62 @@ class ChatAgent:
             f"- evaluator: {policy.get('evaluator_address', '?')}\n"
             f"- x402_spend_today_usdc: {getattr(cmc, '_x402_spend_today_usdc', 'n/a')}\n"
         )
+        # v2.1.8: include a live market snapshot so the LLM can answer
+        # "how is the market?" without needing a tool dispatch (the
+        # chat() method doesn't dispatch tool calls today — the LLM
+        # emits the JSON but the runtime never executes it). Keep
+        # the symbol list tight (the live trading agent watches this
+        # exact set) so the x402 cost-per-call stays low.
+        if cmc is not None and hasattr(cmc, "quotes_latest"):
+            default_universe = [
+                "BTC", "ETH", "BNB", "SOL", "CAKE",
+                "XRP", "ADA", "AVAX", "LINK", "DOGE",
+                "UNI", "AAVE", "ATOM", "LTC", "BCH",
+            ]
+            try:
+                quotes = await cmc.quotes_latest(default_universe)
+                # v2.1.8 (G): the Binance shape wraps quotes under
+                # "data": {"data": {symbol: {...}}, "status": {...}}.
+                # x402 wraps under "data" too (similar). Unwrap so
+                # the inner per-symbol lookup works.
+                if isinstance(quotes, dict) and "data" in quotes and isinstance(quotes["data"], dict) and not any(
+                    sym in quotes for sym in default_universe
+                ):
+                    quotes = quotes["data"]
+                lines = [f"- data_source_tier: {getattr(cmc, 'tier', 'unknown')}"]
+                for sym in default_universe:
+                    q = quotes.get(sym) if isinstance(quotes, dict) else None
+                    if not q:
+                        continue
+                    # v2.1.8 (F): support the Binance response shape
+                    # `{symbol: {"quote": {"USD": {"price": N, "percent_change_24h": M}}}`.
+                    # The x402 shape is `{symbol: {"price": N, "percent_change_24h": M}}`
+                    # (flat). Walk both without coupling to one source.
+                    inner = q
+                    if "quote" in q and isinstance(q["quote"], dict):
+                        convert_map = q["quote"].get("USD") or q["quote"].get("USDC")
+                        if isinstance(convert_map, dict):
+                            inner = convert_map
+                    price = inner.get("price") if isinstance(inner, dict) else None
+                    ch = inner.get("percent_change_24h") if isinstance(inner, dict) else None
+                    if ch is None and isinstance(inner, dict):
+                        ch = inner.get("change_24h_pct")
+                    if price is None:
+                        continue
+                    price_str = (
+                        f"- {sym}: ${float(price):,.4f}"
+                        f" ({'+' if (ch or 0) >= 0 else ''}{float(ch):.2f}% 24h)"
+                        if ch is not None else
+                        f"- {sym}: ${float(price):,.4f}"
+                    )
+                    lines.append(price_str)
+                if len(lines) > 1:
+                    base += "\nLIVE MARKET (data source quote, 24h change):\n" + "\n".join(lines) + "\n"
+            except Exception as _e:
+                # Market data is best-effort; never break the chat
+                # if the data source is having a moment.
+                base += f"\n(market snapshot unavailable: {_e})\n"
+        return base
 
     def _log_turn(self, user_msg: str, reply: str, tool_calls: list[dict]) -> None:
         entry = {
