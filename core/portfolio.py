@@ -116,7 +116,10 @@ class Portfolio:
         ds = self.day_start_equity.get(self._today(), e)
         if ds == 0:
             return 0.0
-        return float((ds - e) / ds * 100)
+        # v2.1.8: formula was (ds - e) / ds which inverts the sign —
+        # an UP day showed as negative. Sign convention: gain → positive,
+        # loss → negative.
+        return float((e - ds) / ds * 100)
 
     # --- position mgmt ---
 

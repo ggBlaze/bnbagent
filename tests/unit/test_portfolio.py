@@ -83,3 +83,23 @@ class TestPortfolio:
         assert s["open_positions"] == 0
         assert s["closed_trades"] == 0
         assert s["sleeve_exposure"] == {"A": 0.0, "B": 0.0, "C": 0.0}
+
+    def test_day_pnl_pct_positive_on_gain(self):
+        """day_pnl_pct must be POSITIVE when equity ends ABOVE day_start.
+
+        Bug: the previous formula was `(ds - e) / ds * 100`, which inverts
+        the sign — a +25% gain showed as -25%.
+        """
+        p = Portfolio(starting_equity=Decimal("100"))
+        # Force a synthetic history: day started at 80, now equity is 100.
+        # Simulate by setting cash directly + pinning day_start.
+        p.cash_usdc = Decimal("100")
+        p.day_start_equity[p._today()] = Decimal("80")
+        assert p.day_pnl_pct() == pytest.approx(25.0)
+
+    def test_day_pnl_pct_negative_on_loss(self):
+        """day_pnl_pct must be NEGATIVE when equity ends BELOW day_start."""
+        p = Portfolio(starting_equity=Decimal("100"))
+        p.cash_usdc = Decimal("80")
+        p.day_start_equity[p._today()] = Decimal("100")
+        assert p.day_pnl_pct() == pytest.approx(-20.0)
