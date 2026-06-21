@@ -1,26 +1,70 @@
+<div align="center">
+
+<img src="assets/bnbagent-banner.png" alt="BNB Agent — an autonomous AI trading team" width="480" />
+
 # 🤖 BNB Agent
 
-> **An autonomous AI trading team on BNB Smart Chain. Funding carry + DEX momentum + mean-reversion, signed by you once, run by the agent for a week.**
->
-> **Built for the [BNB HACK 2026](https://coinmarketcap.com/api/hackathon/) (CoinMarketCap × Trust Wallet × BNB Chain — $36K prize pool).**
->
-> **By Blaze · MIT License**
+**You sign once. The agent runs for a week. You can kill it with one button.**
+
+**An autonomous AI trading team on BNB Smart Chain — funding carry + DEX momentum + mean-reversion, gated by a single EIP-191-signed policy.**
+
+**Built for the [BNB HACK 2026](https://coinmarketcap.com/api/hackathon/) (CoinMarketCap × Trust Wallet × BNB Chain — $36K prize pool).**
+
+**By [Blaze](https://github.com/ggBlaze) · MIT License**
 
 [![CoinMarketCap](https://img.shields.io/badge/CoinMarketCap-Agent%20Hub-yellow)](https://coinmarketcap.com/api/agent-hub/)
 [![Trust Wallet](https://img.shields.io/badge/Trust%20Wallet-TWAK-purple)](https://developer.trustwallet.com/)
 [![BNB Chain](https://img.shields.io/badge/BNB%20Chain-AI%20Agent%20SDK-orange)](https://www.bnbchain.org/en/solutions/ai-agent)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-475%2F475%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-619%2F621%20passing-brightgreen)](tests/)
 [![CI](https://img.shields.io/badge/CI-enforced-blueviolet)](.github/workflows/ci.yml)
+
+</div>
+
+---
+
+## What you get
+
+### 🟡 CoinMarketCap Agent Hub — data layer
+Real-time market data via **x402 microcharges** at **$0.01 USDC per call** (EIP-3009 `transferWithAuthorization` on Base). 3-tier selector — **CMC Pro → x402 → Binance fallback** — switchable from the dashboard Config pane. Daily cap with an amber banner at 80%.
+- **Visible evidence:** live CMC ledger on the dashboard, every cost line deep-linked to BaseScan.
+
+### 🟣 Trust Wallet Agent Kit (TWAK) — signing layer
+Self-custody local signing. **AES-256-GCM** keystore + PBKDF2 200k iters at `~/.twak/wallet.json`. Every BSC transaction is signed locally — **keys never leave the host.**
+- **Visible evidence:** live TWAK-signed tx list on the dashboard with BscScan deep links.
+
+### 🟠 BNB Chain AI Agent SDK — on-chain layer
+BSC mainnet, PancakeSwap v3 swaps, plus two on-chain standards:
+- **ERC-8004 identity NFT** — agent wallet, tokenId, IPFS metadata, traits.
+- **ERC-8183 job escrow** — PnL deliverables as jobs (Open → Funded → Submitted → Completed).
+- **Visible evidence:** live identity panel + jobs lifecycle on the dashboard.
+
+### ⚙️ Three strategies, one risk envelope, one sign
+| Sleeve | Capital | Strategy | Target |
+|---|---|---|---|
+| **A — Funding carry** | 70% | Long spot + short perp on PCS v3 | Δ-neutral, ~+0.5% APR |
+| **B — DEX momentum** | 20% | CMC volume-spike + 4h breakout | Capped at 1% per trade |
+| **C — Mean reversion** | 10% | Fades 1h drops >2.0σ | Capped at 0.5% per trade |
+
+- **5% daily loss circuit breaker** (vs 30% contest disqualification = 6× safer)
+- **1% per-trade risk cap · 2× max leverage · 15% max single position**
+- **3-layer LLM safety team** (advisor + reviewer + chat) — they can only **tighten** your policy, never loosen it
+- **Kill switch** in the right rail — halts all new orders instantly
+- **149 BEP-20 eligible tokens** pinned to the BNB HACK Track 1 list
+- **You sign once.** The agent runs for a week. You can kill it with one button.
+
+### 🚀 One install command, one run command
+```bash
+bash install.sh      # creates venv, installs deps, signs a dev policy
+bash bnbagent        # starts agent + dashboard on http://localhost:8000
+```
 
 ---
 
 BNB Agent is an **autonomous BSC trading agent** plus a **3-layer LLM agent team** (advisor / reviewer / chat) plus a **Token Module** (deploy + landing-page generator) plus a **Skills registry** plus an **MCP server** exposing all of the above to other agents.
 
 It runs three strategies in parallel on BNB Smart Chain, pays for its own market data with USDC via x402, signs its own transactions with Trust Wallet's Agent Kit (TWAK), registers its own identity NFT via ERC-8004, and escrows its own PnL deliverables via ERC-8183 jobs — all gated by a single user-signed policy.
-
-You sign **once**. The agent runs for a week. You can kill it with one button.
 
 ---
 
@@ -543,7 +587,7 @@ bnbagent/
 │   ├── metrics.py
 │   └── replay.py
 │
-├── tests/                         ← 608/608 passing (enforced by CI)
+├── tests/                         ← 619/621 passing (enforced by CI)
 │   ├── unit/                      ← ~13 files
 │   ├── integration/               ← 1 file (MCP)
 │   └── fixtures/                  ← llm.py, wallets.py, skills.py
@@ -619,7 +663,9 @@ bnbagent/
 ## 15. Testing
 
 ```bash
-pytest -q                          # 608/608 passing (~3m cold, ~12s unit-only)
+pytest -q                          # 619/621 passing (~3:40 cold, ~12s unit-only)
+                                   # 2 pre-existing failures: replay JSON drift (test_meta)
+                                   # + IPC identity drift (test_dashboard_state_ipc) — non-blocking
 pytest tests/unit/                 # fast unit tests
 pytest tests/integration/          # MCP end-to-end
 pytest tests/unit/test_risk.py -v # 1 file

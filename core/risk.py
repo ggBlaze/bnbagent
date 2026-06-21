@@ -63,6 +63,38 @@ def circuit_breaker_check(
     if policy.get("_kill_switch"):
         return False, f"kill switch engaged: {policy.get('_kill_reason', 'manual')}"
 
+    # 0c) Live window gate (BNB HACK 2026 Track 1)
+    #     If policy.global_risk.live_window_start is set, block all
+    #     new orders before that timestamp. After live_window_end (if
+    #     set) the agent also stops. Format: ISO-8601 in UTC, e.g.
+    #     "2026-06-22T12:00:00Z". Missing fields = no gate. This is
+    #     belt-and-suspenders for the kill switch: even if the kill
+    #     gets accidentally disengaged, no order opens before the
+    #     official live window — which is what the BNB HACK judges
+    #     score against.
+    live_start = p.get("live_window_start")
+    if isinstance(live_start, str) and live_start:
+        try:
+            from datetime import datetime, timezone
+            ls_ts = int(datetime.fromisoformat(live_start.replace("Z", "+00:00")).timestamp())
+            if now_ts < ls_ts:
+                from datetime import datetime as _dt, timezone as _tz
+                ls_iso = _dt.fromtimestamp(ls_ts, tz=_tz.utc).isoformat()
+                return False, f"before live window start {ls_iso}"
+        except ValueError:
+            log.warning("invalid live_window_start in policy: %r", live_start)
+    live_end = p.get("live_window_end")
+    if isinstance(live_end, str) and live_end:
+        try:
+            from datetime import datetime, timezone
+            le_ts = int(datetime.fromisoformat(live_end.replace("Z", "+00:00")).timestamp())
+            if now_ts >= le_ts:
+                from datetime import datetime as _dt, timezone as _tz
+                le_iso = _dt.fromtimestamp(le_ts, tz=_tz.utc).isoformat()
+                return False, f"after live window end {le_iso}"
+        except ValueError:
+            log.warning("invalid live_window_end in policy: %r", live_end)
+
     # 1) Daily loss circuit breaker
     if day_start_equity is not None and day_start_equity > 0:
         dloss_pct = float((day_start_equity - current_equity) / day_start_equity * 100)

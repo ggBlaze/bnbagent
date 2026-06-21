@@ -174,7 +174,7 @@ Show the result card with the website download button.
 
 ## 2:40 – 3:00 — Close
 
-> "Open-source on GitHub. Live dashboard right here. 179 of 179 tests passing, enforced by GitHub Actions CI. This is BNB Agent v2.0 — built for the BNB HACK 2026. Thanks."
+> "Open-source on GitHub. Live dashboard right here. 619 of 621 tests passing, enforced by GitHub Actions CI. This is BNB Agent — built for the BNB HACK 2026. Thanks."
 
 ---
 

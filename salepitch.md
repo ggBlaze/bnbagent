@@ -144,7 +144,7 @@ Full audit in `docs/audit-2026-06-05.md`.
 
 ## 10. Numbers at submission
 
-- **174 / 174** unit + integration tests pass (CI-enforced on 3.10/3.11/3.12)
+- **619 / 621** unit + integration tests pass (CI-enforced on 3.10/3.11/3.12). 2 pre-existing failures are replay JSON drift and IPC identity cache drift — both non-blocking, both documented in the commit log.
 - **15,000+** lines of typed Python
 - **1** install command, **1** run command
 - **3** sponsor layers visibly used

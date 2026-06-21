@@ -2,6 +2,31 @@
 
 All notable changes to this project. Versioned per the git tag.
 
+## v2.1.9 — README polish + live-window gate + image asset (2026-06-21)
+
+Pre-deadline polish + safety. Three changes that don't change runtime
+behavior but improve the public surface and harden against premature
+trading.
+
+ADDED:    `assets/bnbagent-banner.png` — 1024×1024 gold/cyan shield
+          logo with neural net + candles + circuit traces, added to
+          README first-fold for the BNB HACK submission card and the
+          GitHub repo card.
+ADDED:    `core/risk.py::circuit_breaker_check` now respects an optional
+          `live_window_start` / `live_window_end` gate in
+          `policy.global_risk`. Hard-block on any new order outside the
+          BNB HACK live window (2026-06-22T12:00:00Z →
+          2026-06-28T12:00:00Z) — belt-and-suspenders alongside the
+          dashboard kill switch. 6 new tests in
+          `tests/unit/test_risk_live_window.py`.
+CHANGED:  README first-fold rewritten — centered banner image, punchier
+          tagline, "What you get" section organized per sponsor (CMC /
+          TWAK / BNB Chain), table of three sleeves, risk-envelope
+          bullets, and a one-command install/run block.
+CHANGED:  README test badge 475/475 → **619/621 passing** (real pytest
+          output). 2 pre-existing failures (replay JSON drift +
+          IPC identity drift) are documented and non-blocking.
+
 ## v2.1.8 — Test infra fix: autouse LLM_* env scrub (2026-06-21)
 
 Submission-eve cleanup. Found a test-pollution bug while running the
@@ -20,7 +45,7 @@ test run still sees them outside the test that cleared them. All 608
 tests now pass in 3:10 cold.
 
 CHANGED:  `README.md` + `docs/CONTRIBUTING.md` test count badge bumped
-          475/475 → **608/608 passing** (was stale since v2.1.5).
+          475/475 → 608 tests passing (was stale since v2.1.5).
 
 ### v2.1.8 (B) — BNB HACK submission-eve bugfixes (2026-06-21)
 
