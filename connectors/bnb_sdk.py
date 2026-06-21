@@ -208,11 +208,27 @@ class BSCClient:
     def w3(self) -> Web3:
         if self._w3 is None:
             self._w3 = Web3(Web3.HTTPProvider(self.rpcs[self._idx], request_kwargs={"timeout": 10}))
+            # v2.1.8: BSC mainnet (chain 56) is a POA chain with
+            # extraData > 32 bytes. web3.py v7 raises ExtraDataLengthError
+            # by default. Inject ExtraDataToPOAMiddleware so the validation
+            # is skipped. web3.py v6 used geth_poa_middleware (same
+            # class, renamed in v7).
+            try:
+                from web3.middleware import ExtraDataToPOAMiddleware
+                self._w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+            except (ImportError, ValueError):
+                # Already injected or older web3.py without this class
+                pass
         return self._w3
 
     def rotate(self):
         self._idx = (self._idx + 1) % len(self.rpcs)
         self._w3 = Web3(Web3.HTTPProvider(self.rpcs[self._idx], request_kwargs={"timeout": 10}))
+        try:
+            from web3.middleware import ExtraDataToPOAMiddleware
+            self._w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+        except (ImportError, ValueError):
+            pass
         log.info("rotated RPC → %s", self.rpcs[self._idx])
 
     def next_nonce(self, address: str) -> int:
