@@ -207,6 +207,7 @@ def _policy() -> dict:
 
 def _identity() -> dict:
     s = _state()
+    return s.get("components", {}).get("identity", {}) or {}
 
 
 def _mode_aware_stats() -> dict:
@@ -262,7 +263,6 @@ def _mode_aware_stats() -> dict:
     out["primary_trades"] = primary_trades
     out["primary_label"] = primary_label
     return out
-    return s.get("components", {}).get("identity", {}) or {}
 
 
 def _bscscan_url(tx_hash: str) -> str:
