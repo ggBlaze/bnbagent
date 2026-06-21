@@ -50,6 +50,13 @@ class SignedTx:
     raw_tx: bytes
     tx_hash: str
     signed: dict[str, Any]
+    # v2.1.8: perps venue order metadata. is_paper=True means the order
+    # was simulated (paper-stub path) rather than actually placed at the
+    # venue. venue_order_id is the venue's reference for this position
+    # (used to close/reduce by id). Both fields are optional and ignored
+    # by callers that don't care (e.g., spot swaps).
+    is_paper: bool = True
+    venue_order_id: str | None = None
 
 
 class TWAKWallet:

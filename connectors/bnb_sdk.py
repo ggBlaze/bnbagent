@@ -360,11 +360,15 @@ class Perps:
     """
 
     def __init__(self, config_path: str = "config/perps_venues.yaml", mode: str = "testnet",
-                 clock=None, mark_cache_ttl_s: int = 60):
+                 clock=None, mark_cache_ttl_s: int = 60,
+                 config: dict | None = None):
         import time as _time
         with open(config_path) as f:
             self.venues = yaml.safe_load(f) or {}
         self.mode = mode
+        # v2.1.8: merged config so venue clients can pull per-venue
+        # api_key/api_secret from perps.<venue>.* in local.yaml.
+        self.config = config or {}
         self._state: dict[tuple[str, str], dict] = {}
         self._historical: dict[tuple[str, str], list[float]] = {}
         self._rng = random.Random(42)
@@ -511,32 +515,80 @@ class Perps:
     def status(self, venue: str) -> str:
         return "ok"
 
-    # --- order placement (stubs in testnet mode) ---
+    # --- order placement (v2.1.8: pluggable per-venue clients) ---
+    #
+    # In mode=testnet / mode=replay: routes through the paper-stub client
+    # so the strategy layer can exercise its full lifecycle without a
+    # live venue. Every paper-stub order returns is_paper=True.
+    #
+    # In mode=mainnet: routes through the registered real client for the
+    # venue (aster / killex / apollox / mux). If no client is registered,
+    # raises NotImplementedError pointing at docs/venue_implement_me.md.
+    # To enable real execution: implement connectors/venues/<venue>.py
+    # and set perps.<venue>.{api_key,api_secret} in config/local.yaml.
+
+    def _venue_config(self, venue: str) -> dict:
+        """Pull per-venue config from self.config (merged cfg)."""
+        perps = (self.config or {}).get("perps") or {}
+        return dict(perps.get(venue) or {})
+
+    def _resolve_client(self, venue: str):
+        """Pick the right venue client for the current mode.
+
+        mode in ("testnet", "replay"): return PaperStubClient.
+        mode == "mainnet": return VenueRegistry.get(venue, self._venue_config(venue)).
+        """
+        if self.mode in ("testnet", "replay"):
+            from connectors.venues.paper_stub import PaperStubClient
+            return PaperStubClient(venue, {"venue_name": venue})
+        from connectors.venues.registry import VenueRegistry
+        return VenueRegistry.get(venue, self._venue_config(venue))
 
     def open_short(self, venue: str, market: str, size_usd: float, leverage: float,
                    collateral_usdc: float) -> SignedTx:
-        if self.mode in ("testnet", "replay"):
+        client = self._resolve_client(venue)
+        result = client.place_order(
+            symbol=market, side="short",
+            size_usd=Decimal(str(size_usd)), leverage=float(leverage),
+            collateral_usdc=Decimal(str(collateral_usdc)),
+        )
+        # Build a stable tx_hash so dashboards / log scanners can still
+        # find this order. Real clients get a hash derived from their
+        # venue_order_id; paper stubs already produce a synthetic hash.
+        if result.is_paper:
             tx_hash = "0x" + Web3.keccak(
                 text=f"perps_open_short:{venue}:{market}:{size_usd}:{self.clock()}"
             ).hex()
-            return SignedTx(raw_tx=b"\x00" * 100, tx_hash=tx_hash, signed={})
-        raise NotImplementedError("real perps open not implemented in this build")
+        else:
+            tx_hash = "0x" + Web3.keccak(
+                text=f"perps_open_short:{venue}:{market}:{result.venue_order_id}"
+            ).hex()
+        return SignedTx(
+            raw_tx=b"\x00" * 100, tx_hash=tx_hash, signed={},
+            is_paper=result.is_paper, venue_order_id=result.venue_order_id,
+        )
 
     def close_short(self, venue: str, market: str) -> SignedTx:
-        if self.mode in ("testnet", "replay"):
-            tx_hash = "0x" + Web3.keccak(
-                text=f"perps_close_short:{venue}:{market}:{self.clock()}"
-            ).hex()
-            return SignedTx(raw_tx=b"\x00" * 100, tx_hash=tx_hash, signed={})
-        raise NotImplementedError("real perps close not implemented in this build")
+        client = self._resolve_client(venue)
+        result = client.close_position(symbol=market)
+        tx_hash = "0x" + Web3.keccak(
+            text=f"perps_close_short:{venue}:{market}:{result.venue_order_id}:{self.clock()}"
+        ).hex()
+        return SignedTx(
+            raw_tx=b"\x00" * 100, tx_hash=tx_hash, signed={},
+            is_paper=result.is_paper, venue_order_id=result.venue_order_id,
+        )
 
     def reduce_short(self, venue: str, market: str, factor: float) -> SignedTx:
-        if self.mode in ("testnet", "replay"):
-            tx_hash = "0x" + Web3.keccak(
-                text=f"perps_reduce:{venue}:{market}:{factor}:{self.clock()}"
-            ).hex()
-            return SignedTx(raw_tx=b"\x00" * 100, tx_hash=tx_hash, signed={})
-        raise NotImplementedError
+        client = self._resolve_client(venue)
+        result = client.reduce_position(symbol=market, factor=float(factor))
+        tx_hash = "0x" + Web3.keccak(
+            text=f"perps_reduce:{venue}:{market}:{factor}:{result.venue_order_id}"
+        ).hex()
+        return SignedTx(
+            raw_tx=b"\x00" * 100, tx_hash=tx_hash, signed={},
+            is_paper=result.is_paper, venue_order_id=result.venue_order_id,
+        )
 
     # --- venue selection: highest |funding_8h| on the basket ---
 
