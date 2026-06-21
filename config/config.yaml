@@ -71,7 +71,7 @@ cmc:
 # Data source tier — picked in the Setup wizard
 # One of: "cmc_pro" (paid), "x402" (Base USDC), "binance" (free), "mock" (replay/tests)
 data_source:
-  tier: "mock"
+  tier: "binance"                # v2.1.8: free BSC market data, no key needed
   cmc_api_key: ""                # populated by the wizard when tier == "cmc_pro"
   base_rpcs:                     # used by the x402 path for balance polling
     - https://mainnet.base.org
