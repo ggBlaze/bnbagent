@@ -260,7 +260,7 @@ class PancakeV3:
             int(amount_in),
             int(min_out),
             int(sqrt_price_limit_x96),
-        )).build_transaction({"to": self.router, "value": 0})["data"]
+        )).build_transaction({"value": 0})["data"]
 
     def quote(self, token_in: str, token_out: str, fee: int, amount_in: int) -> int:
         """Returns amount_out. In testnet, returns a deterministic estimate."""

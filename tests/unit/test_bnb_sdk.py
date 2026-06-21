@@ -152,3 +152,61 @@ class TestERC8004:
         token_id, cid = e.register(agent_uri="ipfs://Qmabc")
         assert token_id > 0
         assert cid.startswith("Qm")
+
+
+class TestPancakeV3Mainnet:
+    """v2.1.8: encode_swap_v3 in mainnet mode must not raise
+    Web3ValueError when building the transaction. The contract binding
+    already supplies 'to'; passing it via build_transaction kwargs is
+    a web3.py violation that crashes every sleeve-A rebalance tick."""
+
+    def test_encode_swap_v3_mainnet_does_not_set_to(self, monkeypatch):
+        """Mock the BSC web3 client so we never hit a real RPC."""
+        bsc = BSCClient(rpcs=["http://x"], chain_id=56, mode="mainnet")
+
+        # Build a fake web3 + eth.contract that records the kwargs passed
+        # to build_transaction, then returns a fake data blob.
+        captured = {}
+
+        class _FakeTx:
+            def build_transaction(self, kwargs):
+                captured["kwargs"] = dict(kwargs)
+                return {"data": b"\xab\xcd\xef"}
+        class _FakeFn:
+            def __call__(self, params):
+                return _FakeTx()
+        # web3.py exposes `Contract.functions` as an attribute (a
+        # ContractFunctions instance), not a method. Reproduce that here so
+        # `router.functions.exactInputSingle(...)` resolves like the real
+        # library does.
+        class _FakeContractFunctions:
+            def exactInputSingle(self_inner, params):
+                return _FakeFn()(params)
+        class _FakeContract:
+            functions = _FakeContractFunctions()
+        class _FakeEth:
+            def contract(self, address=None, abi=None):
+                return _FakeContract()
+        class _FakeW3:
+            def __init__(self): self.eth = _FakeEth()
+            @staticmethod
+            def to_checksum_address(a): return a
+        monkeypatch.setattr(bsc, "w3", lambda: _FakeW3())
+
+        pcv3 = PancakeV3(
+            bsc,
+            "0x" + "1" * 40,
+            "0x" + "2" * 40,
+            "0x" + "3" * 40,
+        )
+        calldata = pcv3.encode_swap_v3(
+            token_in="0x" + "a" * 40, token_out="0x" + "b" * 40, fee=2500,
+            recipient="0x" + "c" * 40, amount_in=10**18, min_out=10**17,
+        )
+        assert calldata == b"\xab\xcd\xef"
+        # The contract binding already supplies `to`; passing it via
+        # build_transaction kwargs is a web3.py violation.
+        assert "to" not in captured["kwargs"], (
+            f"build_transaction was called with 'to'={captured['kwargs'].get('to')!r}; "
+            "the contract binding already supplies it and web3.py rejects the redundancy."
+        )
