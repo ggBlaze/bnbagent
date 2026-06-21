@@ -19,16 +19,21 @@ from .config_paths import load_config as _load_merged_config, write_local, DEFAU
 log = logging.getLogger(__name__)
 
 
-def load_config(path: str = "config/config.yaml") -> dict:
+def load_config(path: str = "config/config.yaml", base_dir: Path | None = None) -> dict:
     """Load the agent's runtime config.
 
     Backwards-compat shim: if `path` is the default `config/config.yaml`,
     use the local.yaml shadow pattern (merge `local.yaml` on top of
     `config.yaml`). Otherwise, read the explicit path verbatim (used
     by tests that want to point at a fixture file).
+
+    v2.2.0: `base_dir` is forwarded to `_load_merged_config()` so
+    tests can pass tmp_path and not have the merged-load touch the
+    operator's real config/local.yaml. The default (None) preserves
+    the production behavior (Path.cwd()).
     """
     if Path(path) == DEFAULT_CONFIG:
-        return _load_merged_config()
+        return _load_merged_config(base_dir=base_dir)
     return yaml.safe_load(open(path))
 
 
@@ -169,9 +174,22 @@ def boot(starting_equity: Decimal = Decimal("100"),
          replay_tape: list | None = None,
          verify_signature: bool = False,
          mode: str | None = None,
-         clock=None) -> dict:
-    """Returns a dict of initialized components."""
-    cfg = load_config(config_path)
+         clock=None,
+         base_dir: Path | None = None) -> dict:
+    """Returns a dict of initialized components.
+
+    v2.2.0: `base_dir` is the directory containing `config/` (default
+    Path.cwd() — the repo root in production). Tests must pass
+    `base_dir=tmp_path` so the write_local() call below doesn't clobber
+    the operator's real config/local.yaml with test fixture data. The
+    2026-06-21 08:42 CST incident: a new test (test_boot_live_window_warn.py)
+    called boot() without the _protect_real_local_yaml fixture, boot()
+    wrote the test's stub (test wallet 0x81B24, test DEX 0x1111..., localhost
+    RPC) back to the real local.yaml, and the agent started in replay
+    mode against the test fixtures. Tests now pass base_dir explicitly."""
+    from pathlib import Path as _P
+    base_dir = _P(base_dir) if base_dir else None
+    cfg = load_config(config_path, base_dir=base_dir)
     if mode is not None:
         cfg["mode"] = mode
     policy = load_policy(policy_path)
@@ -225,7 +243,7 @@ def boot(starting_equity: Decimal = Decimal("100"),
                 prev, wallet.address,
             )
         ds_cfg["base_address"] = wallet.address
-        write_local(cfg)
+        write_local(cfg, base_dir=base_dir)
     except Exception as e:
         log.warning("could not write base_address to local.yaml: %s", e)
     # Deterministic clock (v2.0.4). In production this is wall clock;

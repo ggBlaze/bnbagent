@@ -9,7 +9,28 @@ import logging
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 import yaml
+
+@pytest.fixture(autouse=True)
+def _protect_real_local_yaml():
+    """Belt-and-suspenders: the 2026-06-21 incident was caused by
+    a test that called boot() without scoping the write_local() call,
+    which overwrote the operator's real config/local.yaml with test
+    fixture data. Even though boot() now accepts base_dir and this test
+    uses it, snapshot/restore the real file as a second line of
+    defense. The fixture is duplicated here (instead of imported from
+    test_boot.py) so this file is self-contained and a future test in
+    test_boot.py can change the fixture without breaking ours."""
+    real = Path("config/local.yaml").resolve()
+    backup = real.read_bytes() if real.exists() else None
+    try:
+        yield
+    finally:
+        if backup is not None:
+            real.write_bytes(backup)
+        elif real.exists():
+            real.unlink()
 
 
 def _write_cfg(tmp_path: Path, mode: str = "testnet") -> Path:
@@ -74,7 +95,7 @@ def test_boot_warns_when_live_window_missing_in_testnet_mode(tmp_path, caplog):
     pol = _write_policy(tmp_path, with_window=False)
     with caplog.at_level(logging.WARNING, logger="core.boot"):
         try:
-            boot(policy_path=str(pol), config_path=str(cfg), starting_equity=Decimal("100"))
+            boot(policy_path=str(pol), config_path=str(cfg), starting_equity=Decimal("100"), base_dir=tmp_path)
         except Exception:
             pass  # boot may fail on wallet init in tests; we only care about the warning
     warnings = [r for r in caplog.records if "live_window_start" in r.message]
@@ -89,7 +110,7 @@ def test_boot_silent_when_live_window_present_in_testnet_mode(tmp_path, caplog):
     pol = _write_policy(tmp_path, with_window=True)
     with caplog.at_level(logging.WARNING, logger="core.boot"):
         try:
-            boot(policy_path=str(pol), config_path=str(cfg), starting_equity=Decimal("100"))
+            boot(policy_path=str(pol), config_path=str(cfg), starting_equity=Decimal("100"), base_dir=tmp_path)
         except Exception:
             pass
     warnings = [r for r in caplog.records if "live_window_start" in r.message and "WITHOUT" in r.message]
@@ -104,7 +125,7 @@ def test_boot_silent_in_replay_mode_without_live_window(tmp_path, caplog):
     pol = _write_policy(tmp_path, with_window=False)
     with caplog.at_level(logging.WARNING, logger="core.boot"):
         try:
-            boot(policy_path=str(pol), config_path=str(cfg), starting_equity=Decimal("100"))
+            boot(policy_path=str(pol), config_path=str(cfg), starting_equity=Decimal("100"), base_dir=tmp_path)
         except Exception:
             pass
     warnings = [r for r in caplog.records if "live_window_start" in r.message and "WITHOUT" in r.message]
