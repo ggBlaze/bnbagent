@@ -174,3 +174,54 @@ def test_boot_writes_base_address_to_local_yaml(tmp_path: Path, monkeypatch):
     # look like a 0x-prefixed 20-byte address.
     assert new_cfg["data_source"]["base_address"].startswith("0x")
     assert len(new_cfg["data_source"]["base_address"]) == 42
+
+
+def test_boot_resyncs_base_address_when_stale(tmp_path: Path, monkeypatch):
+    """v2.1.8: boot always writes wallet.address to data_source.base_address,
+    even when local.yaml already has a (possibly stale) value. This prevents
+    drift when the wizard or a manual edit left a non-wallet address there.
+    """
+    from core import boot as boot_mod
+    from core import config_paths
+
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    # Pre-populate local.yaml with a STALE address so we can verify boot
+    # overwrites it (the previous behavior skipped the write because the
+    # value was already set).
+    (cfg_dir / "local.yaml").write_text(yaml.safe_dump({
+        "data_source": {
+            "tier": "x402",
+            "base_address": "0xSTALE0000000000000000000000000000000000",
+        },
+    }))
+    cfg_file = cfg_dir / "config.yaml"
+    cfg_file.write_text(yaml.safe_dump({
+        "mode": "replay",
+        "data_source": {"tier": "x402", "base_rpcs": ["https://mainnet.base.org"]},
+        "cmc": {"x402_base": "https://api.coinmarketcap.com/agent-hub", "api_key": ""},
+        "rpcs": ["http://localhost:8545"],
+        "chain_id": 97,
+        "dex": {"pcs_v3_router": "0x" + "11" * 20,
+                "pcs_v3_quoter": "0x" + "22" * 20,
+                "pcs_v3_factory": "0x" + "33" * 20},
+        "tokens": {"bsc_tokens": ["WBNB"]},
+    }))
+    pol = _write_policy(tmp_path)
+    import shutil
+    shutil.copy("config/policy.schema.json", cfg_dir / "policy.schema.json")
+    shutil.copy("config/perps_venues.yaml", cfg_dir / "perps_venues.yaml")
+    shutil.copy("config/allowlist.yaml", cfg_dir / "allowlist.yaml")
+    monkeypatch.setattr(boot_mod, "register_identity", lambda *a, **kw: {
+        "token_id": 0, "cid": "QmTest", "agent_address": "0x" + "00" * 20,
+        "evaluator_address": "0x" + "00" * 20, "version": "1.0.0",
+    })
+    monkeypatch.chdir(tmp_path)
+    boot(Decimal("100"), policy_path=str(pol), replay_tape=[])
+
+    new_cfg = config_paths.load_config()
+    addr = new_cfg["data_source"]["base_address"]
+    assert addr != "0xSTALE0000000000000000000000000000000000", (
+        f"boot should have overwritten stale base_address; got {addr}"
+    )
+    assert addr.startswith("0x") and len(addr) == 42

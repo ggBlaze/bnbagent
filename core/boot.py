@@ -191,14 +191,23 @@ def boot(starting_equity: Decimal = Decimal("100"),
     # secp256k1 address format, so wallet.address IS the Base address.
     # The /api/data-source/x402-balance endpoint reads this from
     # config; the wizard's x402 step shows it as the funding target.
-    # Only writes if the user hasn't set a custom address already.
+    # v2.1.8: always re-sync to wallet.address on every boot so a stale
+    # or manually-edited value in local.yaml can't drift away from the
+    # wallet the operator actually controls. Log a WARNING when the
+    # value changes so the operator can spot the drift.
     # v2.1.1: write to local.yaml (the user-state shadow), not the
     # tracked config.yaml. See core/config_paths.py.
     try:
         ds_cfg = cfg.setdefault("data_source", {})
-        if not ds_cfg.get("base_address"):
-            ds_cfg["base_address"] = wallet.address
-            write_local(cfg)
+        prev = ds_cfg.get("base_address")
+        if prev and prev.lower() != wallet.address.lower():
+            log.warning(
+                "data_source.base_address=%s does not match wallet.address=%s "
+                "— re-syncing on boot. (Stale value? Wizard bug? Manual edit?)",
+                prev, wallet.address,
+            )
+        ds_cfg["base_address"] = wallet.address
+        write_local(cfg)
     except Exception as e:
         log.warning("could not write base_address to local.yaml: %s", e)
     # Deterministic clock (v2.0.4). In production this is wall clock;
