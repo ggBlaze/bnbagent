@@ -1,7 +1,7 @@
 # BNB Agent — MCP Server
 
 The MCP (Model Context Protocol) server exposes the BNB Agent as
-**10 tools** that any other MCP-compatible client can call. Claude Code,
+**11 tools** that any other MCP-compatible client can call. Claude Code,
 Goose, Cursor, and other agentic UIs can drive the BNB Agent as if it
 were a function library.
 
@@ -26,11 +26,14 @@ were a function library.
 | `bnbagent_list_skills` | List all Skills + their enabled state |
 | `bnbagent_enable_skill(name)` | Enable a Skill |
 | `bnbagent_disable_skill(name)` | Disable a Skill |
+| `competition_register(network, force)` | Register this agent's wallet on the BNB HACK 2026 Track 1 BSC competition contract (`0x212c61b9b72c95d95bf29cf032f5e5635629aed5`). Required before the live trading window opens on 2026-06-22. The rules page documents this exact MCP action name. Idempotent: returns `alreadyRegistered: true` if the wallet is already on-chain. |
 
-7 of the 10 are **read-only** (`get_pnl`, `list_positions`, `list_trades`,
-`get_policy`, `recommend_risk_change`, `list_skills`, `chat`). 3 are
-**mutating** (`deploy_token`, `enable_skill`, `disable_skill`). Token
-deploy on mainnet still requires `confirm_mainnet: true`.
+7 of the 11 are **read-only** (`get_pnl`, `list_positions`, `list_trades`,
+`get_policy`, `recommend_risk_change`, `list_skills`, `chat`). 4 are
+**mutating** (`deploy_token`, `enable_skill`, `disable_skill`,
+`competition_register`). Token deploy on mainnet still requires
+`confirm_mainnet: true`. `competition_register` is idempotent (safe to
+call multiple times) but spends gas on the first call.
 
 ## Transports
 
@@ -92,7 +95,7 @@ directly `python -m agent_mcp.mcp_server --transport stdio`). Check
 your client's docs for the exact config-file location and JSON schema;
 the keys are always `mcpServers.<name>.command` + `args` + `env`.
 
-Once configured, the 10 `bnbagent_*` tools appear in the client
+Once configured, the 11 `bnbagent_*` tools appear in the client
 (`bnbagent_get_pnl`, `bnbagent_list_positions`,
 `bnbagent_list_trades`, `bnbagent_get_policy`,
 `bnbagent_recommend_risk_change`, `bnbagent_deploy_token`,
@@ -144,7 +147,7 @@ location /bnbagent-mcp/ {
 `tests/integration/test_mcp.py` — 5 tests, spawning the server as a
 subprocess and calling every tool via the official `mcp` client:
 
-- `test_list_tools_returns_10_tools` — all 10 tools advertised
+- `test_list_tools_returns_11_tools` — all 11 tools advertised
 - `test_get_pnl_returns_error_when_no_agent` — graceful no-op
 - `test_recommend_risk_change_does_not_write` — recommendation only
 - `test_deploy_token_mainnet_without_confirm_rejected` — mainnet guard

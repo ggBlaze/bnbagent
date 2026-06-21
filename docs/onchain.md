@@ -95,7 +95,7 @@ spec, a budget, and an evaluator.
   against the on-disk `agents/_pro_defaults/`, and confirm the agent
   is unmodified.
 - **Skills + MCP tools in the metadata** — the on-chain record now
-  advertises the 6 Skills and 10 MCP tools, making the agent's
+  advertises the 6 Skills and 11 MCP tools, making the agent's
   capabilities verifiable.
 - **TokenModule deploys pin to IPFS** — each token deployment
   produces a `TokenDeployResult` with `ipfs_metadata_cid`, and the

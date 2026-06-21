@@ -6,7 +6,7 @@
 
 ## 2-sentence pitch (DoraHacks form)
 
-> BNB Agent is a fully autonomous BSC trading agent with a 3-layer LLM safety team — the user signs one policy, the agent signs every transaction, and an on-chain AI identity (ERC-8004) + job escrow (ERC-8183) record every move. It runs three strategies in parallel (delta-neutral funding carry, CMC-driven DEX momentum, mean-reversion) with a daily 3% circuit breaker, pays for its own market data via x402, and exposes 10 MCP tools so other agents can call it.
+> BNB Agent is a fully autonomous BSC trading agent with a 3-layer LLM safety team — the user signs one policy, the agent signs every transaction, and an on-chain AI identity (ERC-8004) + job escrow (ERC-8183) record every move. It runs three strategies in parallel (delta-neutral funding carry, CMC-driven DEX momentum, mean-reversion) with a daily 3% circuit breaker, pays for its own market data via x402, and exposes 11 MCP tools so other agents can call it.
 
 ---
 
@@ -20,7 +20,7 @@
 
 > "BNB Agent is a self-trading, self-registering, self-billing autonomous agent on BNB Smart Chain. You sign **one** YAML user policy — per-trade cap 1%, daily circuit breaker 3%, leverage 2x, position 15%, token allowlist — and the agent runs for a week. The deterministic trading engine is a Python runtime. Every trade goes through three layers: a per-trade risk check, a Layer-2 LLM reviewer that can only VETO (with a hard timeout and a heuristic fallback if the LLM is slow), and a Trust Wallet signing step. The LLM agent team is also three layers: an advisor that runs every 5 minutes and can only TIGHTEN the policy (never loosen it), the per-trade reviewer, and a chat layer that can only RECOMMEND — every recommendation requires a fresh user signature.
 >
-> The agent pays for its own market data via x402 — every CMC quote is a microcharge, and the dashboard has a full microcharge ledger. It registers itself on-chain via ERC-8004 (the agent's identity NFT) and escrows its PnL via ERC-8183 (one job per sleeve per evaluation window). The Token Module is a real product: ERC-20 deploy on BSC, with CMC-enriched metadata and a single-file HTML landing page. Other agents can call BNB Agent via the MCP server — 10 tools, stdio or SSE.
+> The agent pays for its own market data via x402 — every CMC quote is a microcharge, and the dashboard has a full microcharge ledger. It registers itself on-chain via ERC-8004 (the agent's identity NFT) and escrows its PnL via ERC-8183 (one job per sleeve per evaluation window). The Token Module is a real product: ERC-20 deploy on BSC, with CMC-enriched metadata and a single-file HTML landing page. Other agents can call BNB Agent via the MCP server — 11 tools, stdio or SSE.
 >
 > Deep integration with the three required layers: CoinMarketCap (Data API + Data MCP + Skills + x402), Trust Wallet Agent Kit (every tx, including the chat-deployed tokens, never exposes the key), BNB AI Agent SDK (BSC + perps + ERC-8004 + ERC-8183 + x402). The on-chain evidence — the 8004 NFT, the 8183 jobs, the microcharge ledger, the full signed-tx list — is all public and BscScan-verifiable. The repo is MIT, the backtest reports are committed, the demo script is locked to the JSONs by a meta-test. That's BNB Agent."
 

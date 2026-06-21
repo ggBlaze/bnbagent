@@ -60,7 +60,7 @@ YouTube unlisted or Loom, 3 minutes, 1080p. Script at [`demo-script.md`](demo-sc
 >
 > **Skills registry (v2.0+)** — 6 built-in Skills (3 notification, 3 data). Hot-toggled from the dashboard or the chat.
 >
-> **MCP server (v2.0+)** — 10 tools over stdio (Claude Code / Goose) or SSE. Other agents can call `bnbagent_get_pnl`, `bnbagent_deploy_token`, `bnbagent_chat`, `bnbagent_list_skills`, and `competition_register`.
+> **MCP server (v2.0+)** — 11 tools over stdio (Claude Code / Goose) or SSE. Other agents can call `bnbagent_get_pnl`, `bnbagent_deploy_token`, `bnbagent_chat`, `bnbagent_list_skills`, and `competition_register`.
 >
 > **Stack** — exactly the three required layers, deeply integrated:
 > - **CoinMarketCap Agent Hub** (Data API + Data MCP + Skills + x402 microcharges)

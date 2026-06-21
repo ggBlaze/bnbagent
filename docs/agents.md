@@ -67,7 +67,7 @@ agents/
 
 ## MCP server (`agent_mcp/mcp_server.py`)
 
-* Exposes the agent as 10 MCP tools over stdio or SSE.
+* Exposes the agent as 11 MCP tools over stdio or SSE.
 * MCP-client integration: any stdio-compatible MCP client (Claude Code,
   Goose, Cursor, Continue, etc) can drive the BNB Agent as a tool library.
   See [`docs/MCP.md`](MCP.md) for the config snippet.

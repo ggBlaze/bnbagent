@@ -1,7 +1,7 @@
 """Tests for the v2.0.8-M3 MCP server token auth.
 
 M-3 was that the MCP server (when run with --transport sse) bound
-0.0.0.0 with no auth, exposing 10 tools (incl. skill toggles that
+0.0.0.0 with no auth, exposing 11 tools (incl. skill toggles that
 write to the control file) to anyone who reached the port.
 
 Fix:

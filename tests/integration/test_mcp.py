@@ -25,7 +25,7 @@ def mcp_server_cmd():
     return [py, "-m", "agent_mcp.mcp_server", "--transport", "stdio"]
 
 
-async def test_list_tools_returns_10_tools(mcp_server_cmd):
+async def test_list_tools_returns_11_tools(mcp_server_cmd):
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 

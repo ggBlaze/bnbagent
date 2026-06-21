@@ -197,7 +197,7 @@ A 10-item trading-logic audit pass before the live window, all fixes applied. Se
 │ CoinMarketCap│  │  Trust      │  │  BNB AI Agent    │  │  Agent MCP        │
 │  Agent Hub   │  │  Wallet     │  │  SDK (bnbagent-  │  │  Server           │
 │  Data API +  │  │  Agent Kit  │  │  sdk)            │  │  (stdio + SSE)    │
-│  x402 ($0.01)│  │  (TWAK)     │  │  BSC + PCS v3    │  │  10 MCP tools     │
+│  x402 ($0.01)│  │  (TWAK)     │  │  BSC + PCS v3    │  │  11 MCP tools     │
 │  + Skills    │  │  AES-256-   │  │  + perps         │  │  for other agents │
 │              │  │  GCM        │  │  + ERC-8004      │  │  (Claude Code,   │
 │              │  │  + PBKDF2   │  │  + ERC-8183      │  │  Goose, Cursor)  │
@@ -352,7 +352,7 @@ Full details: [`docs/SKILLS.md`](docs/SKILLS.md).
 > default `bnbagent` run is a self-contained agent + dashboard, with
 > nothing listening for outside MCP clients.
 
-`agent_mcp/mcp_server.py` exposes the BNB Agent as **10 MCP tools** over stdio or SSE:
+`agent_mcp/mcp_server.py` exposes the BNB Agent as **11 MCP tools** over stdio or SSE:
 
 | Tool | What it does |
 |---|---|
@@ -562,7 +562,7 @@ bnbagent/
 │
 ├── agent_mcp/                     ← MCP server (stdio + SSE)
 │   ├── __init__.py
-│   └── mcp_server.py              ← 10 MCP tools
+│   └── mcp_server.py              ← 11 MCP tools
 │
 ├── skills/                        ← discoverable, hot-toggled modules
 │   ├── base.py                    ← Skill abstract base
@@ -647,7 +647,7 @@ bnbagent/
 | [`docs/agents.md`](docs/agents.md) | The 3-LLM agent team in depth (advisor / reviewer / chat) |
 | [`docs/TOKEN_MODULE.md`](docs/TOKEN_MODULE.md) | Token deploy + landing-page generation + mainnet guard |
 | [`docs/SKILLS.md`](docs/SKILLS.md) | Skills registry + 6 built-ins + the cmc_global_filter pause rule |
-| [`docs/MCP.md`](docs/MCP.md) | MCP server transport, 10 tools, generic MCP-client integration |
+| [`docs/MCP.md`](docs/MCP.md) | MCP server transport, 11 tools, generic MCP-client integration |
 | [`docs/PERSONAS.md`](docs/PERSONAS.md) | Persona format + reset semantics + diverged flag |
 | [`docs/API.md`](docs/API.md) | Every HTTP endpoint (40+) with request/response examples |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model, signing, key mgmt, MCP exposure, audit trail |

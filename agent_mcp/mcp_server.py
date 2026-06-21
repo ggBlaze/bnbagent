@@ -306,7 +306,7 @@ def main():
     p.add_argument("--transport", choices=["stdio", "sse"], default="stdio")
     p.add_argument("--port", type=int, default=8765)
     # v2.0.8-M3: default bind address is 127.0.0.1 (was 0.0.0.0).
-    # The MCP server has 10 tools (4 read-only, 1 recommend-only,
+    # The MCP server has 11 tools (4 read-only, 1 recommend-only,
     # 1 mainnet-gated deploy, 1 chat, 2 skill toggles, 1 list).
     # Binding to 0.0.0.0 with no auth means anyone on the network
     # can read the portfolio, enable skills (some write to the

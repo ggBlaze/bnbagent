@@ -254,7 +254,7 @@ All other Skills (telegram, farcaster, webhook, x_sentiment, glassnode) are **pu
 
 ## MCP exposure
 
-The MCP server (`agent_mcp/mcp_server.py`) reads `core.main.DASHBOARD_STATE` — it has **no filesystem or network access of its own** beyond the standard MCP stdio/SSE transport. The 10 tools it exposes are:
+The MCP server (`agent_mcp/mcp_server.py`) reads `core.main.DASHBOARD_STATE` — it has **no filesystem or network access of its own** beyond the standard MCP stdio/SSE transport. The 11 tools it exposes are:
 
 - 7 read-only tools (pnl, positions, trades, policy, skills)
 - 1 recommendation-only tool (`bnbagent_recommend_risk_change`)

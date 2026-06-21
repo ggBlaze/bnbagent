@@ -120,7 +120,7 @@ so BNB Agent is also a launchpad. with a built-in guard.
 
 other agents can call BNB Agent.
 
-→ MCP server: 10 tools, stdio + SSE
+→ MCP server: 11 tools, stdio + SSE
 → `bnbagent_get_pnl` — read-only PnL snapshot
 → `bnbagent_deploy_token` — full Token Module flow
 → `bnbagent_chat` — Layer 3 chat

@@ -148,7 +148,7 @@ Show the result card with the website download button.
 
 **Click:** the **Logs** tab briefly to show the SSE stream.
 
-> "The agent is also exposed as an MCP server — 10 tools over stdio or SSE. Claude Code, Goose, Cursor, Continue — any MCP client can drive the whole stack. The MCP server is OPT-IN — you start it with a separate command when you want other agents to call in."
+> "The agent is also exposed as an MCP server — 11 tools over stdio or SSE. Claude Code, Goose, Cursor, Continue — any MCP client can drive the whole stack. The MCP server is OPT-IN — you start it with a separate command when you want other agents to call in."
 
 ---
 

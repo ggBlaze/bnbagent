@@ -65,7 +65,7 @@
         │                  │  │             │  │ + ERC-8183     │
         └──────────────────┘  └─────────────┘  └─────────────────┘
                                                 ▲
-                                                │ 10 tools
+                                                │ 11 tools
                                                 │
                                   ┌─────────────────────────┐
                                   │    MCP server (stdio /  │
@@ -122,7 +122,7 @@ Agent            CMC Agent Hub            TWAK              BSC RPC          Por
 5. **Layer 3 chat** (on user input):
    - stream tokens; dispatch tools; never write to policy/control
 6. **Window** (per evaluation window): open 4 ERC-8183 jobs (A/B/C/ALL), fund from user, submit deliverable per sleeve, user signs `complete()` at end.
-7. **MCP server** (separate process): exposes 10 tools over stdio/SSE for other agents.
+7. **MCP server** (separate process): exposes 11 tools over stdio/SSE for other agents.
 
 ## Key design decisions
 
@@ -151,4 +151,4 @@ Agent            CMC Agent Hub            TWAK              BSC RPC          Por
 - Per-venue failure isolation (one perps venue down doesn't kill the others)
 - 1% per-trade + 3% daily circuit breaker are non-negotiable, hard-coded as the only enforcement of the policy
 - AI agent team with hard safety envelopes (advisor tightens only, reviewer vetoes only, chat recommends only)
-- 6 hot-toggled Skills, MCP server exposing 10 tools for other agents
+- 6 hot-toggled Skills, MCP server exposing 11 tools for other agents
