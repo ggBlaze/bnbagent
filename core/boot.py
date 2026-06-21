@@ -181,6 +181,24 @@ def boot(starting_equity: Decimal = Decimal("100"),
         if not _verify(policy, policy["evaluator_address"]):
             log.warning("policy signature does not recover to evaluator_address — proceeding in dev mode")
 
+    # v2.2.0: warn if running in testnet/live mode without a live_window
+    # gate. The gate code in core/risk.py is backward compatible (missing
+    # fields = no gate), which is correct for backtests/paper, but a
+    # production deployment that forgets to set the window is a foot-gun:
+    # a missed kill switch can pre-trade. Surface the missing-config
+    # case in the boot log so it's visible in the journal.
+    if cfg.get("mode") in ("testnet", "live", "mainnet"):
+        gr = policy.get("global_risk", {})
+        if "live_window_start" not in gr or not gr.get("live_window_start"):
+            log.warning(
+                "running in %s mode WITHOUT a live_window_start gate. "
+                "Trades will not be blocked by a time window — "
+                "the only protection against pre-window trading is "
+                "the kill switch. Set policy.global_risk.live_window_start "
+                "and live_window_end to harden (see config/policy.yaml.example).",
+                cfg.get("mode"),
+            )
+
     wallet = init_wallet()
     policy["agent_address"] = wallet.address
     data_source = init_data_source(cfg, wallet=wallet, replay_tape=replay_tape)
