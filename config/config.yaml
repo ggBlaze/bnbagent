@@ -23,31 +23,35 @@ gas:
 tokens:
   WBNB:
     symbol: WBNB
-    bsc_address: "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd"
+    bsc_address: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"  # native BSC WBNB
     decimals: 18
   USDC:
     symbol: USDC
-    bsc_address: "0x64544969ed7EBf2f134FDD6205C5C8D4a9C1aA2E"
-    decimals: 18
+    bsc_address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"  # native Circle USDC on BSC
+    decimals: 6
   CAKE:
     symbol: CAKE
-    bsc_address: "0x9C21123d94b93361B05AbFF9Da46F0b9d4E58d2D"
+    bsc_address: "0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82"  # PancakeSwap CAKE
     decimals: 18
   BTCB:
     symbol: BTCB
-    bsc_address: "0x6ce8dA28E2d8642661d6F3cA5D1c5fD3a5b3F3d1"
+    bsc_address: "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c"  # Binance-Peg BTCB
     decimals: 18
   ETH:
     symbol: ETH
-    bsc_address: "0xd66c6B4F0be8fD444D7bca09D1dFd1BeA6A3b3a1"
+    bsc_address: "0x2170Ed0880ac9A755fd29B2688956BD959F933F8"  # Binance-Peg ETH
     decimals: 18
   # (additional tokens loaded from allowlist.yaml)
 
-# --- DEX routers (PancakeSwap v3) ---
+# --- DEX routers (PancakeSwap v3, BSC mainnet) ---
+# Source: https://developer.pancakeswap.finance/contracts/v3/addresses
+#   - Smart Router (BSC + ETH): 0x13f4EA83D0bd40E75C8222255bc855a974568Dd4
+#   - QuoterV2 (BSC):            0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518eE25997
+#   - PancakeV3Factory (BSC):    0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865
 dex:
-  pcs_v3_router:   "0x9A489505a6B3cd73B4D6C8E6B3E8a3e7B9C8d2e1"
-  pcs_v3_quoter:   "0x9deaAf3f4C1eA1F0A7f2C0B9d8c7e6F5A4b3c2d1"
-  pcs_v3_factory:  "0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865"
+  pcs_v3_router:   "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4"  # PCS Smart Router (BSC)
+  pcs_v3_quoter:   "0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997"  # PCS QuoterV2 (BSC mainnet)
+  pcs_v3_factory:  "0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865"  # PCS V3 Factory (BSC)
   default_pool_fee: 2500                    # 0.25%
   pool_fees: [100, 500, 2500, 10000]
 
