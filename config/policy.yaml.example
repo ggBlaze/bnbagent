@@ -48,6 +48,12 @@ global_risk:
   max_daily_trades:             100
   max_drawdown_pct:              8.0
   cooldown_after_breach_min:     60
+  # v2.1.9: BNB HACK 2026 live-window gate. Prevents any trade from
+  # opening before the contest window (and after it closes) so a
+  # missed kill switch can't pre-trade. ISO-8601 in UTC. Missing
+  # fields = no gate (backward compatible for backtests/paper).
+  live_window_start: '2026-06-22T12:00:00Z'
+  live_window_end:   '2026-06-28T12:00:00Z'
 sleeve_allocations: { A: 0.70, B: 0.20, C: 0.10 }
 sleeves:
   A:
