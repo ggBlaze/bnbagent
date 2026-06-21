@@ -1,0 +1,30 @@
+[Unit]
+Description=BNB Agent Dashboard (dev) — web UI on port 8000
+Documentation=https://github.com/ggBlaze/bnbagent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/kai/github/bnbagent
+EnvironmentFile=/home/kai/github/bnbagent/.env
+# NOTE: do NOT use --reload in prod/dev-cron mode. --reload watches for
+# file changes and restarts the dashboard on every save, which is what
+# caused v2.1.9 → v2.2.0 development churn to keep killing the dashboard.
+# The v2.1.9 live-window gate fix only "shipped" because the dashboard
+# was already dead by the time we re-signed policy.yaml.
+ExecStart=/home/kai/github/bnbagent/.venv/bin/python3 -m uvicorn dashboard.backend.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+StandardOutput=append:/home/kai/github/bnbagent/logs/dashboard.log
+StandardError=append:/home/kai/github/bnbagent/logs/dashboard.log
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/kai/github/bnbagent/logs /home/kai/github/bnbagent/data
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,32 @@
+[Unit]
+Description=BNB Agent (dev) — autonomous BSC trading agent for BNB HACK 2026
+Documentation=https://github.com/ggBlaze/bnbagent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/kai/github/bnbagent
+EnvironmentFile=/home/kai/github/bnbagent/.env
+ExecStart=/home/kai/github/bnbagent/.venv/bin/python3 -m core.main --equity 100 --log-level INFO
+Restart=always
+RestartSec=5
+
+# Logs go to the project's logs/ dir, not just journal
+StandardOutput=append:/home/kai/github/bnbagent/logs/agent.log
+StandardError=append:/home/kai/github/bnbagent/logs/agent.log
+
+# Hardening (relaxed from prod for dev — we don't have a separate user)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/kai/github/bnbagent/logs /home/kai/github/bnbagent/data /home/kai/.twak
+
+# Graceful shutdown — give the agent 30s to clean up positions/state
+KillSignal=SIGTERM
+TimeoutStopSec=30
+FinalKillSignal=SIGKILL
+
+[Install]
+WantedBy=default.target
