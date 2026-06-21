@@ -1765,8 +1765,26 @@ async function refresh() {
   }
 
   // hero
-  $('equity').textContent     = stats.equity != null ? fmt(stats.equity) : '—';
-  $('equity-sub').textContent = stats.starting != null ? 'starting $' + fmt(stats.starting) : '—';
+  // v2.1.8 (live-paper): on mainnet, the primary equity is the live
+  // wallet USDC balance; everywhere else it's the paper book. Either
+  // way we keep the paper/real PnL visible in the chart stats below.
+  const isMainnet = (stats.mode || '') === 'mainnet';
+  const heroEquity = isMainnet && stats.primary_equity_usdc != null
+    ? stats.primary_equity_usdc
+    : stats.equity;
+  $('equity').textContent     = heroEquity != null ? fmt(heroEquity) : '—';
+  const eqSubParts = [];
+  if (isMainnet) {
+    eqSubParts.push('<span style="color:var(--green);">●</span> mainnet · live funds');
+    if (stats.primary_equity_usdc != null) {
+      eqSubParts.push('paper sim: $' + fmt(stats.equity));
+    }
+    eqSubParts.push('real PnL: $' + fmt(stats.real_pnl_usdc || 0));
+  } else {
+    if (stats.starting != null) eqSubParts.push('starting $' + fmt(stats.starting));
+    if (stats.primary_label) eqSubParts.push(stats.primary_label);
+  }
+  $('equity-sub').innerHTML = eqSubParts.join(' · ');
   const dayEl = $('day-pnl');
   dayEl.textContent = stats.day_pnl_pct != null ? pct(stats.day_pnl_pct) : '—';
   dayEl.className   = 'val ' + (stats.day_pnl_pct >= 0 ? 'green' : 'red');
@@ -1779,10 +1797,17 @@ async function refresh() {
   $('equity-meta').textContent = (series.series?.length || 0) + ' samples';
   $('cs-start').textContent = stats.starting != null ? usd(stats.starting) : '—';
   $('cs-peak').textContent  = stats.peak != null ? usd(stats.peak) : '—';
-  const pnl = (stats.equity != null && stats.starting != null) ? stats.equity - stats.starting : null;
+  // v2.1.8 (live-paper): on mainnet, the chart's "Net PnL" is the real
+  // PnL (settled trades) instead of the paper book delta. The paper
+  // book is still visible in the right rail (and in /api/stats under
+  // paper_pnl_usdc) for anyone who wants to see the strategy sim.
+  const isMainnet2 = (stats.mode || '') === 'mainnet';
+  const pnl = isMainnet2
+    ? (stats.real_pnl_usdc || 0)
+    : ((stats.equity != null && stats.starting != null) ? stats.equity - stats.starting : null);
   $('cs-pnl').textContent  = pnl != null ? (pnl >= 0 ? '+' : '') + usd(pnl) : '—';
   $('cs-pnl').className    = 'val ' + (pnl >= 0 ? 'green' : 'red');
-  $('cs-trades').textContent = stats.closed_trades ?? '—';
+  $('cs-trades').textContent = (isMainnet2 ? stats.real_trades : stats.closed_trades) ?? '—';
 
   // sleeves
   const sx = stats.sleeve_exposure || {};

@@ -207,6 +207,61 @@ def _policy() -> dict:
 
 def _identity() -> dict:
     s = _state()
+
+
+def _mode_aware_stats() -> dict:
+    """Return stats with a mode-aware 'primary' PnL view.
+
+    v2.1.8 (live-paper): the BNB HACK design has TWO PnL streams — paper
+    (the $100 paper book, used for sizing and contest scoring) and real
+    (trades that actually settled on PCS). The dashboard used to show
+    both side-by-side, which was confusing when running on mainnet with
+    real funds. This wrapper:
+
+      - adds `mode` so the UI can render a clear badge
+      - adds `primary_pnl`, `primary_equity`, `primary_trades`, `primary_label`
+        so the UI can show the "main" PnL for the active mode:
+          * mainnet  → real PnL (settled trades on the venue)
+          * testnet  → paper PnL
+          * mock     → paper PnL
+          * replay   → paper PnL
+      - adds `live_funds` with the actual BSC USDC balance so the
+        operator sees their on-chain money alongside the PnL
+      - keeps all the original fields (paper_*, real_*, starting,
+        peak, drawdown_pct) for backward compat with anything else
+        that reads them
+
+    Paper book stays the source of truth for the BNB HACK PnL evaluation
+    (the contest scores the strategy, not the wallet). The "primary"
+    PnL is what the operator cares about day-to-day; the contest still
+    sees the same paper numbers.
+    """
+    s = _stats()
+    cfg = _cfg()
+    setup = load_setup_state()
+    mode = cfg.get("mode") or "mock"
+    is_mainnet = mode == "mainnet"
+
+    # The "primary" PnL is real on mainnet, paper everywhere else.
+    if is_mainnet:
+        primary_pnl = float(s.get("real_pnl_usdc", 0) or 0)
+        primary_trades = int(s.get("real_trades", 0) or 0)
+        primary_label = "real (settled on PCS)"
+        primary_equity = float(setup.usdc_balance or 0) if hasattr(setup, "usdc_balance") else None
+    else:
+        primary_pnl = float(s.get("paper_pnl_usdc", 0) or 0)
+        primary_trades = int(s.get("paper_trades", 0) or 0)
+        primary_label = f"paper sim ({mode})"
+        primary_equity = None  # paper book equity comes from the IPC stats
+
+    out = dict(s)
+    out["mode"] = mode
+    out["chain_id"] = cfg.get("chain_id")
+    out["primary_pnl_usdc"] = primary_pnl
+    out["primary_equity_usdc"] = primary_equity
+    out["primary_trades"] = primary_trades
+    out["primary_label"] = primary_label
+    return out
     return s.get("components", {}).get("identity", {}) or {}
 
 
@@ -365,7 +420,7 @@ def build_app() -> FastAPI:
 
     @app.get("/api/stats")
     async def stats():
-        return JSONResponse(_stats())
+        return JSONResponse(_mode_aware_stats())
 
     @app.get("/api/positions")
     async def positions():
