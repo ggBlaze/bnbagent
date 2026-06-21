@@ -113,6 +113,38 @@ def _isolate_dashboard_state_ipc(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _scrub_llm_env_vars(monkeypatch):
+    """Strip LLM_<AGENT>_PROVIDER / LLM_<AGENT>_MODEL env vars at the
+    start of every test.
+
+    The /api/llm/routing POST handler (`dashboard/backend/main.py`
+    ~L1468) sets `os.environ` directly so the running dashboard
+    process sees the new routing without a restart. Under pytest,
+    that direct set leaks to subsequent tests — `monkeypatch` only
+    tracks its own setenv/delenv, not direct os.environ writes. The
+    leak breaks 7 unrelated tests in test_advisor,
+    test_advisor_extracts_json, and test_providers that assume
+    `LLM_ADVISOR_PROVIDER` is unset or points at a configured
+    provider (and instead see it pointing at "minimax" — a
+    provider that exists in the env-override test setup but not
+    in the real agents/providers.yaml).
+
+    `monkeypatch.delenv` here tracks the original value and
+    restores it at teardown, so an operator-launched test run
+    (where the shell had LLM_* set) still sees them outside the
+    test that explicitly cleared them. Tests that want a value
+    set use `monkeypatch.setenv(...)` after this fixture, which
+    runs in the normal pytest fixture order.
+    """
+    for key in list(os.environ.keys()):
+        if key.startswith("LLM_") and (
+            key.endswith("_PROVIDER") or key.endswith("_MODEL")
+        ):
+            monkeypatch.delenv(key, raising=False)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _scrub_dotenv_from_test_env(monkeypatch):
     """B (v2.1.8): strip every key defined in `.env` from the test
     process env.

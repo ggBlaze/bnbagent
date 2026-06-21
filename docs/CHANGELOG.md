@@ -2,6 +2,26 @@
 
 All notable changes to this project. Versioned per the git tag.
 
+## v2.1.8 — Test infra fix: autouse LLM_* env scrub (2026-06-21)
+
+Submission-eve cleanup. Found a test-pollution bug while running the
+final 608-test suite: `tests/integration/test_llm_routing.py::test_routing_post_persists_to_env`
+calls the production `POST /api/llm/routing` handler, which sets
+`os.environ["LLM_<AGENT>_PROVIDER"]` directly. `monkeypatch` doesn't
+track that direct write, so 7 unrelated tests (`test_advisor*`,
+`test_providers::test_router_status_with_key`) failed with
+`reason="llm_disabled"` because they saw the leaked `LLM_ADVISOR_PROVIDER=minimax`
+from the previous test.
+
+Fixed: new autouse fixture in `tests/conftest.py::_scrub_llm_env_vars`
+that strips `LLM_*_PROVIDER` / `LLM_*_MODEL` env vars at the start of
+every test, tracking originals via monkeypatch so a real operator-launched
+test run still sees them outside the test that cleared them. All 608
+tests now pass in 3:10 cold.
+
+CHANGED:  `README.md` + `docs/CONTRIBUTING.md` test count badge bumped
+          475/475 → **608/608 passing** (was stale since v2.1.5).
+
 ## v2.1.7 — Readonly mode + HybridDataSource + polish (2026-06-14)
 
 The contest-submission story: a public URL where judges can see the
