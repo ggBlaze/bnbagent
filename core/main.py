@@ -102,6 +102,38 @@ async def run(args):
     policy = components["policy"]
     cfg = components["config"]
 
+    # v2.1.8: wire a real mark-price feed for portfolio accounting.
+    # Without this, portfolio._mark_price() returns the hard-coded
+    # stub 100.0 and every position's unrealized PnL is wildly wrong
+    # (entries above $100 always show losses; entries below $100 always
+    # show +9900% gains). The provider uses Perps.mark() — which Task
+    # 5 already wires with HTTP fetch + 60s TTL cache — and caches
+    # the venue-per-symbol decision for an hour so we don't pay the
+    # select_venue cost on every equity() call. Falls back to the
+    # entry price (i.e., unrealized=0) on any error so a bad mark
+    # never produces a phantom gain/loss.
+    _perps = components["perps"]
+    _venue_cache: dict[str, tuple[str, float]] = {}  # symbol → (venue, cached_at)
+    _venue_cache_ttl_s = 3600.0
+    def _portfolio_mark(symbol: str):
+        import time as _time
+        now = _time.time()
+        cached = _venue_cache.get(symbol)
+        if cached is None or (now - cached[1]) > _venue_cache_ttl_s:
+            try:
+                venue, _ = _perps.select_venue([symbol])
+                _venue_cache[symbol] = (venue, now)
+            except Exception as _e:
+                log.debug("portfolio mark: select_venue(%s) failed: %s", symbol, _e)
+                return Decimal("100")  # fallback to the old stub; never raise
+        venue, _ = _venue_cache[symbol]
+        try:
+            return Decimal(str(_perps.mark(venue, symbol)))
+        except Exception as _e:
+            log.debug("portfolio mark: perps.mark(%s, %s) failed: %s", venue, symbol, _e)
+            return Decimal("100")
+    portfolio.set_mark_provider(_portfolio_mark)
+
     # LLM agent team — graceful no-op if no provider configured
     llm_components = _init_llm_components(components)
     components.update(llm_components)
