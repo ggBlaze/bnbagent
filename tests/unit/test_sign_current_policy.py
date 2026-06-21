@@ -93,25 +93,35 @@ def test_sign_generates_policy_when_missing(chdir_and_keystore):
         assert key in doc, f"generated policy missing {key!r}"
 
 
-def test_sign_signs_existing_policy_without_overwriting_evaluator(chdir_and_keystore):
-    """If policy.yaml already exists, sign_current_policy must NOT
-    regenerate it (which would clobber any operator edits). It just
-    signs whatever is there and writes back the signature."""
+def test_sign_overwrites_stale_evaluator_to_match_signer(chdir_and_keystore):
+    """v2.1.8 (B): if policy.yaml was previously signed by a different
+    key (e.g. the dev signer at `bash install.sh` time), the next
+    /api/setup/sign call MUST overwrite evaluator_address to the
+    unlocked wallet's address. Otherwise the signature doesn't
+    recover to the claimed evaluator and verify_policy() returns
+    False. This is the exact bug that broke the BNB HACK 2026
+    registration flow — an operator who imported a key after the
+    dev sign got a policy whose claimed evaluator was the dev key
+    but whose signature was from their imported key, so the
+    on-chain registration got rejected. Multi-sig setups with a
+    separate evaluator key must use policy.sign_policy_file()
+    directly; this function only signs with the unlocked wallet.
+    """
     from core import setup as setup_mod
+    from policy.policy_verify import verify_policy_file
 
     expected_addr = _import_test_wallet(chdir_and_keystore)
 
-    # Pre-write a policy.yaml with a CUSTOM evaluator (multi-sig
-    # scenario). sign_current_policy must preserve it.
+    # Pre-write a policy.yaml with a STALE evaluator (the dev signer
+    # wrote it during `bash install.sh`).
     pol_path = chdir_and_keystore / "config" / "policy.yaml"
-    custom_eval = "0x" + "ab" * 20
-    custom_agent = expected_addr  # signer is the agent
+    stale_eval = "0x" + "ab" * 20
     doc = {
         "version": "1.0.0",
         "issued_at": 1_700_000_000,
         "expires_at": 1_700_000_000 + 30 * 86400,
-        "evaluator_address": custom_eval,
-        "agent_address": custom_agent,
+        "evaluator_address": stale_eval,
+        "agent_address": expected_addr,
         "global_risk": {"daily_loss_circuit_breaker_pct": 3.0},
         "sleeve_allocations": {"A": 0.7, "B": 0.2, "C": 0.1},
         "sleeves": {"A": {}, "B": {}, "C": {}},
@@ -123,7 +133,13 @@ def test_sign_signs_existing_policy_without_overwriting_evaluator(chdir_and_keys
 
     result = setup_mod.sign_current_policy("test-pwd-12345")
     saved = yaml.safe_load(pol_path.read_text())
-    # Evaluator preserved (multi-sig), agent preserved, signature set
-    assert saved["evaluator_address"].lower() == custom_eval.lower()
-    assert saved["agent_address"].lower() == custom_agent.lower()
+    # Evaluator overwritten to match signer (the fix).
+    assert saved["evaluator_address"].lower() == expected_addr.lower(), (
+        f"evaluator should be overwritten to {expected_addr}, got {saved['evaluator_address']}"
+    )
+    assert saved["agent_address"].lower() == expected_addr.lower()
     assert saved["signature"] == result["signature"]
+    # And the result is a VERIFIED policy. Without the fix, this
+    # would be False (signature was from the new key but evaluator
+    # field still claimed the stale address).
+    assert verify_policy_file(str(pol_path), expected_signer=expected_addr) is True

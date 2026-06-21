@@ -22,6 +22,49 @@ tests now pass in 3:10 cold.
 CHANGED:  `README.md` + `docs/CONTRIBUTING.md` test count badge bumped
           475/475 → **608/608 passing** (was stale since v2.1.5).
 
+### v2.1.8 (B) — BNB HACK submission-eve bugfixes (2026-06-21)
+
+Three bugs surfaced during the operator's pre-registration setup.
+All fixed before the BNB HACK 2026 submission lock at 12:00 UTC.
+
+FIXED:    `core/setup.py::sign_current_policy` was preserving a
+          pre-existing `evaluator_address` (e.g. the dev key written
+          by `bash install.sh`'s `--dev` signer) and then signing with
+          the operator's imported wallet. The resulting policy had a
+          signature that did NOT recover to the claimed evaluator,
+          so `verify_policy()` returned False and the on-chain
+          competition registration was rejected as coming from an
+          unauthorized agent. Now: `sign_current_policy` always
+          overwrites `evaluator_address` AND `agent_address` to the
+          unlocked wallet's address, then runs `verify_policy()` as
+          a defensive post-sign check (raises if the signature
+          doesn't recover). Multi-sig setups (a separate evaluator
+          key that doesn't match the agent's signer) must bypass
+          this function and use `policy.sign_policy_file()` directly.
+          The associated test
+          (`test_sign_signs_existing_policy_without_overwriting_evaluator`)
+          was asserting the buggy behavior; replaced with
+          `test_sign_overwrites_stale_evaluator_to_match_signer`
+          which asserts the new correct behavior.
+
+FIXED:    `agents/providers.yaml` `minimax` provider was reading
+          `$MINIMAX_API_KEY`, but the shell's `MINIMAX_API_KEY`
+          (managed by OpenClaw for non-coding-plan usage) shadows
+          any `.env` override of the same name. The shell's key is
+          a regular API key with no balance, so every LLM call
+          returned `402 Payment Required: insufficient balance (1008)`.
+          Switched to `$MINIMAX_CODING_API_KEY` (the coding-plan
+          key, with credits) which lives in the shell without
+          collision. The URL stayed the same (the coding plan
+          and the regular API both use `https://api.minimaxi.chat/v1/chat/completions`).
+
+FIXED:    `dashboard/frontend/index.html` `.identity-card .token`
+          was 22px monospace — a 17-digit ERC-8004 token ID
+          overflowed the 280px-wide left rail (3 chars visible
+          outside the panel). Reduced to 18px + `overflow-wrap:
+          anywhere; word-break: break-all; max-width: 100%;` as
+          a safety net.
+
 ## v2.1.7 — Readonly mode + HybridDataSource + polish (2026-06-14)
 
 The contest-submission story: a public URL where judges can see the

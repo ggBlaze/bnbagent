@@ -10,14 +10,18 @@ providers:
   openrouter: { base: https://openrouter.ai/api,       key: $OPENROUTER_API_KEY, default_model: anthropic/claude-3.5-haiku }
   oai_compat: { base: $OAI_BASE,                       key: $OAI_KEY,            default_model: $OAI_MODEL }
   # v2.1.5+: MiniMax provider. OpenAI-compatible chat-completions endpoint
-  # at https://api.minimaxi.chat. Use $MINIMAX_API_KEY (the user sets this
-  # in their env; the file never holds the key). Default model is
-  # MiniMax-M3. NOTE: 'base' must NOT include /v1 (the client appends
+  # at https://api.minimaxi.chat. v2.1.8: use $MINIMAX_CODING_API_KEY
+  # (the coding-plan key, with credits) — NOT $MINIMAX_API_KEY, which
+  # is a regular API key managed by OpenClaw for other purposes and
+  # has no balance, producing 402 Payment Required on every call.
+  # The shell's $MINIMAX_API_KEY shadows .env values, so the .env
+  # override was being silently ignored. Default model is MiniMax-M3.
+  # NOTE: 'base' must NOT include /v1 (the client appends
   # /v1/chat/completions). Operators can override by setting the
   # MINIMAX_MODEL env var and editing the default_model line below.
   minimax:
     base: https://api.minimaxi.chat
-    key: $MINIMAX_API_KEY
+    key: $MINIMAX_CODING_API_KEY
     default_model: MiniMax-M3
   local:      { base: $LOCAL_LLM_BASE,                 key: "",         default_model: local }
 

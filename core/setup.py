@@ -257,28 +257,33 @@ def import_wallet(private_key_hex: str, password: str) -> dict:
 def sign_current_policy(password: str) -> dict:
     """Unlock the keystore, sign policy.yaml with that key, write back.
 
-    In single-user setups the evaluator == the agent address == the signer.
-    In multi-sig setups, pre-set `evaluator_address` in policy.yaml to a
-    different address before calling this function; we won't overwrite it.
+    The signer is ALWAYS the unlocked wallet. We overwrite both
+    `evaluator_address` and `agent_address` to match the wallet so
+    the signature recovers cleanly. The earlier "preserve the
+    existing evaluator" branch was wrong: a policy that was signed
+    with the dev key during `bash install.sh` keeps the dev-key
+    evaluator address on disk, and the operator's import + re-sign
+    then produces a signature that doesn't recover to the policy's
+    claimed evaluator → `verify=INVALID` → the on-chain registration
+    gets rejected. Hit this in BNB HACK 2026 prep.
 
-    If config/policy.yaml doesn't exist (e.g. the operator clicked
-    Reset Everything and then went straight to step 5 without
-    manually running policy.policy_sign), we generate it from the
+    Multi-sig setups (a separate evaluator key that doesn't match
+    the agent's signer) need to bypass this function and use
+    `policy.sign_policy_file()` directly with their own key.
+
+    If config/policy.yaml doesn't exist, we generate it from the
     shipped DEFAULT_POLICY_BODY template with the unlocked wallet
-    as both evaluator and agent (the single-user case). The
-    multi-sig case (custom evaluator pre-set in policy.yaml) is
-    preserved by the existing-policy branch below — we never
-    overwrite a real evaluator_address.
+    as both evaluator and agent.
     """
     from connectors.twak import TWAKWallet
     import time
-    from policy.policy_sign import DEFAULT_POLICY_BODY
+    from policy.policy_sign import DEFAULT_POLICY_BODY, sign_policy as _sign_policy
+    from policy.policy_verify import verify_policy
     acct = unlock_and_get_account(password)
     path = Path("config/policy.yaml")
     if not path.exists():
-        # Generate a fresh policy from the template with the unlocked
-        # wallet as both evaluator and agent. Operator can hand-edit
-        # policy.yaml after this if they need a multi-sig setup.
+        # Fresh-install case. Generate a clean template with the
+        # unlocked wallet as both evaluator and agent.
         now = int(time.time())
         evaluator = Web3.to_checksum_address(acct.address)
         agent = evaluator
@@ -290,14 +295,27 @@ def sign_current_policy(password: str) -> dict:
         doc = yaml.safe_load(body_yaml)
     else:
         doc = yaml.safe_load(path.read_text())
-    existing_eval = str(doc.get("evaluator_address", "") or "").strip()
-    # setdefault is fine if it's already a real address
-    if not existing_eval or existing_eval == "0x" + "00" * 20 or existing_eval == "0":
-        doc["evaluator_address"] = acct.address
-    doc["agent_address"] = acct.address
+    # v2.1.8 (B): always align the on-disk evaluator + agent with the
+    # signer. The Sign function only has access to the unlocked
+    # wallet's key, so a "preserve existing evaluator" branch would
+    # produce a signature that doesn't recover to the claimed
+    # evaluator and break verify_policy. Multi-sig setups must
+    # bypass this function (see docstring).
+    doc["evaluator_address"] = Web3.to_checksum_address(acct.address)
+    doc["agent_address"] = Web3.to_checksum_address(acct.address)
     wallet = TWAKWallet(address=acct.address, key=acct.key)
-    sig = sign_policy(doc, wallet)
+    sig = _sign_policy(doc, wallet)
     doc["signature"] = sig
+    # v2.1.8 (B): defensive post-sign verification. If the signature
+    # doesn't recover to the evaluator we just wrote, refuse to save
+    # and raise. Catches any future key/format drift before it lands
+    # on disk as an INVALID policy.
+    if not verify_policy(doc, acct.address):
+        raise RuntimeError(
+            f"sign_current_policy: signature {sig[:18]}... does not recover "
+            f"to evaluator_address {acct.address}. Policy NOT saved. "
+            f"This should be impossible — open an issue."
+        )
     _save_yaml(path, doc)
     return {
         "signature": sig,
