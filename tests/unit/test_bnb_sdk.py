@@ -52,6 +52,103 @@ class TestPancakeV3:
         assert fee == 2500
 
 
+class TestPerpsMarkFetch:
+    """v2.1.8: Perps.mark() in production mode fetches the real mark from
+    the venue's mark_endpoint, caches it for `mark_cache_ttl_s`, and
+    falls back gracefully on network/parse errors."""
+
+    def test_mark_fetches_from_endpoint_in_mainnet(self, monkeypatch):
+        captured = {}
+
+        def fake_get(url, timeout=None):
+            captured["url"] = url
+            class _Resp:
+                status_code = 200
+                def json(self):
+                    return {"ETH": 1735.93, "BTC": 60000.0}
+                def raise_for_status(self): pass
+            return _Resp()
+
+        monkeypatch.setattr("connectors.bnb_sdk.httpx.get", fake_get)
+        # mainnet mode + no _mark_provider → must hit the HTTP path
+        p = Perps(mode="mainnet", mark_cache_ttl_s=60)
+        mark = p.mark("aster", "ETH")
+        assert mark == 1735.93
+        assert "aster" in captured["url"]
+
+    def test_mark_caches_for_ttl(self, monkeypatch):
+        calls = {"n": 0}
+
+        def fake_get(url, timeout=None):
+            calls["n"] += 1
+            class _Resp:
+                status_code = 200
+                def json(self): return {"ETH": 1735.93}
+                def raise_for_status(self): pass
+            return _Resp()
+
+        monkeypatch.setattr("connectors.bnb_sdk.httpx.get", fake_get)
+        p = Perps(mode="mainnet", mark_cache_ttl_s=60)
+        p.mark("aster", "ETH")
+        p.mark("aster", "ETH")
+        p.mark("aster", "ETH")
+        assert calls["n"] == 1, f"expected 1 HTTP call (cached), got {calls['n']}"
+
+    def test_mark_falls_back_to_cached_on_error(self, monkeypatch):
+        # First call succeeds; cache fills.
+        state = {"fail_next": False}
+        def fake_get(url, timeout=None):
+            if state["fail_next"]:
+                raise RuntimeError("simulated RPC outage")
+            class _Resp:
+                status_code = 200
+                def json(self): return {"ETH": 1735.93}
+                def raise_for_status(self): pass
+            return _Resp()
+
+        monkeypatch.setattr("connectors.bnb_sdk.httpx.get", fake_get)
+        p = Perps(mode="mainnet", mark_cache_ttl_s=0)  # 0 TTL = never expire cache
+        assert p.mark("aster", "ETH") == 1735.93  # fills cache
+        # Now simulate outage; mark() must return the cached value.
+        state["fail_next"] = True
+        # Force a re-fetch (TTL=0 forces expiry, but on None return we
+        # fall back to the last-known cached value).
+        assert p.mark("aster", "ETH") == 1735.93
+
+    def test_mark_falls_back_to_stub_on_no_cache(self, monkeypatch):
+        def fake_get(url, timeout=None):
+            raise RuntimeError("never reachable")
+        monkeypatch.setattr("connectors.bnb_sdk.httpx.get", fake_get)
+        p = Perps(mode="mainnet", mark_cache_ttl_s=60)
+        # No prior cache → returns the historical stub 100.0 (matches
+        # the existing _ensure() default). This preserves the current
+        # behavior for first-boot before the venue API responds.
+        mark = p.mark("aster", "ETH")
+        assert mark == 100.0
+
+    def test_parse_mark_handles_common_shapes(self):
+        from connectors.bnb_sdk import _parse_mark_payload  # type: ignore
+        # 1. Dict {symbol: price}
+        assert _parse_mark_payload({"ETH": 1735.93}, "ETH") == 1735.93
+        # 2. List of dicts (Binance-style)
+        assert _parse_mark_payload(
+            [{"symbol": "ETHUSDT", "markPrice": "1735.93"}], "ETH"
+        ) == 1735.93
+        # 3. Wrapped {"data": [...]}
+        assert _parse_mark_payload(
+            {"data": [{"symbol": "ETH", "markPrice": "1735.50"}]}, "ETH"
+        ) == 1735.50
+        # 4. Wrapped {"result": {...}}
+        assert _parse_mark_payload(
+            {"result": {"ETH": 1735.40}}, "ETH"
+        ) == 1735.40
+        # 5. Symbol mismatch → None
+        assert _parse_mark_payload({"BTC": 60000}, "ETH") is None
+        # 6. Junk → None
+        assert _parse_mark_payload(None, "ETH") is None
+        assert _parse_mark_payload({}, "ETH") is None
+
+
 class TestPerps:
     def test_venue_selection(self):
         p = Perps(mode="testnet")

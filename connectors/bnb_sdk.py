@@ -33,6 +33,67 @@ from .twak import TWAKWallet, SignedTx
 log = logging.getLogger(__name__)
 
 
+def _parse_mark_payload(payload, symbol: str) -> float | None:
+    """Extract the mark price for `symbol` from a venue's response.
+
+    Tolerant of common shapes so we don't have to special-case each
+    perps venue's JSON layout. Returns None if the symbol can't be
+    located or the value can't be coerced to float.
+
+    Recognized shapes:
+      1. {"ETH": 1735.93}                              — flat dict
+      2. [{"symbol": "ETH", "markPrice": "1735.93"}]   — Binance list
+      3. {"data": [{"symbol": "...", "markPrice": ...}]} — wrapped list
+      4. {"result": {...}}                              — wrapped dict (recurse)
+
+    Symbol matching is case-insensitive on the input `symbol` and the
+    venue's "symbol" field. Common suffixes ("USDT", "USD", "PERP")
+    are stripped before matching so "ETH" matches "ETHUSDT".
+    """
+    def _norm(s: str) -> str:
+        s = s.upper()
+        for suf in ("USDT", "USDC", "USD", "PERP"):
+            if s.endswith(suf):
+                s = s[: -len(suf)]
+        return s
+    target = _norm(symbol)
+
+    if isinstance(payload, dict):
+        # Direct hit
+        for k, v in payload.items():
+            if isinstance(k, str) and _norm(k) == target:
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    return None
+        # Wrapped list
+        if isinstance(payload.get("data"), list):
+            return _parse_mark_payload(payload["data"], symbol)
+        # Wrapped dict — recurse
+        if isinstance(payload.get("result"), (dict, list)):
+            return _parse_mark_payload(payload["result"], symbol)
+        return None
+
+    if isinstance(payload, list):
+        for entry in payload:
+            if not isinstance(entry, dict):
+                continue
+            sym = entry.get("symbol") or entry.get("s") or entry.get("market")
+            if not isinstance(sym, str):
+                continue
+            if _norm(sym) != target:
+                continue
+            for key in ("markPrice", "mark_price", "price", "p", "last", "mark"):
+                if key in entry:
+                    try:
+                        return float(entry[key])
+                    except (TypeError, ValueError):
+                        return None
+        return None
+
+    return None
+
+
 # ABI fragments (minimal subsets for swap + ERC-20 + the registry interfaces)
 
 ERC20_ABI = [
@@ -298,7 +359,8 @@ class Perps:
     funding rates with a deterministic random walk so the carry strategy has data.
     """
 
-    def __init__(self, config_path: str = "config/perps_venues.yaml", mode: str = "testnet", clock=None):
+    def __init__(self, config_path: str = "config/perps_venues.yaml", mode: str = "testnet",
+                 clock=None, mark_cache_ttl_s: int = 60):
         import time as _time
         with open(config_path) as f:
             self.venues = yaml.safe_load(f) or {}
@@ -312,6 +374,12 @@ class Perps:
         # wall-clock read.
         self.clock = clock or _time.time
         self._mark_provider: dict | None = None
+        # v2.1.8: real-venue mark cache. Keyed by (venue, market).
+        # Stored value is the last-known mark; `_cached_at` is the
+        # clock() at fetch time. TTL is consulted by mark() before
+        # issuing another HTTP call.
+        self._mark_cache: dict[tuple[str, str], tuple[float, float]] = {}
+        self._mark_cache_ttl_s = mark_cache_ttl_s
 
     def set_mark_provider(self, fn):
         """Set a callable (symbol) -> float that returns the current mark.
@@ -351,33 +419,84 @@ class Perps:
         return list(self._historical[(venue, market)])
 
     def mark(self, venue: str, market: str) -> float:
-        # In replay mode, route through the mark provider (which tracks
-        # the live spot tape) so basis_trigger doesn't fire spuriously.
-        # The perp mark is the spot index + a small venue-specific basis
-        # noise (a few bps), matching real perp venues where the perp
-        # price deviates from spot by a small funding-driven spread.
-        # In production, the provider is not set and we fall back to the
-        # cached value (which the real RPC would have updated).
+        # Replay-harness path: a mark_provider is wired up explicitly
+        # to keep the perp mark aligned with the spot tape.
         fn = self._mark_provider.get("fn") if self._mark_provider else None
         if fn is not None:
             try:
                 spot = float(fn(market))
-                # Per-venue basis noise: ±0.05% (5 bps). Matches the
-                # Aster / KiloEx / ApolloX / MUX observed perp-spot
-                # spread. Deterministic per (venue, market) so tests
-                # are reproducible. We use a stable hash (Python's
-                # built-in hash() is randomized per process for
-                # strings via PYTHONHASHSEED, which would make the
-                # replay non-deterministic across processes). The
-                # zlib.crc32 of the key gives a stable 32-bit hash.
                 import zlib
                 seed = (zlib.crc32(f"{venue}|{market}".encode()) % 1000) / 1000.0
                 basis_bps = (seed - 0.5) * 0.001  # -0.05% to +0.05%
                 return spot * (1.0 + basis_bps)
             except Exception:
                 pass
+
+        # v2.1.8: production path. In mainnet mode, fetch the real mark
+        # from the venue's mark_endpoint and cache it. In testnet/replay,
+        # fall straight through to the historical stub.
+        if self.mode not in ("testnet", "replay"):
+            key = (venue, market)
+            now = float(self.clock())
+            cached = self._mark_cache.get(key)
+            if cached is None or (now - cached[1]) >= self._mark_cache_ttl_s:
+                fresh = self.fetch_mark(venue, market)
+                if fresh is not None:
+                    self._mark_cache[key] = (fresh, now)
+                    return fresh
+                if cached is not None:
+                    # Stale but better than nothing — log and return
+                    # the last-known mark so the sleeve doesn't act on
+                    # a hard-coded 100.0 stub.
+                    log.warning(
+                        "Perps.mark: %s/%s fetch failed; using last-known "
+                        "mark=%.4f (age=%.1fs)",
+                        venue, market, cached[0], now - cached[1],
+                    )
+                    return cached[0]
+                # No cache, fetch failed → fall through to the stub.
+
         s = self._ensure(venue, market)
         return s["mark"]
+
+    def fetch_mark(self, venue: str, market: str) -> float | None:
+        """Fetch the live mark price from the venue's HTTP endpoint.
+
+        Never raises. Returns None on network error, non-200 status,
+        unparseable payload, or missing symbol. Caller is responsible
+        for caching + fallback (see mark()).
+        """
+        cfg = self.venues.get(venue) or {}
+        url = cfg.get("mark_endpoint")
+        if not url:
+            log.debug("Perps.fetch_mark: no mark_endpoint for venue=%s", venue)
+            return None
+        try:
+            # Use the module-level httpx so tests can monkeypatch
+            # `connectors.bnb_sdk.httpx.get` (or `httpx.get` after the
+            # import below) to swap in a fake response.
+            import httpx
+            resp = httpx.get(url, timeout=2.0)
+            if resp.status_code != 200:
+                log.warning(
+                    "Perps.fetch_mark: %s returned HTTP %s for %s",
+                    venue, resp.status_code, market,
+                )
+                return None
+            payload = resp.json()
+        except Exception as e:  # noqa: BLE001 — defensive, never raises
+            log.warning("Perps.fetch_mark: %s for %s/%s failed: %s",
+                        venue, market, url, e)
+            return None
+        price = _parse_mark_payload(payload, market)
+        if price is None:
+            log.warning(
+                "Perps.fetch_mark: %s response lacked a parseable mark for %s "
+                "(payload keys=%s)",
+                venue, market,
+                list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__,
+            )
+        return price
 
     def open_interest_usd(self, venue: str, market: str) -> float:
         s = self._ensure(venue, market)
