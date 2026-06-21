@@ -329,7 +329,7 @@ class PancakeV3:
             # deterministic stub calldata (130 bytes) so the dashboard shows a real-looking hash
             seed = f"swap:{token_in}:{token_out}:{fee}:{amount_in}:{min_out}".encode()
             return b"\x00" * 4 + Web3.keccak(seed)[:100]
-        return router.functions.exactInputSingle((
+        data = router.functions.exactInputSingle((
             Web3.to_checksum_address(token_in),
             Web3.to_checksum_address(token_out),
             int(fee),
@@ -338,6 +338,12 @@ class PancakeV3:
             int(min_out),
             int(sqrt_price_limit_x96),
         )).build_transaction({"value": 0})["data"]
+        # build_transaction()["data"] is a hex string ("0x..."). Normalize
+        # to raw bytes so callers can do `calldata.hex()` consistently
+        # with the testnet/replay stub branch (which already returns bytes).
+        if isinstance(data, str):
+            return bytes.fromhex(data.removeprefix("0x"))
+        return data  # already bytes (test fakes)
 
     def quote(self, token_in: str, token_out: str, fee: int, amount_in: int) -> int:
         """Returns amount_out. In testnet, returns a deterministic estimate."""
