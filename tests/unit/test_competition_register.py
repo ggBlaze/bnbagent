@@ -82,7 +82,10 @@ def test_resolve_invalid_address_in_policy_returns_none(tmp_path, monkeypatch):
     policy.write_text("agent_address: 'not-a-real-address'\n")
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("BNBAGENT_PRIVATE_KEY", raising=False)
-    # No TWAK keystore on CI; should return None
+    # Redirect Path.home() so the operator's real ~/.twak/wallet.json
+    # can't leak into the test (this happens on dev machines with a
+    # real keystore — the test was written assuming CI's empty home).
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     addr = competition_register._resolve_agent_address()
     assert addr is None
 
@@ -91,6 +94,7 @@ def test_resolve_returns_none_when_nothing_set(tmp_path, monkeypatch):
     """No policy, no env, no TWAK keystore → None."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("BNBAGENT_PRIVATE_KEY", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     addr = competition_register._resolve_agent_address()
     assert addr is None
 
@@ -165,6 +169,8 @@ def test_main_no_address_exits_2(tmp_path, monkeypatch):
     must set BNBAGENT_PRIVATE_KEY, sign the policy, or init TWAK)."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("BNBAGENT_PRIVATE_KEY", raising=False)
+    # Redirect Path.home() so a real ~/.twak/wallet.json doesn't leak.
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     rc = competition_register.main([])
     assert rc == 2
 
