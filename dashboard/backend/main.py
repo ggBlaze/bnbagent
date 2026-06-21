@@ -923,10 +923,18 @@ def build_app() -> FastAPI:
         # the helper.
         _write_local(cfg)
 
-        # Hot-swap the live router if the agent is running
+        # Hot-swap the live router if the agent is running. v2.1.8 (E):
+        # the cross-process hot-swap is unreliable (the IPC snapshot
+        # stringifies the live router to a dict, so router.set_source()
+        # fails silently). When the agent is in a separate process
+        # (the common case here), the only reliable way to pick up the
+        # new tier is to restart the agent so it re-loads local.yaml
+        # and re-constructs its DataSourceRouter from scratch. Mirror
+        # the /api/setup/config restart_required contract.
         s = _state()
         router = s.get("components", {}).get("data_source") or s.get("data_source")
-        if router is not None:
+        restart_required = False
+        if router is not None and hasattr(router, "set_source"):
             try:
                 from connectors.data_source import (
                     DataSourceRouter, MockClient,
@@ -948,7 +956,23 @@ def build_app() -> FastAPI:
                 router.set_source(new)
             except Exception as e:
                 log.warning("data_source: hot-swap failed: %s", e)
-        return JSONResponse({"ok": True, "tier": tier})
+                restart_required = True
+        else:
+            # The IPC snapshot is a dict, not a live router — the only
+            # way to apply the new tier is to restart the agent loop.
+            restart_required = True
+        if restart_required:
+            try:
+                from core.control import request_restart
+                request_restart(reason="data_source tier change")
+            except Exception as e:
+                log.warning("data_source: failed to signal agent restart: %s", e)
+        return JSONResponse({
+            "ok": True,
+            "tier": tier,
+            "restart_required": restart_required,
+            "note": "agent will restart within ~5s to pick up the new tier" if restart_required else None,
+        })
 
     @app.post("/api/data-source/cmc-key", dependencies=[Depends(_auth.require_admin)])
     async def data_source_cmc_key(body: dict):

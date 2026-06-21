@@ -2067,8 +2067,20 @@ async function wizardLoad() {
   // pre-fill form with existing values
   $('wiz-mode').value = s.mode || 'testnet';
   $('wiz-rpcs').value = (s.rpcs || []).join('\n');
-  // if setup is already complete, jump to step 6 (Ready)
-  if (s.is_complete) {
+  // v2.1.8 (E): also fetch the data source tier so the wizard
+  // doesn't loop back to the data-source step after the operator
+  // already configured it. /api/setup doesn't expose the data
+  // source (it's a different subsystem), so we read it separately.
+  // A missing/in-progress data source tier is the last reason to
+  // send the operator to step 3.
+  let dsTier = 'unknown';
+  try {
+    const ds = await jget('/api/data-source');
+    dsTier = (ds && ds.tier) ? ds.tier : 'unknown';
+  } catch (e) { /* network blip, fall through */ }
+  // if setup is already complete AND the data source is configured
+  // to a real tier, jump to step 6 (Ready).
+  if (s.is_complete && dsTier && dsTier !== 'unknown' && dsTier !== 'mock') {
     renderFinalSummary(s);
     gotoStep(6);
   } else {
@@ -2081,7 +2093,8 @@ async function wizardLoad() {
     if (!s.mode || !s.rpcs || (s.rpcs || []).length === 0) gotoStep(1);
     else if (!s.wallet_address) gotoStep(2);
     else if (!s.policy_signed) gotoStep(5);
-    else gotoStep(3);  // only data source left \u2014 user can revisit from Config pane
+    else if (dsTier === 'unknown' || dsTier === 'mock') gotoStep(3);  // only data source left
+    else gotoStep(6);  // everything done; show the Ready summary
   }
   // populate step-5 evaluator field
   $('wiz-eval').value = s.evaluator_address || '';
