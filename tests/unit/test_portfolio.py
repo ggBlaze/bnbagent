@@ -103,3 +103,24 @@ class TestPortfolio:
         p.cash_usdc = Decimal("80")
         p.day_start_equity[p._today()] = Decimal("100")
         assert p.day_pnl_pct() == pytest.approx(-20.0)
+
+    def test_paper_vs_real_pnl_split(self):
+        """paper_pnl_usdc and real_pnl_usdc must NOT be conflated."""
+        p = Portfolio(starting_equity=Decimal("1000"))
+        # Paper trade: gain $50 (simulated, not venue-executed)
+        paper_pos = make_pos(notional=Decimal("100"), entry=Decimal("100"))
+        paper_pos.is_paper = True
+        p.add_position("A:BTC", paper_pos)
+        p.close_position("A:BTC", exit_price=Decimal("150"), reason="tp")
+        # Real trade: loss $20 (venue-executed)
+        real_pos = make_pos(notional=Decimal("100"), entry=Decimal("100"))
+        real_pos.is_paper = False
+        p.add_position("B:ETH", real_pos)
+        p.close_position("B:ETH", exit_price=Decimal("80"), reason="stop")
+        assert p.paper_pnl_usdc() == pytest.approx(50.0)
+        assert p.real_pnl_usdc() == pytest.approx(-20.0)
+        s = p.stats()
+        assert s["paper_pnl_usdc"] == pytest.approx(50.0)
+        assert s["real_pnl_usdc"] == pytest.approx(-20.0)
+        assert s["paper_trades"] == 1
+        assert s["real_trades"] == 1

@@ -23,6 +23,14 @@ class Position:
     stop_price: Decimal
     tp_price: Decimal | None
     extra: dict = field(default_factory=dict)
+    # v2.1.8: paper vs real classification. A trade is `paper` if the
+    # venue side was simulated (stubs in testnet/replay mode or any
+    # venue whose open_short/close_short path didn't actually execute).
+    # `real` means an on-chain / venue-side position was opened and
+    # the matching fill was returned. Default True so existing call
+    # sites that don't think about it default to "this didn't actually
+    # hit a venue."
+    is_paper: bool = True
 
     def mark_to_market(self, current_price: Decimal) -> Decimal:
         """Unrealized PnL in USDC.
@@ -143,11 +151,33 @@ class Portfolio:
             "pnl_usdc": str(pnl), "reason": reason,
             "ts_open": pos.entry_ts, "ts_close": self._now(),
             "hold_min": (self._now() - pos.entry_ts) // 60,
+            "is_paper": pos.is_paper,
         }
         self.closed_trades.append(trade)
         log.info("position closed", extra={"event": "position_close", **trade})
         self.update_peak()
         return pnl
+
+    # --- paper vs real aggregations (v2.1.8) ---
+
+    def paper_pnl_usdc(self) -> Decimal:
+        """Sum of realized PnL across paper (simulated) closed trades only.
+
+        Returned alongside real_pnl_usdc so the dashboard can show
+        "your real account made $X, your paper-trading sims made $Y"
+        instead of conflating them.
+        """
+        return sum(
+            (Decimal(t["pnl_usdc"]) for t in self.closed_trades if t.get("is_paper", True)),
+            Decimal(0),
+        )
+
+    def real_pnl_usdc(self) -> Decimal:
+        """Sum of realized PnL across real (venue-executed) closed trades only."""
+        return sum(
+            (Decimal(t["pnl_usdc"]) for t in self.closed_trades if not t.get("is_paper", True)),
+            Decimal(0),
+        )
 
     def sleeve_exposure(self, sleeve: str | None = None) -> Decimal:
         if sleeve is None:
@@ -203,6 +233,14 @@ class Portfolio:
             "sleeve_exposure": {
                 s: float(self.sleeve_exposure(s)) for s in ("A", "B", "C")
             },
+            # v2.1.8: paper-vs-real PnL split so the dashboard can show
+            # "real account made $X, paper sim made $Y" instead of
+            # conflating them. The portfolio's total PnL is unchanged;
+            # this is purely a reporting breakdown.
+            "paper_pnl_usdc": float(self.paper_pnl_usdc()),
+            "real_pnl_usdc":  float(self.real_pnl_usdc()),
+            "paper_trades":   sum(1 for t in self.closed_trades if t.get("is_paper", True)),
+            "real_trades":    sum(1 for t in self.closed_trades if not t.get("is_paper", True)),
         }
 
     def sharpe(self, window: int = 200,
