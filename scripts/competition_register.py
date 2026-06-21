@@ -205,8 +205,6 @@ def _run_twak_compete_register(network: str = "mainnet", timeout: int = 120) -> 
         }
     cmd = [
         "npx", "--yes", "@trustwallet/cli", "compete", "register",
-        "--network", network,
-        "--contract", COMPETITION_CONTRACT,
     ]
     print(f"[register] $ {' '.join(cmd)}", file=sys.stderr)
     t0 = time.time()
@@ -283,6 +281,118 @@ def _emit_mcp_action(address: str, network: str) -> dict:
     }
 
 
+def _run_direct_web3_register(address: str, network: str = "mainnet") -> dict:
+    """Bypass the TWAK CLI and call the contract directly via web3.
+
+    Used when the TWAK CLI's API credentials aren't available. The
+    CLI's `compete register` ultimately calls `contract.write.register([])`
+    on the same contract — we do the same thing here, signing with the
+    operator's local TWAK keystore (TWAK_KEYSTORE + TWAK_PWD env).
+
+    Function selector `0x1aa3a008` is keccak256("register()")[:4].
+    The function takes no arguments. The agent address comes from the
+    keystore (which is what the CLI does too, via AgentWalletProvider).
+    """
+    from web3 import Web3
+
+    if network != "mainnet":
+        return {"ok": False, "error": "direct web3 path only supports mainnet (testnet has no competition contract)"}
+
+    keystore = os.environ.get("TWAK_KEYSTORE")
+    pwd = os.environ.get("TWAK_PWD")
+    if not keystore or not pwd:
+        return {"ok": False, "error": "TWAK_KEYSTORE + TWAK_PWD env required for the direct path"}
+    ks_path = Path(keystore).expanduser()
+    if not ks_path.exists():
+        return {"ok": False, "error": f"keystore not found: {ks_path}"}
+
+    # Decrypt the keystore using the project's own _decrypt_keystore
+    from connectors.twak import _decrypt_keystore
+    pk_bytes = _decrypt_keystore(json.loads(ks_path.read_text()), pwd)
+    acct = Web3().eth.account.from_key(pk_bytes)
+
+    # Confirm the address from the keystore matches what the operator asked for
+    if acct.address.lower() != address.lower():
+        return {"ok": False, "error": f"keystore address {acct.address} doesn't match resolved address {address}"}
+
+    # BSC mainnet public RPCs (same as the project's bsc_rpcs fallback chain)
+    rpcs = [
+        "https://bsc-dataseed.binance.org",
+        "https://bsc-dataseed1.defibit.io",
+        "https://bsc-dataseed1.ninicoin.io",
+        "https://bsc-dataseed2.binance.org",
+    ]
+    last_err: Exception | None = None
+    w3 = None
+    for rpc in rpcs:
+        try:
+            w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 15}))
+            if w3.is_connected() and w3.eth.chain_id == 56:
+                break
+        except Exception as e:
+            last_err = e
+            w3 = None
+    if w3 is None:
+        return {"ok": False, "error": f"could not connect to any BSC RPC: {last_err}"}
+
+    contract = Web3.to_checksum_address(COMPETITION_CONTRACT)
+    register_sel = "0x1aa3a008"  # keccak256("register()")[:4]
+
+    # Check current registration state
+    is_reg_sel = "0x" + Web3.keccak(text="isRegistered(address)")[:4].hex()
+    addr_padded = "0x" + address[2:].lower().rjust(64, "0")
+    try:
+        r = w3.eth.call({"to": contract, "data": is_reg_sel + addr_padded[2:]})
+        if int.from_bytes(r, "big") != 0:
+            return {"ok": True, "registered": True, "alreadyRegistered": True,
+                    "agent_address": address, "method": "direct_web3"}
+    except Exception as e:
+        print(f"[register] warning: isRegistered() call failed: {e}", file=sys.stderr)
+
+    # Estimate gas
+    try:
+        est = w3.eth.estimate_gas({"from": acct.address, "to": contract, "data": register_sel})
+        gas_limit = int(est * 1.2)
+    except Exception:
+        gas_limit = 200_000
+
+    nonce = w3.eth.get_transaction_count(acct.address)
+    tx = {
+        "from": acct.address,
+        "to": contract,
+        "value": 0,
+        "data": register_sel,
+        "gas": gas_limit,
+        "gasPrice": w3.eth.gas_price,
+        "nonce": nonce,
+        "chainId": 56,
+    }
+    signed = acct.sign_transaction(tx)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    tx_hash_hex = "0x" + tx_hash.hex()
+
+    # Wait for receipt
+    for _ in range(24):  # 24 * 2s = 48s
+        import time as _t
+        _t.sleep(2)
+        r = w3.eth.get_transaction_receipt(tx_hash)
+        if r:
+            if r["status"] != 1:
+                return {"ok": False, "error": f"tx reverted in block {r['blockNumber']}",
+                        "tx_hash": tx_hash_hex}
+            return {
+                "ok": True,
+                "registered": True,
+                "tx_hash": tx_hash_hex,
+                "blockNumber": r["blockNumber"],
+                "gasUsed": r["gasUsed"],
+                "agent_address": address,
+                "method": "direct_web3",
+            }
+    return {"ok": False, "error": "timed out waiting for receipt (tx may still be pending)",
+            "tx_hash": tx_hash_hex}
+
+
 def _check_already_registered() -> dict:
     """Return the cached registration if it exists, else {}."""
     return _load_cache()
@@ -300,6 +410,15 @@ def main(argv: list[str] | None = None) -> int:
                    help="Show the cached registration state and exit (does NOT call the contract)")
     p.add_argument("--timeout", type=int, default=120,
                    help="Timeout for the twak subprocess in seconds (default: 120)")
+    p.add_argument("--direct", action="store_true",
+                   help="Bypass the TWAK CLI and call the contract directly via web3. "
+                        "Use this when the TWAK CLI's API credentials are unavailable "
+                        "(the CLI requires TWAK_ACCESS_ID + TWAK_HMAC_SECRET which only "
+                        "exist after `twak setup`). The direct path decrypts the local "
+                        "TWAK keystore (TWAK_KEYSTORE + TWAK_PWD env), calls the contract's "
+                        "register() function with the agent's address, and broadcasts via "
+                        "a public BSC RPC. Functionally equivalent to the CLI's path — "
+                        "both submit a single `register()` call to the same contract.")
     args = p.parse_args(argv)
 
     if args.check:
@@ -330,7 +449,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # Real call
     print(f"[register] registering {address} on {COMPETITION_CONTRACT} (network={args.network})", file=sys.stderr)
-    result = _run_twak_compete_register(network=args.network, timeout=args.timeout)
+    if args.direct:
+        result = _run_direct_web3_register(address=address, network=args.network)
+    else:
+        result = _run_twak_compete_register(network=args.network, timeout=args.timeout)
     result["agent_address"] = address
     result["contract"] = COMPETITION_CONTRACT
     result["network"] = args.network
