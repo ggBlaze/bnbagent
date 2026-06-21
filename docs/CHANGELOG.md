@@ -83,6 +83,43 @@ FIXED:    `core/setup.py::import_wallet` did not write
           `.env` on first import (only if not already set, so
           operators with a non-default path keep their override).
 
+FIXED:    `dashboard/backend/main.py::_chat_agent` returned a
+          string instead of a ChatAgent instance — the IPC
+          layer (`core/dashboard_state.write_state`) stringifies
+          Python objects via `default=str`, so the dashboard
+          process saw a repr like `"<agents.chat.ChatAgent object at 0x...>"`
+          and the chat endpoint then crashed with
+          `AttributeError: 'str' object has no attribute 'chat'`,
+          returning "Internal Server Error" to the operator.
+          Now: `_chat_agent()` lazy-instantiates a real
+          ChatAgent in the dashboard process using the
+          dashboard's own LLMRouter (which reads the same
+          providers.yaml + .env as the agent loop) and a
+          minimal `components` dict stubbed from the IPC stats
+          snapshot. Operators with the agent loop running in
+          the same process (test contexts) still get the live
+          agent.
+
+FIXED:    `dashboard/frontend/index.html` left-rail "LLM" strip
+          stayed as "—" because the JS at `refresh()` read
+          `config.agents` from `/api/config`, which does NOT
+          have an `agents` key (it has `mode`/`chain_id`/`rpcs`/
+          `data_source`/etc., but the per-agent routing lives
+          on `/api/llm/routing`). The bail-on-missing-key left
+          the strip empty. Now: the strip reads from
+          `/api/llm/routing` which has `advisor`/`reviewer`/
+          `chat`/`token_module` blocks with `provider`/`model`/
+          `enabled`/`reason` each. Display logic unchanged.
+
+CHANGED:  `dashboard/frontend/index.html` `.identity-card .token`
+          18px monospace was still ugly for a 20-char ERC-8004
+          token ID: 18 chars on line 1, 2 chars wrapping to
+          line 2. Reduced to 15px with `letter-spacing: -0.02em`
+          + 1.15 line-height, so a 20-char ID fits one line in
+          the 216px-wide card content area. `overflow-wrap:
+          anywhere; word-break: break-all; max-width: 100%`
+          remain as safety net.
+
 ## v2.1.7 — Readonly mode + HybridDataSource + polish (2026-06-14)
 
 The contest-submission story: a public URL where judges can see the

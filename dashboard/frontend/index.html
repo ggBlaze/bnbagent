@@ -135,8 +135,9 @@ body::before {
   border-radius: 6px; padding: 14px; margin-top: 8px;
 }
 .identity-card .token {
-  font: 700 18px/1 'JetBrains Mono', monospace; color: var(--accent);
+  font: 700 15px/1.15 'JetBrains Mono', monospace; color: var(--accent);
   overflow-wrap: anywhere; word-break: break-all; max-width: 100%;
+  letter-spacing: -0.02em;
 }
 .identity-card .lbl { color: var(--fg-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; }
 .identity-card .row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 11px; }
@@ -1731,21 +1732,36 @@ async function refresh() {
   ]);
 
   // LLM model display (under the sponsor strip in the left rail).
-  // Reads from /api/config which has the full agents block.
-  if (config && config.agents) {
-    const chat = config.agents.chat;
-    const llmEl = $('llm-value');
-    const capLlm = $('cap-llm');
+  // v2.1.8: read from /api/llm/routing (per-agent provider+model
+  // + enabled state) — NOT from /api/config which has no `agents`
+  // key. Was the source of the empty LLM strip in the left rail
+  // (the JS at refresh() bailed on `if (config && config.agents)`
+  // which was always false).
+  const llmEl = $('llm-value');
+  const capLlm = $('cap-llm');
+  try {
+    const routing = await jget('/api/llm/routing');
+    const chat = routing && routing.chat;
     if (chat && chat.enabled && chat.model) {
       const txt = `${chat.provider} / ${chat.model}`;
-      llmEl.textContent = txt;
-      llmEl.style.color = 'var(--accent)';
+      if (llmEl) {
+        llmEl.textContent = txt;
+        llmEl.style.color = 'var(--accent)';
+      }
       if (capLlm) capLlm.textContent = chat.model;
     } else {
-      llmEl.textContent = 'not configured';
-      llmEl.style.color = 'var(--accent-2)';
+      if (llmEl) {
+        llmEl.textContent = 'not configured';
+        llmEl.style.color = 'var(--accent-2)';
+      }
       if (capLlm) capLlm.textContent = 'unset';
     }
+  } catch (e) {
+    if (llmEl) {
+      llmEl.textContent = 'not configured';
+      llmEl.style.color = 'var(--accent-2)';
+    }
+    if (capLlm) capLlm.textContent = 'unset';
   }
 
   // hero

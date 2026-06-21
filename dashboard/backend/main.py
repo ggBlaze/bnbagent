@@ -1096,8 +1096,79 @@ def build_app() -> FastAPI:
 
     # ----------------------------------------------------------- chat + agent
     def _chat_agent():
+        """Return a live ChatAgent for the dashboard process.
+
+        The previous implementation read chat_agent from the IPC
+        snapshot, but json.dumps(..., default=str) stringifies
+        Python objects, so the dashboard saw a string instead of
+        the live ChatAgent. The endpoint then crashed with
+        AttributeError("'str' object has no attribute 'chat'").
+
+        Fix: lazy-instantiate a ChatAgent in the dashboard process
+        using the dashboard's own LLMRouter (which reads the same
+        providers.yaml + .env as the agent loop). The chat persona
+        .md file is shipped with the repo, so the agent has the
+        same identity and tool spec as the agent loop's instance.
+
+        When the operator changes LLM routing from the Config
+        pane, the next chat call picks up the new routing because
+        the router is created fresh per call (the underlying
+        LLMRouter also caches clients by provider name but is
+        cheap to re-construct). If the agent_loop is running and
+        populates the IPC with a live object, prefer that one to
+        keep the in-process state and the agent loop's view in
+        lockstep.
+        """
+        from agents.chat import ChatAgent
+        from agents.providers import LLMRouter
+        # Prefer the in-process agent if the agent_loop is also
+        # running in this process (test contexts + dev mode).
         s = _state()
-        return s.get("components", {}).get("chat_agent")
+        live = s.get("components", {}).get("chat_agent")
+        if live is not None and hasattr(live, "chat"):
+            return live
+        # Dashboard-process fallback. The components dict here is
+        # minimal — just enough to satisfy ChatAgent._system_state_block.
+        # The dashboard process never makes trades, so portfolio is a
+        # stub with the methods returning neutral values.
+        try:
+            router = LLMRouter()
+        except Exception as e:
+            log.warning("dashboard: LLMRouter init failed: %s", e)
+            return None
+        # Build a minimal components dict from the IPC snapshot.
+        # Portfolio is stubbed: equity() returns the value from
+        # /api/stats if available, positions returns []. Policy is
+        # loaded from disk so evaluator_address is correct.
+        from pathlib import Path
+        import yaml as _yaml
+        policy_path = Path("config/policy.yaml")
+        policy = {}
+        if policy_path.exists():
+            try:
+                policy = _yaml.safe_load(policy_path.read_text()) or {}
+            except Exception:
+                policy = {}
+        stats = s.get("stats", {}) or {}
+        class _PortfolioStub:
+            def equity(self): return float(stats.get("equity", 0) or 0)
+            def day_pnl_pct(self): return float(stats.get("day_pnl_pct", 0) or 0)
+            def drawdown_pct(self): return float(stats.get("drawdown_pct", 0) or 0)
+            positions = []
+        minimal_components = {
+            "portfolio": _PortfolioStub(),
+            "policy": policy,
+            "data_source": None,
+        }
+        try:
+            return ChatAgent(
+                components=minimal_components,
+                router=router,
+                persona_name="chat",
+            )
+        except Exception as e:
+            log.warning("dashboard: ChatAgent init failed: %s", e)
+            return None
 
     def _advisor():
         s = _state()
