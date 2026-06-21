@@ -65,6 +65,24 @@ FIXED:    `dashboard/frontend/index.html` `.identity-card .token`
           anywhere; word-break: break-all; max-width: 100%;` as
           a safety net.
 
+FIXED:    `core/setup.py::import_wallet` did not write
+          `TWAK_KEYSTORE=~/.twak/wallet.json` to `.env` after
+          import. The dashboard saw the new wallet, but the
+          agent loop (`core.main` is a separate process that
+          re-loads `.env` at boot via `load_dotenv()`) had no
+          `TWAK_KEYSTORE` env var, so `TWAKWallet.from_env()`
+          fell through to the ephemeral dev key path and
+          generated a random key. The boot then synced
+          `data_source.base_address` to the ephemeral key's
+          address (not the operator's), and the x402-balance
+          endpoint polled the wrong address. The wizard's
+          "Save password to .env" checkbox wrote `TWAK_PWD` but
+          not `TWAK_KEYSTORE`, so the operator had to SSH in and
+          edit `.env` manually every time. Now: `import_wallet`
+          auto-writes `TWAK_KEYSTORE=~/.twak/wallet.json` to
+          `.env` on first import (only if not already set, so
+          operators with a non-default path keep their override).
+
 ## v2.1.7 — Readonly mode + HybridDataSource + polish (2026-06-14)
 
 The contest-submission story: a public URL where judges can see the

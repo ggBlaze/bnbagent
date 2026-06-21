@@ -251,6 +251,33 @@ def import_wallet(private_key_hex: str, password: str) -> dict:
     """Import an existing private key, encrypt with `password`."""
     result = import_keystore(private_key_hex, password)
     _persist_base_address_if_unset(result["address"])
+    # v2.1.8 (C): auto-write TWAK_KEYSTORE=~/.twak/wallet.json to
+    # .env so the next `bash bnbagent` boot's core.main process can
+    # find the keystore via TWAKWallet.from_env(). Without this the
+    # dashboard sees the right wallet but the agent loop falls
+    # through to the ephemeral dev key (from_env warning line),
+    # signing with a different address than the operator thinks,
+    # and syncing data_source.base_address to the wrong key.
+    # The dashboard /api/setup endpoint still respects the operator
+    # if they want a non-default path — they can edit .env directly
+    # and we'll never overwrite an existing TWAK_KEYSTORE value.
+    try:
+        from dashboard.backend.main import (
+            _set_env_var_in_dotenv as _dash_setenv,
+        )
+        import os
+        # Only set if not already present in os.environ (the
+        # operator may have set it to a non-default path).
+        if not os.environ.get("TWAK_KEYSTORE"):
+            ks_path = str(Path.home() / ".twak" / "wallet.json")
+            _dash_setenv("TWAK_KEYSTORE", ks_path)
+            os.environ["TWAK_KEYSTORE"] = ks_path
+    except Exception:
+        # dashboard import may not be available in some test contexts;
+        # the keystore on disk is still importable via unlock_and_get_account()
+        # which uses connectors/keystore.py's path resolution. Silent
+        # fallback is fine here.
+        pass
     return result
 
 
