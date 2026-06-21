@@ -1,14 +1,18 @@
 # BNB Agent — main runtime configuration
 # All values overridable via environment variables (.env).
 
-mode: testnet                              # testnet | mainnet | replay
+# v2.1.8: shipped defaults flipped to mainnet. A fresh install (no
+# config/local.yaml) lands on BSC mainnet, chain 56, with binance-tier
+# free market data. To run a safe dry-run instead, set BNBAGENT_MODE=replay
+# or copy config/local.yaml.example and edit mode/chain_id/rpcs to testnet.
+mode: mainnet                              # testnet | mainnet | replay
 
 # --- BSC chain ---
-chain_id: 97                                # 97 = BSC testnet, 56 = mainnet
+chain_id: 56                                # 56 = BSC mainnet, 97 = testnet
 rpcs:
-  - https://data-seed-prebsc-1-s1.binance.org:8545
-  - https://data-seed-prebsc-2-s1.binance.org:8545
-  - https://bsc-testnet-rpc.publicnode.com
+  - https://bsc-dataseed.binance.org
+  - https://bsc-dataseed1.defibit.io
+  - https://bsc-dataseed1.ninicoin.io
 gas:
   max_gwei: 5
   swap_gas: 250000

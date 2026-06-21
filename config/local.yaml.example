@@ -1,35 +1,51 @@
 # BNB Agent — user-specific runtime overrides (LOCAL, gitignored)
 # --------------------------------------------------------------
-# This file is your private override layer. The shipped defaults live in
-# config/config.yaml (tracked in git). The agent reads the deep-merged
-# view of both — keys here override the same keys in config.yaml; lists
-# here replace lists there. You can leave this file empty and the agent
-# will run entirely on the shipped defaults.
+# v2.1.8: this file is now SHIPPED PRE-POPULATED with mainnet defaults.
+# A fresh install lands on BSC mainnet (chain 56, real RPCs, tier=binance).
+# Override any field below — boot() deep-merges local.yaml over config.yaml.
 #
-# The Setup wizard writes here when you pick a tier, enter a CMC Pro API
-# key, or set a custom Base RPC list. Boot also writes here on first
-# boot to record your wallet's Base address (for x402 funding detection).
+# To switch to replay/testnet for safe dry-runs, set:
+#     mode: replay
+#     chain_id: 97
+#     rpcs: [http://localhost:8545]
 #
-# NEVER commit this file. It is .gitignored for a reason. If you ever
-# accidentally do, rotate the CMC Pro API key (POST /api/data-source/cmc-key
-# with a new key) and `git rm --cached config/local.yaml`.
-#
-# Minimal shape — leave everything commented out to run on shipped defaults:
-#
-# mode: mainnet
-# chain_id: 56
-# rpcs:
-#   - https://bsc-dataseed.binance.org
-#   - https://bsc-dataseed.defibit.io
-# data_source:
-#   tier: x402                          # cmc_pro | x402 | binance | mock
-#   cmc_api_key: ""                     # populated by the wizard for tier=cmc_pro
-#   base_rpcs:                          # x402 needs at least one
-#     - https://mainnet.base.org
-#     - https://base.publicnode.com
-#     - https://1rpc.io/base
-#   daily_cap_usdc: 10.0
-#   base_address: ""                    # auto-populated by boot from wallet
-#
-# Uncomment + edit any of the above to override. Re-run `bash bnbagent`
-# to apply.
+# NEVER commit this file. It is .gitignored for a reason.
+
+mode: mainnet
+chain_id: 56
+rpcs:
+  - https://bsc-dataseed.binance.org
+  - https://bsc-dataseed1.defibit.io
+  - https://bsc-dataseed1.ninicoin.io
+
+data_source:
+  # x402 | cmc_pro | binance | mock
+  # binance is free and needs no key — recommended default.
+  # x402 pays CMC per-call in USDC on Base (no key, micro-budget).
+  # cmc_pro is paid (unlimited calls).
+  # mock reads from data/cmc_mock.json (offline testing).
+  tier: binance
+  cmc_api_key: ""
+  base_rpcs:
+    - https://mainnet.base.org
+    - https://base.publicnode.com
+    - https://1rpc.io/base
+  daily_cap_usdc: 10.0
+  # base_address is auto-populated by boot.py from your wallet.
+  # Override here only if you want x402 to fund a different address.
+  base_address: ""
+
+# Perps venue list (real execution requires venue API keys + integration
+# per venue; see docs/venue_implement_me.md for the per-venue checklist).
+# The current scaffold supports paper mode for all venues. To enable
+# real execution for a specific venue, set perps.<venue>.api_key below.
+perps:
+  candidates:
+    - aster
+    - killex
+    - apollox
+    - mux
+  # aster:
+  #   api_key: ""
+  #   api_secret: ""
+  # killex: ...
