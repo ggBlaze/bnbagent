@@ -247,3 +247,38 @@ def test_boot_resyncs_base_address_when_stale(tmp_path: Path, monkeypatch):
         f"boot should have overwritten stale base_address; got {addr}"
     )
     assert addr.startswith("0x") and len(addr) == 42
+
+
+def test_boot_propagates_mark_cache_ttl(tmp_path: Path, monkeypatch):
+    """v2.1.8: boot() reads perps.mark_cache_ttl_s from config and passes
+    it through to the Perps instance, so an operator who sets
+    perps.mark_cache_ttl_s: 300 gets a 5-minute cache."""
+    from core import boot as boot_mod
+
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    cfg_file = cfg_dir / "config.yaml"
+    cfg_file.write_text(yaml.safe_dump({
+        "mode": "replay",
+        "perps": {"mark_cache_ttl_s": 300, "candidates": ["aster"]},
+        "data_source": {"tier": "binance"},
+        "cmc": {"x402_base": "https://x", "api_key": ""},
+        "rpcs": ["http://localhost:8545"],
+        "chain_id": 97,
+        "dex": {"pcs_v3_router": "0x" + "11" * 20,
+                "pcs_v3_quoter": "0x" + "22" * 20,
+                "pcs_v3_factory": "0x" + "33" * 20},
+        "tokens": {"bsc_tokens": ["WBNB"]},
+    }))
+    pol = _write_policy(tmp_path)
+    import shutil
+    shutil.copy("config/policy.schema.json", cfg_dir / "policy.schema.json")
+    shutil.copy("config/perps_venues.yaml", cfg_dir / "perps_venues.yaml")
+    shutil.copy("config/allowlist.yaml", cfg_dir / "allowlist.yaml")
+    monkeypatch.setattr(boot_mod, "register_identity", lambda *a, **kw: {
+        "token_id": 0, "cid": "QmTest", "agent_address": "0x" + "00" * 20,
+        "evaluator_address": "0x" + "00" * 20, "version": "1.0.0",
+    })
+    monkeypatch.chdir(tmp_path)
+    c = boot(Decimal("100"), policy_path=str(pol), replay_tape=[])
+    assert c["perps"]._mark_cache_ttl_s == 300

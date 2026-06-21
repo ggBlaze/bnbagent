@@ -215,7 +215,17 @@ def boot(starting_equity: Decimal = Decimal("100"),
     # current tape ts. The portfolio, perps, and sleeves all use the
     # same clock so the entire run is reproducible.
     portfolio = Portfolio(starting_equity=starting_equity, clock=clock)
-    bs["perps"] = Perps(mode=cfg.get("mode", "testnet"), clock=clock)
+    # v2.1.8: perps mark cache TTL (seconds). Defaults to 60s so the
+    # sleeve-A 30s tick hits a fresh fetch every other tick. Operators
+    # can override in policy.yaml under `perps.mark_cache_ttl_s`.
+    mark_cache_ttl_s = int(
+        (cfg.get("perps") or {}).get("mark_cache_ttl_s", 60)
+    )
+    bs["perps"] = Perps(
+        mode=cfg.get("mode", "testnet"),
+        clock=clock,
+        mark_cache_ttl_s=mark_cache_ttl_s,
+    )
 
     identity = register_identity(bs["erc8004"], ipfs, wallet, policy)
 
