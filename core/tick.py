@@ -150,6 +150,38 @@ class Agent:
             stats["updated_at"] = now_ts
             self.dashboard_state["stats"] = stats
             self.dashboard_state["updated_at"] = now_ts
+            # v2.2.0 (live-only): publish positions + trades to the
+            # IPC file so the dashboard's /api/trades and /api/positions
+            # endpoints have data to render. Previously these views
+            # were always empty arrays in core/main.py and the
+            # dashboard's 'Recent Trades' table never updated.
+            # On mainnet we publish only is_paper=False trades (real);
+            # on other modes we publish all trades (the strategy sim).
+            try:
+                positions_view = [
+                    {
+                        "id":            p.id,
+                        "sleeve":        p.sleeve,
+                        "symbol":        p.symbol,
+                        "side":          p.side,
+                        "notional_usdc": float(p.notional_usdc),
+                        "entry_price":   float(p.entry_price) if p.entry_price else None,
+                        "entry_ts":      p.entry_ts,
+                        "is_paper":      bool(getattr(p, "is_paper", True)),
+                    }
+                    for p in self.portfolio.positions.values()
+                ]
+                trades_all = list(self.portfolio.closed_trades)
+                cfg = (self.dashboard_state.get("config") or {})
+                is_mainnet = (cfg.get("mode") or "") == "mainnet"
+                if is_mainnet:
+                    trades_view = [t for t in trades_all if not t.get("is_paper", True)]
+                else:
+                    trades_view = trades_all
+                self.dashboard_state["positions_view"] = positions_view
+                self.dashboard_state["trades_view"] = trades_view[-200:]  # cap
+            except Exception as e:
+                log.warning("positions/trades view publish failed: %s", e)
             # v2.1.4: daily trade floor tick. The module throttles
             # itself to once per UTC day; the per-second call is just
             # a cheap clock check.

@@ -273,6 +273,16 @@ def _mode_aware_stats() -> dict:
     out["wallet_usdc_balance"] = getattr(setup, "usdc_balance", None)
     out["wallet_bnb_balance"] = getattr(setup, "bnb_balance", None)
     out["wallet_balance_ts"] = getattr(setup, "live_balance_ts", 0)
+    # v2.2.0 (live-only): the paper book is the contest's strategy
+    # simulation. On mainnet we surface it as a clearly-labeled
+    # secondary view; the hero is the real wallet. The contest
+    # scoring reads `paper_pnl_usdc` + `paper_trades` (unchanged).
+    if is_mainnet:
+        out["paper_sim_equity"]   = float(s.get("equity", 0) or 0)
+        out["paper_sim_starting"] = float(s.get("starting", 0) or 0)
+        out["paper_sim_peak"]     = float(s.get("peak", 0) or 0)
+        out["paper_sim_pnl"]      = float(s.get("paper_pnl_usdc", 0) or 0)
+        out["paper_sim_trades"]   = int(s.get("paper_trades", 0) or 0)
     return out
 
 
@@ -439,11 +449,53 @@ def build_app() -> FastAPI:
 
     @app.get("/api/trades")
     async def trades():
+        """Recent closed trades.
+
+        v2.2.0 (live-only): on mainnet, return only real on-chain
+        trades (is_paper=False). The agent doesn't yet sign on-chain
+        orders, so this list is empty until v2.3.0 wires the BNB
+        SDK. The frontend shows 'no on-chain trades yet' for that
+        case. On non-mainnet modes we return the paper-book trades
+        (the strategy simulation).
+
+        The agent publishes trades via the IPC `trades_view` field
+        (see core/tick.py); cross-process callers (the dashboard)
+        read from there. In-process callers (tests) get the live
+        portfolio directly.
+        """
         s = _state()
-        pf = s.get("components", {}).get("portfolio")
-        if pf and hasattr(pf, "closed_trades"):
-            return JSONResponse(list(pf.closed_trades))
-        return JSONResponse([])
+        cfg = _cfg()
+        is_mainnet = (cfg.get("mode") or "") == "mainnet"
+        # Prefer the IPC-published trades_view (cross-process)
+        trades_view = s.get("trades_view")
+        if isinstance(trades_view, list):
+            all_trades = trades_view
+            source = "ipc_snapshot"
+        else:
+            # Fall back to the in-process portfolio (tests)
+            pf = s.get("components", {}).get("portfolio")
+            if pf and hasattr(pf, "closed_trades"):
+                all_trades = list(pf.closed_trades)
+                source = "in_process"
+            else:
+                return JSONResponse({
+                    "trades": [],
+                    "source": "none",
+                    "is_mainnet": is_mainnet,
+                })
+        if is_mainnet:
+            real = [t for t in all_trades if not t.get("is_paper", True)]
+            return JSONResponse({
+                "trades": real,
+                "source": "live_onchain",
+                "is_mainnet": True,
+                "paper_trades_count": len(all_trades) - len(real),
+            })
+        return JSONResponse({
+            "trades": all_trades,
+            "source": "paper_book",
+            "is_mainnet": False,
+        })
 
     @app.get("/api/cmc-charges")
     async def cmc_charges():
@@ -540,19 +592,34 @@ def build_app() -> FastAPI:
 
     @app.get("/api/competition/register/status")
     async def competition_register_status():
-        """Return the cached registration state, plus the contract address."""
+        """Return the cached registration state, plus the contract address.
+
+        v2.2.0: if the cache shows `ok=true` but no `tx_hash`, the
+        original registration was done via a path that didn't capture
+        the tx hash (e.g. direct Web3 call, manual MCP action). In
+        that case the agent is still registered (the on-chain
+        `isRegistered` view is the source of truth) but we don't
+        have the tx hash locally. We surface a `tx_hash_unknown: true`
+        flag so the frontend can show a clear message instead of
+        silently rendering '—'.
+        """
         from scripts.competition_register import COMPETITION_CONTRACT, _load_cache
         cache = _load_cache()
+        tx_hash = cache.get("tx_hash")
+        registered = bool(cache.get("ok"))
         return JSONResponse({
             "contract":          COMPETITION_CONTRACT,
             "bsctrace_url":      f"https://bsctrace.com/address/{COMPETITION_CONTRACT}",
+            "bsctrace_agent_url": f"https://bsctrace.com/address/{cache.get('agent_address', '')}",
             "rules_url":         "https://dorahacks.io/hackathon/bnbhack-twt-cmc/detail",
-            "registered":        bool(cache.get("ok")),
-            "tx_hash":           cache.get("tx_hash"),
+            "registered":        registered,
+            "tx_hash":           tx_hash,
+            "tx_hash_unknown":   registered and not tx_hash,
+            "register_method":   cache.get("method"),  # 'npx_twak' or 'direct_web3' or 'mcp'
             "agent_address":     cache.get("agent_address"),
             "network":           cache.get("network"),
             "timestamp":         cache.get("timestamp"),
-            "error":             cache.get("stderr") if not cache.get("ok") else None,
+            "error":             cache.get("stderr") if not registered else None,
         })
 
     @app.post("/api/competition/register", dependencies=[Depends(_auth.require_admin)])
@@ -561,11 +628,37 @@ def build_app() -> FastAPI:
 
         Body: {"network": "mainnet"} (default "mainnet")
         Returns the script's JSON output.
+
+        v2.2.0 (register-guard): if a previous registration is
+        already on-disk (cached tx hash + ok=True), the endpoint
+        refuses with HTTP 409 Conflict. Re-registering would burn
+        another tx fee (npx twak compete register submits a fresh
+        tx) and risks confusing the operator or the contract state.
+        The frontend disables the button when `registered=true`;
+        this is the belt-and-suspenders backend guard.
         """
-        from scripts.competition_register import main as register_main
+        from scripts.competition_register import (
+            main as register_main, _load_cache as _reg_cache,
+        )
         network = (payload or {}).get("network", "mainnet")
         if network not in ("mainnet", "testnet"):
             return JSONResponse({"error": f"network must be mainnet or testnet, got {network!r}"})
+        # v2.2.0: refuse re-registration if the cache shows we're
+        # already registered on the same network. A different
+        # network (e.g. mainnet → testnet) is allowed because the
+        # contract is the same and the same wallet may legitimately
+        # want to test on testnet first.
+        existing = _reg_cache()
+        if existing.get("ok") and (existing.get("network") or "mainnet") == network:
+            return JSONResponse({
+                "ok": False,
+                "error": "already_registered",
+                "message": f"agent is already registered on {network} (tx: {existing.get('tx_hash')}). "
+                           "Re-registration is refused to prevent double tx fees.",
+                "tx_hash": existing.get("tx_hash"),
+                "network": network,
+                "timestamp": existing.get("timestamp"),
+            }, status_code=409)
         argv = ["--network", network]
         # Capture stdout/stderr
         import io, contextlib
@@ -629,11 +722,52 @@ def build_app() -> FastAPI:
 
     @app.get("/api/equity-series")
     async def equity_series():
+        """Equity curve for the dashboard chart.
+
+        v2.2.0 (live-only): on mainnet, the chart must reflect the
+        real wallet USDC, not the $100 paper book. The agent doesn't
+        have real on-chain trade history yet (the on-chain order
+        submission path is a v2.3.0 workstream), so we build the
+        series from the live balance: a single point per poll,
+        starting at the wallet USDC at the live window open.
+
+        On testnet/mock/replay we keep the paper-book equity_history
+        because that's the only PnL signal available.
+        """
+        import time as _t
+        cfg = _cfg()
+        is_mainnet = (cfg.get("mode") or "") == "mainnet"
+        s = load_setup_state()
+        live_usdc = getattr(s, "usdc_balance", None)
+        live_ts = int(getattr(s, "live_balance_ts", 0) or 0)
+
+        if is_mainnet and live_usdc is not None and live_usdc > 0:
+            # Real mode + real wallet. Build a series from the live
+            # balance. The agent's real-trade list is empty (no
+            # on-chain orders yet) so there's nothing to add; the
+            # series is a single point at the current wallet USDC.
+            # Future ticks (when the agent signs on-chain) will
+            # extend this in /api/equity-series/history below.
+            history = _state().get("real_equity_history", [])
+            if not history:
+                history = [{"ts": live_ts or int(_t.time()),
+                            "equity": float(live_usdc)}]
+            return JSONResponse({
+                "series": history[-2000:],
+                "source": "live_wallet",
+                "wallet_usdc": float(live_usdc),
+                "wallet_bnb":  float(getattr(s, "bnb_balance", 0) or 0),
+                "live_window_start": cfg.get("live_window_start"),
+            })
+
+        # Paper / testnet / mock / replay — use the paper-book history
         pf = _state().get("components", {}).get("portfolio")
         if not pf or not hasattr(pf, "equity_history"):
-            return JSONResponse({"series": []})
+            return JSONResponse({"series": [], "source": "none"})
         return JSONResponse({
-            "series": [{"ts": ts, "equity": float(e)} for ts, e in list(pf.equity_history)[-2000:]]
+            "series": [{"ts": ts, "equity": float(e)}
+                       for ts, e in list(pf.equity_history)[-2000:]],
+            "source": "paper_book",
         })
 
     @app.get("/api/sleeves")

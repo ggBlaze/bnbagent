@@ -51,12 +51,21 @@ def isolated_keystore(tmp_path, monkeypatch):
     """Point connectors.keystore at a tmp wallet.json so the test
     never touches the operator's real ~/.twak/wallet.json. Also chdir
     into tmp_path so core.config_paths resolves `config/local.yaml`
-    there."""
+    there.
+
+    v2.2.0: use `monkeypatch.setattr(ks, '_keystore_path', ...)` so
+    the patch is reverted at the end of the test. The previous form
+    (`ks._keystore_path = lambda: keystore`) assigned directly and
+    leaked the override into the next test, breaking fixtures that
+    depended on the real keystore path (e.g. live-balance endpoint
+    tests that need load_keystore_summary() to return the operator's
+    actual wallet).
+    """
     monkeypatch.chdir(tmp_path)
     keystore = tmp_path / "wallet.json"
     monkeypatch.setenv("TWAK_KEYSTORE", str(keystore))
     from connectors import keystore as ks
-    ks._keystore_path = lambda: keystore
+    monkeypatch.setattr(ks, "_keystore_path", lambda: keystore)
     return keystore
 
 
