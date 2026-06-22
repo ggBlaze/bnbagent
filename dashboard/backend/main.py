@@ -94,6 +94,7 @@ from core.setup import (
     SetupState, load_setup_state, set_runtime_config, generate_wallet,
     import_wallet, sign_current_policy, reset as reset_setup,
     export_env_for_process,
+    set_live_balance, poll_live_balance,
 )
 from core.config_paths import (
     load_config as _load_merged_config,
@@ -248,7 +249,12 @@ def _mode_aware_stats() -> dict:
         primary_pnl = float(s.get("real_pnl_usdc", 0) or 0)
         primary_trades = int(s.get("real_trades", 0) or 0)
         primary_label = "real (settled on PCS)"
-        primary_equity = float(setup.usdc_balance or 0) if hasattr(setup, "usdc_balance") else None
+        # v2.2.0 (live-balance): use the on-chain USDC balance if the
+        # /api/live-balance endpoint has polled it. Otherwise fall back
+        # to None so the frontend knows to show '—' instead of lying
+        # with the $100 paper book value labeled as 'live funds'.
+        cached_usdc = getattr(setup, "usdc_balance", None)
+        primary_equity = float(cached_usdc) if cached_usdc is not None else None
     else:
         primary_pnl = float(s.get("paper_pnl_usdc", 0) or 0)
         primary_trades = int(s.get("paper_trades", 0) or 0)
@@ -262,6 +268,11 @@ def _mode_aware_stats() -> dict:
     out["primary_equity_usdc"] = primary_equity
     out["primary_trades"] = primary_trades
     out["primary_label"] = primary_label
+    # v2.2.0 (live-balance): expose the cached on-chain balances so the
+    # frontend can show the wallet USDC + BNB alongside the PnL.
+    out["wallet_usdc_balance"] = getattr(setup, "usdc_balance", None)
+    out["wallet_bnb_balance"] = getattr(setup, "bnb_balance", None)
+    out["wallet_balance_ts"] = getattr(setup, "live_balance_ts", 0)
     return out
 
 
@@ -751,6 +762,30 @@ def build_app() -> FastAPI:
             "policy_signed": s.policy_signed,
             "chain_id": s.chain_id,
             "mode": s.mode,
+        })
+
+    # v2.2.0 (live-balance): poll the on-chain BSC wallet USDC + BNB
+    # balance. The dashboard hero previously showed the $100 paper book
+    # labeled as 'mainnet · live funds' which was a lie. This endpoint
+    # caches the real value into setup.json and returns it. Frontend
+    # polls this on a 60s interval.
+    @app.get("/api/live-balance")
+    async def live_balance(refresh: bool = False):
+        s = load_setup_state()
+        if not s.wallet_address:
+            return JSONResponse({
+                "usdc": None, "bnb": None, "ts": 0,
+                "error": "no_wallet", "address": "",
+            })
+        if refresh or s.live_balance_ts == 0 or (int(time.time()) - s.live_balance_ts) > 60:
+            result = poll_live_balance()
+            if result.get("usdc") is not None or result.get("bnb") is not None:
+                set_live_balance(result.get("usdc"), result.get("bnb"))
+            return JSONResponse(result)
+        return JSONResponse({
+            "usdc": s.usdc_balance, "bnb": s.bnb_balance,
+            "ts": s.live_balance_ts, "address": s.wallet_address,
+            "error": None, "cached": True,
         })
 
     @app.post("/api/setup/config", dependencies=[Depends(_auth.require_admin)])

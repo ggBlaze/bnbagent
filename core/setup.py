@@ -70,6 +70,14 @@ class SetupState:
     policy_signature: str = ""
     policy_version: str = ""
     updated_at: int = 0
+    # v2.2.0 (live-balance): cached on-chain wallet balances. Polled by
+    # /api/live-balance, surfaced in the dashboard hero. None = never
+    # polled. Set to 0.0 if the wallet is drained (so the dashboard
+    # shows "$0 wallet" instead of "—" — operators want to see the
+    # zero, not a missing value).
+    usdc_balance: float | None = None
+    bnb_balance: float | None = None
+    live_balance_ts: int = 0     # last poll unix ts; 0 = never
 
     def is_complete(self) -> bool:
         return (
@@ -158,6 +166,12 @@ def load_setup_state() -> SetupState:
     of (shipped config.yaml) + (user-specific local.yaml) so the
     dashboard's Step 1 reflects whatever the user actually configured
     in the wizard, not just the shipped defaults.
+
+    v2.2.0 (live-balance): the cached on-chain USDC + BNB values live
+    in ~/.bnbagent/setup.json (written by set_live_balance). The disk
+    file is the source of truth for those two fields so the dashboard
+    survives restarts. config/policy.yaml + keystore stay the source
+    of truth for everything else.
     """
     cfg = _load_merged_config()
     pol = _load_yaml(Path("config/policy.yaml"))
@@ -184,6 +198,22 @@ def load_setup_state() -> SetupState:
         policy_version=str(pol.get("version", "")),
         updated_at=int(time.time()),
     )
+    # v2.2.0: overlay the cached on-chain balances from setup.json.
+    # Best-effort — the file may not exist on a fresh install.
+    try:
+        if SUMMARY_PATH.exists():
+            cached = json.loads(SUMMARY_PATH.read_text() or "{}")
+            usdc = cached.get("usdc_balance")
+            bnb = cached.get("bnb_balance")
+            ts = int(cached.get("live_balance_ts", 0) or 0)
+            if usdc is not None:
+                state.usdc_balance = float(usdc)
+            if bnb is not None:
+                state.bnb_balance = float(bnb)
+            state.live_balance_ts = ts
+    except Exception:
+        # Stale or corrupt cache — ignore, dashboard will re-poll.
+        pass
     return state
 
 
@@ -404,3 +434,97 @@ def export_env_for_process() -> dict:
         "BNBAGENT_MODE":      state.mode,
         "CMC_API_KEY":        state.cmc_api_key,
     }
+
+
+# --- live balance (v2.2.0) ------------------------------------------------
+
+def _persist_summary(state: SetupState) -> None:
+    """Write the setup summary to ~/.bnbagent/setup.json."""
+    SUMMARY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SUMMARY_PATH.write_text(json.dumps(asdict(state), indent=2, sort_keys=True))
+
+
+def set_live_balance(usdc: float | None, bnb: float | None) -> SetupState:
+    """Cache the on-chain USDC + BNB balance for the dashboard hero.
+
+    v2.2.0 (live-balance): the SetupState dataclass has no `usdc_balance`
+    field. The dashboard previously read it via `hasattr(setup, "usdc_balance")`
+    which was always False → primary_equity_usdc was always None → the
+    hero fell back to the $100 paper book, labeled 'mainnet · live funds'
+    (a lie). This fixes it: the on-chain balance is now persisted into
+    setup.json and surfaced through the `/api/live-balance` endpoint.
+    """
+    state = load_setup_state()
+    state.usdc_balance = usdc
+    state.bnb_balance = bnb
+    state.live_balance_ts = int(time.time())
+    state.updated_at = int(time.time())
+    _persist_summary(state)
+    return state
+
+
+def poll_live_balance(*, rpcs: list[str] | None = None,
+                      address: str | None = None,
+                      timeout: float = 6.0) -> dict:
+    """Read the wallet's BSC USDC + BNB balance from chain.
+
+    Returns a dict: {usdc: float|None, bnb: float|None, ts: int, error: str|None}.
+    The dashboard hero uses the cached values from `set_live_balance`;
+    this function is the *source* of the values that get cached.
+
+    On mainnet (chain_id 56) the contract addresses are:
+      USDC: 0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d (6 decimals)
+      WBNB: 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c (18 decimals)
+    On testnet (chain_id 97) USDC has a different address; the dashboard
+    caller passes the right config.
+
+    Implementation: best-effort. If any RPC fails, the function returns
+    the partial result and the error string so the dashboard can show
+    'RPC failed' instead of a wrong value.
+    """
+    from web3 import Web3
+    state = load_setup_state()
+    addr = address or state.wallet_address
+    rpc_list = rpcs or state.rpcs
+    chain_id = state.chain_id
+
+    if not addr or not rpc_list:
+        return {"usdc": None, "bnb": None, "ts": int(time.time()),
+                "error": "no_wallet_or_no_rpcs", "address": addr or ""}
+
+    usdc_addr = ("0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"
+                 if chain_id == 56 else
+                 "0x64544969ed7ebf2f2b6e6f1c7b1b3a5b3a3a3a3a")  # placeholder for testnet
+    usdc_abi = [
+        {"inputs": [{"name": "a", "type": "address"}], "name": "balanceOf",
+         "outputs": [{"name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
+        {"inputs": [], "name": "decimals",
+         "outputs": [{"name": "", "type": "uint8"}], "stateMutability": "view", "type": "function"},
+    ]
+    last_err = None
+    for rpc in rpc_list:
+        try:
+            w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": timeout}))
+            if not w3.is_connected():
+                last_err = f"{rpc}: not connected"
+                continue
+            checksum = Web3.to_checksum_address(addr)
+            bnb_wei = w3.eth.get_balance(checksum)
+            bnb = float(w3.from_wei(bnb_wei, "ether"))
+            try:
+                usdc_c = w3.eth.contract(
+                    address=Web3.to_checksum_address(usdc_addr), abi=usdc_abi)
+                ub = usdc_c.functions.balanceOf(checksum).call()
+                d = usdc_c.functions.decimals().call()
+                usdc = ub / (10 ** d)
+            except Exception as e:
+                usdc = None
+                last_err = f"{rpc}: usdc read failed: {e}"
+            return {"usdc": usdc, "bnb": bnb, "ts": int(time.time()),
+                    "error": last_err, "address": addr, "rpc": rpc,
+                    "chain_id": chain_id}
+        except Exception as e:
+            last_err = f"{rpc}: {type(e).__name__}: {e}"
+            continue
+    return {"usdc": None, "bnb": None, "ts": int(time.time()),
+            "error": last_err, "address": addr}

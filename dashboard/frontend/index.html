@@ -1668,6 +1668,20 @@ async function jpost(path, body) {
 
 let lastEquity = [];
 
+// v2.2.0 (live-balance): poll the on-chain wallet USDC + BNB.
+// Called on dashboard load and every 60s while the page is open.
+let _liveBalanceTimer = null;
+async function fetchLiveBalance() {
+  try {
+    const r = await jget('/api/live-balance?refresh=1');
+    if (r && (r.usdc != null || r.bnb != null)) {
+      // Trigger a re-render so the hero + sub-line show the new value.
+      if (typeof loadStats === 'function') loadStats();
+    }
+  } catch (e) { /* silent — the next poll retries */ }
+  if (!_liveBalanceTimer) _liveBalanceTimer = setInterval(fetchLiveBalance, 60_000);
+}
+
 /* === equity chart (self-contained, no chart lib) ============== */
 function renderEquity(series) {
   const c = $('equity-chart');
@@ -1768,18 +1782,32 @@ async function refresh() {
   // v2.1.8 (live-paper): on mainnet, the primary equity is the live
   // wallet USDC balance; everywhere else it's the paper book. Either
   // way we keep the paper/real PnL visible in the chart stats below.
+  //
+  // v2.2.0 (live-balance): on mainnet, the hero is the actual on-chain
+  // USDC balance (from /api/live-balance), not the $100 paper book.
+  // The paper book is shown as a secondary line so the operator can
+  // see both. If the live balance hasn't been polled yet (None), we
+  // show '—' and trigger a poll instead of lying with $100.
   const isMainnet = (stats.mode || '') === 'mainnet';
-  const heroEquity = isMainnet && stats.primary_equity_usdc != null
-    ? stats.primary_equity_usdc
-    : stats.equity;
+  const liveUsdc = stats.wallet_usdc_balance;
+  const liveBnb  = stats.wallet_bnb_balance;
+  const hasLive  = isMainnet && liveUsdc != null;
+  const heroEquity = hasLive ? liveUsdc : stats.equity;
   $('equity').textContent     = heroEquity != null ? fmt(heroEquity) : '—';
   const eqSubParts = [];
   if (isMainnet) {
-    eqSubParts.push('<span style="color:var(--green);">●</span> mainnet · live funds');
-    if (stats.primary_equity_usdc != null) {
+    if (hasLive) {
+      eqSubParts.push('<span style="color:var(--green);">●</span> mainnet · live funds');
       eqSubParts.push('paper sim: $' + fmt(stats.equity));
+      if (liveBnb != null) eqSubParts.push('gas: ' + Number(liveBnb).toFixed(4) + ' BNB');
+      eqSubParts.push('real PnL: $' + fmt(stats.real_pnl_usdc || 0));
+    } else {
+      // v2.2.0: never lie. Show the paper sim clearly labeled as such
+      // and trigger a live-balance poll.
+      eqSubParts.push('mainnet · paper sim only');
+      eqSubParts.push('real PnL: $' + fmt(stats.real_pnl_usdc || 0));
+      fetchLiveBalance();
     }
-    eqSubParts.push('real PnL: $' + fmt(stats.real_pnl_usdc || 0));
   } else {
     if (stats.starting != null) eqSubParts.push('starting $' + fmt(stats.starting));
     if (stats.primary_label) eqSubParts.push(stats.primary_label);
@@ -2946,6 +2974,10 @@ function stopLogStream() {
   setInterval(refreshHoldings, 30_000);
   refreshHoldings();
   dsBannerTick();
+  // v2.2.0 (live-balance): poll on-chain USDC + BNB every 60s for the
+  // dashboard hero. Initial poll on load so the user sees the real
+  // wallet (not the $100 paper book) on first paint.
+  fetchLiveBalance();
 })();
 
 // --- wallet holdings (right-rail panel) ----------------------------
