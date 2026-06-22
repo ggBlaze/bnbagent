@@ -174,7 +174,7 @@ async def run(args):
     except Exception as e:
         log.warning("dashboard_state seed write failed: %s", e)
 
-    agent = Agent(policy, portfolio, dashboard_state=DASHBOARD_STATE, reviewers=llm_components["reviewers"])
+    agent = Agent(policy, portfolio, dashboard_state=DASHBOARD_STATE, reviewers=llm_components["reviewers"], components=components)
 
     # Instantiate sleeves
     a = SleeveACarry(name="A", components=components, agent=agent)

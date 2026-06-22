@@ -273,6 +273,11 @@ def _mode_aware_stats() -> dict:
     out["wallet_usdc_balance"] = getattr(setup, "usdc_balance", None)
     out["wallet_bnb_balance"] = getattr(setup, "bnb_balance", None)
     out["wallet_balance_ts"] = getattr(setup, "live_balance_ts", 0)
+    # v2.2.0 (onchain-floor): surface the on-chain floor trades so the
+    # dashboard's BNB HACK panel can link to BscTrace. The agent writes
+    # these into dashboard_state["floor_onchain_txs"] on every successful
+    # submit; the IPC file is the source of truth.
+    out["floor_onchain_txs"] = _state().get("floor_onchain_txs", [])[-10:]
     # v2.2.0 (live-only): the paper book is the contest's strategy
     # simulation. On mainnet we surface it as a clearly-labeled
     # secondary view; the hero is the real wallet. The contest

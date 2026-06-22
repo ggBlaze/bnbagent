@@ -1207,6 +1207,7 @@ body.demo-mode button[onclick^="toggleKill"] {
           <div class="kv"><span class="k">Tx hash</span><span class="v" id="comp-tx">—</span></div>
           <div class="kv"><span class="k">Daily floor</span><span class="v" id="comp-floor">—</span></div>
           <div class="kv"><span class="k">Eligible tokens</span><span class="v" id="comp-eligible">149</span></div>
+          <div class="kv"><span class="k">Floor trades (on-chain)</span><span class="v" id="comp-floor-txs">—</span></div>
           <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
             <button type="button" class="btn primary" onclick="competitionRegisterNow()">Register on competition contract</button>
             <button type="button" class="btn" onclick="competitionRefresh()">Refresh</button>
@@ -2137,6 +2138,21 @@ async function competitionRefresh() {
     $('comp-floor').title = note;
   } else {
     $('comp-floor').textContent = '— (heartbeat not started)';
+  }
+  // v2.2.0 (onchain-floor): show the real on-chain floor trades
+  // so judges + the operator can verify on BscTrace.
+  const floorTxsEl = $('comp-floor-txs');
+  if (floorTxsEl) {
+    const txs = stats && stats.floor_onchain_txs ? stats.floor_onchain_txs : [];
+    if (txs.length === 0) {
+      floorTxsEl.innerHTML = '<span style="color:var(--fg-dim);">— (no on-chain floor trades yet)</span>';
+    } else {
+      const last3 = txs.slice(-3).reverse();
+      floorTxsEl.innerHTML = last3.map(t => {
+        const tsStr = new Date(t.ts * 1000).toISOString().slice(11, 19);
+        return `<div style="margin:2px 0;"><a href="${t.bsctrace_url}" target="_blank" style="color:var(--blue);">${t.tx_hash.slice(0, 12)}…</a> <span style="color:var(--fg-dim);font-size:10px;">${tsStr} $${t.notional_usdc}</span></div>`;
+      }).join('');
+    }
   }
   // Eligible universe
   const e = await jget('/api/eligibility');
