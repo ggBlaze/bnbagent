@@ -456,17 +456,24 @@ def build_app() -> FastAPI:
     async def trades():
         """Recent closed trades.
 
-        v2.2.0 (live-only): on mainnet, return only real on-chain
-        trades (is_paper=False). The agent doesn't yet sign on-chain
-        orders, so this list is empty until v2.3.0 wires the BNB
-        SDK. The frontend shows 'no on-chain trades yet' for that
-        case. On non-mainnet modes we return the paper-book trades
-        (the strategy simulation).
+        v2.3.5b: the operator's "Recent trades" panel should show
+        every trade the bot has signed, regardless of mainnet/testnet
+        mode or paper/real status. The previous v2.2.0 filter
+        (is_paper=False only on mainnet) hid all the daily-floor
+        on-chain fires because Position.is_paper defaulted to True
+        even when the on-chain tx had settled. Now the panel
+        returns ALL trades, with `is_paper` exposed on each so the
+        frontend can label them, plus an aggregate breakdown so
+        the operator can see at a glance how many were real vs
+        paper.
 
-        The agent publishes trades via the IPC `trades_view` field
-        (see core/tick.py); cross-process callers (the dashboard)
-        read from there. In-process callers (tests) get the live
-        portfolio directly.
+        On mainnet:
+          - trades: ALL closed trades (real on-chain + paper fallbacks)
+          - is_mainnet: True
+          - real_trades_count, paper_trades_count: aggregates
+        Off mainnet:
+          - trades: ALL trades (paper-book)
+          - is_mainnet: False
         """
         s = _state()
         cfg = _cfg()
@@ -487,19 +494,24 @@ def build_app() -> FastAPI:
                     "trades": [],
                     "source": "none",
                     "is_mainnet": is_mainnet,
+                    "real_trades_count": 0,
+                    "paper_trades_count": 0,
                 })
-        if is_mainnet:
-            real = [t for t in all_trades if not t.get("is_paper", True)]
-            return JSONResponse({
-                "trades": real,
-                "source": "live_onchain",
-                "is_mainnet": True,
-                "paper_trades_count": len(all_trades) - len(real),
-            })
+        # v2.3.5b: the panel shows every trade the bot signed. Paper
+        # trades (the agent's strategy simulation) are surfaced
+        # alongside real on-chain trades; the frontend already has
+        # an is_paper column. The previous v2.2.0 mainnet-only-real
+        # filter is removed because Position.is_paper now correctly
+        # reflects whether the on-chain tx settled (see
+        # core/tick.py:submit_floor_trade).
+        real = [t for t in all_trades if not t.get("is_paper", True)]
+        paper = [t for t in all_trades if t.get("is_paper", True)]
         return JSONResponse({
             "trades": all_trades,
-            "source": "paper_book",
-            "is_mainnet": False,
+            "source": "live_onchain" if is_mainnet else "paper_book",
+            "is_mainnet": is_mainnet,
+            "real_trades_count": len(real),
+            "paper_trades_count": len(paper),
         })
 
     @app.get("/api/cmc-charges")

@@ -1,11 +1,13 @@
 """Portfolio: equity, peak equity, PnL, drawdown, exposure tracking."""
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from decimal import Decimal
+from pathlib import Path
 from typing import Iterable
 
 log = logging.getLogger(__name__)
@@ -57,7 +59,21 @@ class Position:
 class Portfolio:
     """Tracks equity, peak, drawdown, open positions, sleeve exposure."""
 
-    def __init__(self, starting_equity: Decimal = Decimal("100"), clock=None):
+    def __init__(self, starting_equity: Decimal = Decimal("100"), clock=None,
+                 trades_persistence_path: str | None = "__default__"):
+        """v2.3.5b: trades_persistence_path controls where closed
+        trades are persisted as JSONL so the dashboard's /api/trades
+        panel survives bot restarts.
+
+        - omitted / default sentinel: persist to
+          ~/.bnbagent/closed_trades.jsonl (the production default)
+        - explicit str: persist to that path
+        - explicit None: NO persistence (paper tests / replay)
+
+        The triple-state (omitted vs None vs str) is needed because
+        we can't tell apart "caller wants the default" from "caller
+        explicitly disabled persistence" using a single None default.
+        """
         import time as _time
         self.starting_equity = starting_equity
         self.cash_usdc = starting_equity
@@ -66,6 +82,20 @@ class Portfolio:
         self.peak_equity = starting_equity
         self.positions: dict[str, Position] = {}      # id → Position
         self.closed_trades: deque = deque(maxlen=10_000)
+        # v2.3.5b: persist closed trades to a JSONL file so the
+        # dashboard's /api/trades panel survives bot restarts.
+        # Append-only on close; loaded on init if path is set.
+        # The default path lives under ~/.bnbagent/ next to the
+        # control + dashboard-state files. Tests pass None to skip.
+        if trades_persistence_path == "__default__":
+            self.trades_persistence_path: str | None = str(
+                Path("~/.bnbagent/closed_trades.jsonl").expanduser()
+            )
+        else:
+            # explicit str OR explicit None
+            self.trades_persistence_path = trades_persistence_path
+        if self.trades_persistence_path:
+            self._load_closed_trades_from_disk()
         self.day_start_equity: dict[str, Decimal] = {}    # YYYY-MM-DD → equity at start
         self.day_breach_active_until: int = 0
         self.equity_history: deque = deque(maxlen=86_400)  # 1 sample/sec for 1 day
@@ -80,6 +110,59 @@ class Portfolio:
         # seed day_start for today so the daily-loss breaker is active from tick 1
         self.day_start_equity[self._today_static()] = starting_equity
         self.trades_opened_today[self._today_static()] = 0
+
+    def _load_closed_trades_from_disk(self) -> None:
+        """v2.3.5b: re-hydrate closed_trades from the JSONL file.
+
+        Without this, /api/trades is empty after every bot restart
+        because the deque lives in process memory only. The file
+        is the source of truth across restarts; we re-append any
+        entries that aren't already in the deque (deduped on id).
+        """
+        if not self.trades_persistence_path:
+            return
+        p = Path(self.trades_persistence_path)
+        if not p.exists():
+            return
+        try:
+            existing_ids = {t.get("id") for t in self.closed_trades}
+            with open(p, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        trade = json.loads(line)
+                    except json.JSONDecodeError:
+                        log.warning("closed_trades.jsonl: skipping malformed line: %r", line[:120])
+                        continue
+                    tid = trade.get("id")
+                    if tid and tid not in existing_ids:
+                        self.closed_trades.append(trade)
+                        existing_ids.add(tid)
+        except Exception as e:
+            log.warning("closed_trades.jsonl: load failed (%s) — starting empty", e)
+
+    def _append_closed_trade_to_disk(self, trade: dict) -> None:
+        """v2.3.5b: append a single trade to the JSONL file with
+        atomic-write semantics (mkstemp + fsync + replace). Same
+        pattern as core/control.py so a concurrent reader never
+        sees a half-written file.
+        """
+        if not self.trades_persistence_path:
+            return
+        try:
+            p = Path(self.trades_persistence_path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            # Append mode — each close appends one line. The file
+            # is never rewritten in full, so concurrent reads see
+            # a monotonically-growing log. No race because
+            # O_APPEND is atomic on POSIX for small writes (< PIPE_BUF).
+            with open(p, "a") as f:
+                f.write(json.dumps(trade) + "\n")
+                f.flush()
+        except Exception as e:
+            log.warning("closed_trades.jsonl: append failed: %s", e)
 
     @staticmethod
     def _today_static() -> str:
@@ -189,6 +272,10 @@ class Portfolio:
             "is_paper": pos.is_paper,
         }
         self.closed_trades.append(trade)
+        # v2.3.5b: persist to disk so /api/trades shows history
+        # across restarts. Done AFTER the in-memory append so the
+        # process never has a record that isn't on disk.
+        self._append_closed_trade_to_disk(trade)
         log.info("position closed", extra={"event": "position_close", **trade})
         self.update_peak()
         return pnl

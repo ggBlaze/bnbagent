@@ -398,6 +398,16 @@ class Agent:
             tp_price=Decimal(str(entry)) * Decimal("1.01"),    # default 1% tp
             notional_usdc=proposed.notional_usdc,
             risk_usdc=proposed.risk_usdc,
+            # v2.3.5b: Position.is_paper defaults to True. A Position
+            # whose on-chain tx actually settled MUST be marked
+            # is_paper=False so the dashboard's /api/trades panel
+            # surfaces it on mainnet. The /api/trades endpoint
+            # filters out is_paper=True trades (line 491-498) under
+            # the assumption that the agent only opens paper trades
+            # in development — but the daily-floor DOES land on-chain
+            # txs, and those should be visible to the operator (and
+            # the contest judges on BscTrace).
+            is_paper=(tx_record.get("status") != "submitted"),
         )
         self.portfolio.add_position(pos_id, pos)
         # Schedule the close
