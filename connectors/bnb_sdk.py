@@ -679,20 +679,44 @@ class ERC8004:
         registration:
           1. Set ERC8004_REGISTRY in core/boot.py to the canonical address.
           2. Extend ERC8004.register() to sign via TWAKWallet + broadcast.
+
+        v2.2.5 (contest-registry distinction): the BNB HACK 2026
+        participation allowlist lives at 0x212c61b9b72c95d95bf29cf032f5e5635629aed5
+        (the "CompetitionRegistry") and is a SEPARATE on-chain call
+        (`scripts/competition_register.py`). It is NOT the same as
+        ERC-8004 identity. The ERC-8004 identity NFT is registered
+        separately via the BNB AI Agent SDK's own deployed contract.
+        When `self.registry` matches the CompetitionRegistry, log at
+        INFO (not WARNING) since participation has already happened
+        via the separate script and this stub is just the ERC-8004
+        identity path.
         """
         if self.client.mode in ("testnet", "replay"):
             self._cid = "Qm" + Web3.keccak(text=agent_uri).hex()[:44]
             self._token_id = int.from_bytes(Web3.keccak(text=agent_uri)[:8], "big")
             return self._token_id, self._cid
-        # v2.1.8: mainnet mode now also returns the stub until the canonical
-        # registry contract address is configured. Logs a warning so the
-        # operator can spot this in production logs.
-        log.warning(
-            "ERC8004.register: mainnet registration is stubbed because the "
-            "registry address (%s) is a placeholder. Set the canonical address "
-            "from bsctrace.com + wire TWAK signing to enable real registration.",
-            self.registry,
-        )
+        # v2.1.8 / v2.2.5: mainnet mode returns the deterministic stub.
+        # Log level depends on which registry address is configured:
+        #  - CompetitionRegistry (0x212c...) → INFO (participation is
+        #    handled by a separate script; this is just ERC-8004 identity)
+        #  - placeholder (0x8080...0004)      → WARNING (operator should
+        #    update core/boot.py:_BNB_HACK_2026_REGISTRY)
+        comp_reg = "0x212c61b9b72c95d95bf29cf032f5e5635629aed5"
+        if (self.registry or "").lower() == comp_reg:
+            log.info(
+                "ERC8004.register: ERC-8004 identity NFT uses the deterministic "
+                "stub for the 2026 BNB HACK contest; participation allowlist "
+                "(CompetitionRegistry at %s) is registered separately via "
+                "scripts/competition_register.py.",
+                comp_reg,
+            )
+        else:
+            log.warning(
+                "ERC8004.register: registry address (%s) is a placeholder. "
+                "Set core/boot.py:_BNB_HACK_2026_REGISTRY to %s to enable "
+                "the canonical BNB HACK 2026 identity flow.",
+                self.registry, comp_reg,
+            )
         self._cid = "Qm" + Web3.keccak(text=agent_uri).hex()[:44]
         self._token_id = int.from_bytes(Web3.keccak(text=agent_uri)[:8], "big")
         return self._token_id, self._cid
