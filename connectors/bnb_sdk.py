@@ -659,67 +659,160 @@ class Perps:
 
 
 class ERC8004:
-    """ERC-8004 identity NFT registration."""
+    """ERC-8004 identity NFT registration.
 
-    def __init__(self, client: BSCClient, registry_address: str):
+    v2.3.0: actually broadcasts ``register(string agentURI)`` against
+    the canonical BSC-mainnet ERC-8004 IdentityRegistry at
+    ``0x8004A169FB4a3325136EB29fA0ceB6D2e539a432``. Previously this
+    returned a deterministic stub that was never indexed by 8004scan.io
+    (so visiting the agent page on 8004scan returned 404).
+
+    The IdentityRegistry's ``register(string)`` function mints an
+    ERC-721 NFT to the caller and emits a ``Transfer(address,address,uint256)``
+    event. We parse the receipt logs to extract the real ``tokenId``,
+    which is what the dashboard's 8004scan URL needs
+    (``https://www.8004scan.io/agents/bsc/{tokenId}``).
+
+    On mainnet, ``wallet`` is REQUIRED (we sign + broadcast). On
+    testnet/replay the deterministic stub is returned so the boot path
+    still works in CI without a real wallet or any gas.
+    """
+
+    # ERC-721 Transfer event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+    _TRANSFER_TOPIC_HEX = "0x" + Web3.keccak(text="Transfer(address,address,uint256)").hex()
+
+    def __init__(self, client: BSCClient, registry_address: str,
+                 wallet: "TWAKWallet | None" = None,
+                 max_gas_price_gwei: float = 5.0):
         self.client = client
         self.registry = Web3.to_checksum_address(registry_address)
+        self.wallet = wallet
+        self.max_gas_price_gwei = max_gas_price_gwei
         self._token_id: int | None = None
         self._cid: str | None = None
+        self._tx_hash: str | None = None
 
     def register(self, agent_uri: str) -> tuple[int, str]:
-        """Returns (tokenId, agentURI).
+        """Register on the configured IdentityRegistry. Returns (tokenId, agentURI).
 
-        v2.1.8: the shipped registry address (`0x8080...0004`) is a placeholder.
-        Real registration against the BNB HACK contest contract requires
-        that placeholder to be replaced with the canonical address from
-        bsctrace.com — and the tx needs to be signed by TWAK + broadcast.
-        Until both are wired, ALL modes (including mainnet) use the
-        deterministic stub so the agent can boot. To switch to real
-        registration:
-          1. Set ERC8004_REGISTRY in core/boot.py to the canonical address.
-          2. Extend ERC8004.register() to sign via TWAKWallet + broadcast.
-
-        v2.2.5 (contest-registry distinction): the BNB HACK 2026
-        participation allowlist lives at 0x212c61b9b72c95d95bf29cf032f5e5635629aed5
-        (the "CompetitionRegistry") and is a SEPARATE on-chain call
-        (`scripts/competition_register.py`). It is NOT the same as
-        ERC-8004 identity. The ERC-8004 identity NFT is registered
-        separately via the BNB AI Agent SDK's own deployed contract.
-        When `self.registry` matches the CompetitionRegistry, log at
-        INFO (not WARNING) since participation has already happened
-        via the separate script and this stub is just the ERC-8004
-        identity path.
+        Testnet/replay: deterministic stub (no broadcast, no gas).
+        Mainnet: signs via TWAKWallet + broadcasts via BSCClient, parses
+        the Transfer event log for the real tokenId.
         """
         if self.client.mode in ("testnet", "replay"):
             self._cid = "Qm" + Web3.keccak(text=agent_uri).hex()[:44]
             self._token_id = int.from_bytes(Web3.keccak(text=agent_uri)[:8], "big")
-            return self._token_id, self._cid
-        # v2.1.8 / v2.2.5: mainnet mode returns the deterministic stub.
-        # Log level depends on which registry address is configured:
-        #  - CompetitionRegistry (0x212c...) → INFO (participation is
-        #    handled by a separate script; this is just ERC-8004 identity)
-        #  - placeholder (0x8080...0004)      → WARNING (operator should
-        #    update core/boot.py:_BNB_HACK_2026_REGISTRY)
-        comp_reg = "0x212c61b9b72c95d95bf29cf032f5e5635629aed5"
-        if (self.registry or "").lower() == comp_reg:
             log.info(
-                "ERC8004.register: ERC-8004 identity NFT uses the deterministic "
-                "stub for the 2026 BNB HACK contest; participation allowlist "
-                "(CompetitionRegistry at %s) is registered separately via "
-                "scripts/competition_register.py.",
-                comp_reg,
+                "ERC8004.register: testnet stub — tokenId=%d cid=%s",
+                self._token_id, self._cid,
             )
-        else:
+            return self._token_id, agent_uri
+
+        # v2.3.0: real on-chain registration on mainnet.
+        if self.wallet is None:
+            raise RuntimeError(
+                "ERC8004.register: mainnet mode requires a TWAKWallet "
+                "(the contract call needs to be signed + broadcast)"
+            )
+        if not self._is_canonical_identity_registry():
             log.warning(
-                "ERC8004.register: registry address (%s) is a placeholder. "
-                "Set core/boot.py:_BNB_HACK_2026_REGISTRY to %s to enable "
-                "the canonical BNB HACK 2026 identity flow.",
-                self.registry, comp_reg,
+                "ERC8004.register: registry %s is not the canonical ERC-8004 "
+                "IdentityRegistry (expected 0x8004A169FB4a3325136EB29fA0ceB6D2e539a432). "
+                "8004scan.io may not index this contract — proceeding anyway.",
+                self.registry,
             )
-        self._cid = "Qm" + Web3.keccak(text=agent_uri).hex()[:44]
-        self._token_id = int.from_bytes(Web3.keccak(text=agent_uri)[:8], "big")
-        return self._token_id, self._cid
+        w3 = self.client.w3()
+        nonce = self.client.next_nonce(self.wallet.address)
+        # Encode register(string)
+        contract = w3.eth.contract(address=self.registry, abi=ERC8004_REGISTRY_ABI)
+        tx = contract.functions.register(agent_uri).build_transaction({
+            "from":  self.wallet.address,
+            "nonce": nonce,
+            "chainId": self.client.chain_id,
+            "gas":   300_000,
+        })
+        # Apply operator policy cap (BSC: 5 gwei typical)
+        signed = self.wallet.sign_transaction(
+            tx,
+            chain_id=self.client.chain_id,
+            max_gas_price_gwei=self.max_gas_price_gwei,
+        )
+        log.info(
+            "ERC8004.register: broadcasting register('%s...') nonce=%d to %s",
+            agent_uri[:32], nonce, self.registry,
+        )
+        rcpt = self.client.broadcast(signed)
+        if rcpt.status != 1:
+            raise RuntimeError(
+                f"ERC8004.register: tx reverted (status={rcpt.status}) — "
+                f"hash={rcpt.tx_hash}. Check BNB balance + gas + registry address."
+            )
+        # Parse the Transfer event to extract the real tokenId
+        token_id = self._extract_token_id_from_transfer(rcpt.logs)
+        if token_id is None:
+            raise RuntimeError(
+                f"ERC8004.register: tx succeeded but no Transfer event found "
+                f"in logs. hash={rcpt.tx_hash}. Registry ABI may differ."
+            )
+        self._token_id = token_id
+        self._tx_hash = rcpt.tx_hash
+        # _cid kept for backwards compat — it's the SHA256-prefixed hex
+        # of agent_uri, which is what register_agent() passes us.
+        self._cid = agent_uri.replace("ipfs://", "").replace("https://gateway.pinata.cloud/ipfs/", "")
+        log.info(
+            "ERC8004.register: NFT minted — tokenId=%d tx=%s",
+            token_id, rcpt.tx_hash,
+        )
+        return token_id, agent_uri
+
+    def _is_canonical_identity_registry(self) -> bool:
+        """True iff self.registry is the canonical BSC-mainnet IdentityRegistry
+        (0x8004A169FB4a3325136EB29fA0ceB6D2e539a432) that 8004scan.io indexes."""
+        canonical = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
+        return (self.registry or "").lower() == canonical.lower()
+
+    def _extract_token_id_from_transfer(self, logs: list) -> int | None:
+        """Pull the new tokenId from the IdentityRegistry's Transfer event
+        that minted an NFT to our wallet.
+
+        For a fresh mint, the Transfer event has from=0x0, to=wallet,
+        tokenId=<new id>. We look for any Transfer topic[0] match where
+        BOTH from == 0x0 (mint) AND to == wallet (our mint, not someone
+        else's). The wallet may also have unrelated past transfers in
+        the same receipt — we only want the one minted to it.
+
+        Tolerates both hex-string topics (the shape web3.py returns from
+        receipt.logs) and bytes topics (the shape some RPCs return).
+        """
+        zero_addr = "0x" + "00" * 20
+        our_addr = (self.wallet.address if self.wallet else "").lower()
+
+        def _hex(t):
+            if isinstance(t, bytes):
+                return t.hex()
+            if isinstance(t, str):
+                return t[2:] if t.startswith("0x") else t
+            return ""
+
+        for log_entry in logs or []:
+            topics = log_entry.get("topics", [])
+            if len(topics) < 4:
+                continue
+            topic0_hex = _hex(topics[0])
+            if topic0_hex.lower() != self._TRANSFER_TOPIC_HEX[2:].lower():
+                continue
+            from_hex = _hex(topics[1])
+            to_hex = _hex(topics[2])
+            token_id = int(_hex(topics[3]) or "0", 16)
+            from_addr = ("0x" + from_hex[-40:]).lower()
+            to_addr = ("0x" + to_hex[-40:]).lower()
+            if from_addr == zero_addr.lower() and to_addr == our_addr:
+                return token_id
+        return None
+
+    @property
+    def tx_hash(self) -> str | None:
+        return self._tx_hash
 
     @property
     def token_id(self) -> int | None:

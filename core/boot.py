@@ -84,19 +84,27 @@ def init_bsc(cfg: dict) -> dict:
         quoter=cfg["dex"]["pcs_v3_quoter"], factory=cfg["dex"]["pcs_v3_factory"],
     )
     perps = Perps(mode=cfg.get("mode", "testnet"))
-    # v2.2.2: use the canonical BNB HACK 2026 identity registry instead
-    # of the 0x80040000...0000 placeholder. The placeholder was never
-    # deployed as a real contract, so the agent's identity never
-    # showed up on 8004scan.io. The real contract is
-    # 0x212c61b9b72c95d95bf29cf032f5e5635629aed5 (verified via
-    # isRegistered(0xed669AE6632be9440cdACBE5ac5181D5BC871CC9) == true
-    # on 2026-06-23). With this address the local ERC8004.register()
-    # stub's token_id is overwritten on the next boot, and the agent's
-    # identity starts being indexed by 8004scan.
+    # v2.3.0: switch from the placeholder to the canonical ERC-8004
+    # IdentityRegistry at 0x8004A169FB4a3325136EB29fA0ceB6D2e539a432.
+    # 8004scan.io (AltLayer's ERC-8004 explorer) only indexes this
+    # contract's Transfer events on BSC mainnet — calling
+    # register(string) here produces a real NFT that's visible at
+    # https://www.8004scan.io/agents/bsc/{tokenId}. The previous
+    # 0x212c61b... address is the BNB HACK 2026 CompetitionRegistry
+    # (separate contract, tracks participation not identity).
+    _ERC8004_IDENTITY_REGISTRY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
     _BNB_HACK_2026_REGISTRY = "0x212c61b9b72c95d95bf29cf032f5e5635629aed5"
-    erc8004 = ERC8004(client=bsc, registry_address=_BNB_HACK_2026_REGISTRY)
+    # Wallet is wired later in init_wallet() / register_identity() —
+    # pass None here so init_bsc doesn't depend on wallet order.
+    erc8004 = ERC8004(client=bsc, registry_address=_ERC8004_IDENTITY_REGISTRY)
     erc8183 = ERC8183(client=bsc, escrow_address="0x" + "81" + "83" + "0" * 36)
-    return {"bsc": bsc, "pancake": pancake, "perps": perps, "erc8004": erc8004, "erc8183": erc8183}
+    return {
+        "bsc": bsc, "pancake": pancake, "perps": perps,
+        "erc8004": erc8004, "erc8183": erc8183,
+        # exposed for diagnostic logging
+        "_identity_registry_canonical": _ERC8004_IDENTITY_REGISTRY,
+        "_competition_registry": _BNB_HACK_2026_REGISTRY,
+    }
 
 
 def init_ipfs(cfg: dict) -> IPFSClient:
@@ -108,7 +116,14 @@ def init_ipfs(cfg: dict) -> IPFSClient:
 
 def register_identity(erc8004: ERC8004, ipfs: IPFSClient, wallet: TWAKWallet,
                      policy: dict, version: str = "1.0.0") -> dict:
-    """Build ERC-8004 metadata, pin to IPFS, register on-chain (or stub).
+    """Build ERC-8004 metadata, pin to a public IPFS gateway, register on-chain.
+
+    v2.3.0: pin the metadata to a public-resolvable gateway (Pinata if
+    PINATA_API_KEY is set, else local IPFS daemon, else local-only CID)
+    so 8004scan.io's crawler can HTTP-GET the agentURI from
+    ``tokenURI(tokenId)`` and show real metadata on the agent page.
+    The agentURI returned from ``pin_to_public_gateway`` is what we
+    pass to the IdentityRegistry's ``register(string)``.
 
     v2.1.8 (#9): if a saved identity exists, reuse it ONLY when its
     `agent_address` matches the current wallet. Mismatch (operator
@@ -152,6 +167,7 @@ def register_identity(erc8004: ERC8004, ipfs: IPFSClient, wallet: TWAKWallet,
             {"trait_type": "per_trade_risk","value": f"{policy['global_risk']['per_trade_risk_pct']}%"},
             {"trait_type": "daily_loss_cap","value": f"{policy['global_risk']['daily_loss_circuit_breaker_pct']}%"},
             {"trait_type": "version",   "value": version},
+            {"trait_type": "hackathon", "value": "BNB-HACK-2026"},
         ],
         "endpoints": {
             "metrics": "http://localhost:8000/metrics",
@@ -163,18 +179,26 @@ def register_identity(erc8004: ERC8004, ipfs: IPFSClient, wallet: TWAKWallet,
             "schema":    "erc-8004-v0",
         },
     }
-    cid = ipfs.add_json(meta)
-    token_id, _ = erc8004.register(agent_uri=f"ipfs://{cid}")
+    # v2.3.0: pin to a public gateway so 8004scan.io can fetch the metadata.
+    cid, gateway_url = ipfs.pin_to_public_gateway(meta)
+    log.info("identity pinned: cid=%s gateway_url=%s", cid, gateway_url)
+    token_id, _ = erc8004.register(agent_uri=gateway_url)
     identity = {
         "token_id": token_id,
         "cid": cid,
+        "agent_uri": gateway_url,
         "agent_address": wallet.address,
+        "registry_address": erc8004.registry,
+        "tx_hash": getattr(erc8004, "tx_hash", None),
         "evaluator_address": policy["evaluator_address"],
         "version": version,
     }
     Path("~/.bnbagent").expanduser().mkdir(parents=True, exist_ok=True)
     json.dump(identity, open(Path("~/.bnbagent/identity.json").expanduser(), "w"), indent=2)
-    log.info("ERC-8004 identity registered: tokenId=%s cid=%s", token_id, cid)
+    log.info(
+        "ERC-8004 identity registered: tokenId=%s cid=%s registry=%s tx=%s",
+        token_id, cid, erc8004.registry, identity["tx_hash"],
+    )
     return identity
 
 
@@ -271,6 +295,19 @@ def boot(starting_equity: Decimal = Decimal("100"),
         mode=cfg.get("mode", "testnet"),
         clock=clock,
         mark_cache_ttl_s=mark_cache_ttl_s,
+    )
+
+    # v2.3.0: wire the wallet into ERC8004 BEFORE register_identity runs.
+    # Mainnet register() needs the wallet to sign the on-chain tx; without
+    # this it would raise. Max gas cap comes from config (default 5 gwei —
+    # well above BSC's 0.05 gwei floor so the tx always lands, but capped
+    # so a stuck-tx can't burn through the $15 BNB stack on gas spikes).
+    max_gas_price_gwei = float((cfg.get("gas") or {}).get("max_gwei", 5.0))
+    bs["erc8004"].wallet = wallet
+    bs["erc8004"].max_gas_price_gwei = max_gas_price_gwei
+    log.info(
+        "ERC8004 wired: registry=%s wallet=%s max_gas=%s gwei",
+        bs["erc8004"].registry, wallet.address, max_gas_price_gwei,
     )
 
     identity = register_identity(bs["erc8004"], ipfs, wallet, policy)

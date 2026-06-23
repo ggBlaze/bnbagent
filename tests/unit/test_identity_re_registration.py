@@ -31,9 +31,14 @@ class _FakeERC8004:
     assert when register_identity() short-circuits vs re-runs."""
     def __init__(self):
         self.calls = 0
+        # v2.3.0: register_identity() now also stores the registry
+        # address in the saved identity so the dashboard can verify
+        # the agent was registered against the 8004scan-indexed contract.
+        self.registry = "0x" + "80" * 20
+        self.tx_hash = "0x" + "ab" * 32
     def register(self, agent_uri: str):
         self.calls += 1
-        return (1000 + self.calls, "0xtxhash")
+        return (1000 + self.calls, agent_uri)
 
 
 class _FakeIPFS:
@@ -42,6 +47,14 @@ class _FakeIPFS:
     def add_json(self, meta: dict) -> str:
         self.calls += 1
         return f"QmFakeCID{self.calls}"
+    # v2.3.0: register_identity() now pins via pin_to_public_gateway
+    # instead of add_json (the public-gateway URL is what 8004scan.io's
+    # crawler can fetch). Stub it the same way so these tests stay
+    # network-free.
+    def pin_to_public_gateway(self, meta: dict) -> tuple[str, str]:
+        self.calls += 1
+        cid = f"QmFakeCID{self.calls}"
+        return cid, f"https://example.com/ipfs/{cid}"
 
 
 def _policy() -> dict:

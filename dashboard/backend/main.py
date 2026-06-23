@@ -580,13 +580,34 @@ def build_app() -> FastAPI:
         if not ident:
             return JSONResponse({"error": "no identity registered"})
         chain_id = _cfg().get("chain_id", 97)
+        # v2.3.0: 8004scan.io URL pattern is /agents/{chain}/{tokenId}, not
+        # /agents/{walletAddress}. Without the real on-chain tokenId the
+        # scan can't resolve the agent — fall back to a search URL that
+        # at least shows results for the wallet address.
+        token_id = ident.get("token_id")
+        chain_name = "bsc" if chain_id == 56 else ("bnb-testnet" if chain_id == 97 else f"chain-{chain_id}")
+        if token_id is not None and not isinstance(token_id, str):
+            scan_url = f"https://www.8004scan.io/agents/{chain_name}/{token_id}"
+            scan_search_url = None
+        else:
+            # Stub token_id (testnet or pre-v2.3.0 registration). Use the
+            # search URL so the operator can still verify the wallet
+            # exists in 8004scan's index (e.g. via a prior tx).
+            scan_url = None
+            scan_search_url = (
+                f"https://www.8004scan.io/agents?search={ident.get('agent_address', '')}"
+            )
         return JSONResponse({
-            "token_id":       ident.get("token_id"),
+            "token_id":       token_id,
             "cid":            ident.get("cid"),
+            "agent_uri":      ident.get("agent_uri"),
             "agent_address":  ident.get("agent_address"),
+            "registry_address": ident.get("registry_address"),
+            "tx_hash":        ident.get("tx_hash"),
             "evaluator":      ident.get("evaluator_address"),
             "version":        ident.get("version"),
-            "8004scan_url":   f"https://www.8004scan.io/agents/{ident.get('agent_address', '')}",
+            "8004scan_url":   scan_url or scan_search_url,
+            "8004scan_search_url": scan_search_url,
         })
 
     # --- v2.1.4: BNB HACK 2026 Track 1 on-chain competition registration ---

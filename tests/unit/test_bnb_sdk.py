@@ -244,11 +244,21 @@ class TestERC8183:
 
 class TestERC8004:
     def test_register_stub(self):
+        """v2.3.0: testnet/replay stub returns (token_id, agent_uri).
+        The agent_uri is what the IdentityRegistry would receive as
+        `register(string)` — pinning produces either an ipfs:// URL
+        or a public gateway HTTPS URL. The token_id is a deterministic
+        stub derived from keccak(agent_uri) so it stays stable across
+        test runs without broadcasting."""
         c = BSCClient(["http://x"], 97, "testnet")
         e = ERC8004(c, "0x" + "8" * 40)
-        token_id, cid = e.register(agent_uri="ipfs://Qmabc")
+        token_id, agent_uri = e.register(agent_uri="ipfs://Qmabc")
         assert token_id > 0
-        assert cid.startswith("Qm")
+        # v2.3.0: the second return value is now the agent_uri
+        # (the string passed to the IdentityRegistry's register(string))
+        assert agent_uri == "ipfs://Qmabc"
+        # cid is still exposed as an attribute for backwards compat
+        assert e._cid.startswith("Qm")
 
 
 class TestPancakeV3Mainnet:
