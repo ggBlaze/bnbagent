@@ -71,6 +71,16 @@ class SleeveBMomentum:
 
         await self._monitor_open_positions(equity)
         signals = await self._scan_signals(sleeve_cfg)
+        # v2.3.5: per-tick observability. Previously a tick with no
+        # signals was silent — indistinguishable from "sleeve crashed"
+        # in the logs. One line per tick makes the operator-visible
+        # state match the dashboard /api/sleeves tick_count.
+        log.info(
+            "sleeve B tick: scanned %d syms, %d signal(s): %s",
+            len(getattr(self, "_last_universe", [])),
+            len(signals),
+            [s[0] for s in signals[:5]] or "—",
+        )
         for sym, atr14, px in signals:
             await self._open_trade(sym, atr14, px, equity, sleeve_cfg)
 
@@ -82,6 +92,10 @@ class SleeveBMomentum:
             # BTC) which are NOT in the 149-list. filter_universe drops
             # them in strict mode (the default during the contest).
             universe = filter_universe(self.cfg["cmc"]["dex_universe_symbols"])
+            # v2.3.5: stash the universe for the per-tick log in tick()
+            # so the operator can see how many symbols were scanned
+            # even when no signal fires.
+            self._last_universe = list(universe)
             ohlc = await self.data_source.ohlcv_historical(
                 universe, time_period="hour", count=24, convert="USD",
             )

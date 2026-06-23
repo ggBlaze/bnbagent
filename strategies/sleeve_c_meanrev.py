@@ -55,6 +55,13 @@ class SleeveCMeanRev:
 
         await self._monitor_open_positions(equity, sleeve_cfg)
         signals = await self._scan_signals(sleeve_cfg)
+        # v2.3.5: per-tick observability. See sleeve B for rationale.
+        log.info(
+            "sleeve C tick: scanned %d syms, %d signal(s): %s",
+            len(getattr(self, "_last_universe", [])),
+            len(signals),
+            [s[0] for s in signals[:5]] or "—",
+        )
         for sym, ref_price, sigma in signals:
             await self._open_mean_rev(sym, ref_price, sigma, equity, sleeve_cfg)
 
@@ -64,6 +71,8 @@ class SleeveCMeanRev:
             # before fetching OHLCV. Saves a paid x402 microcharge per
             # dropped symbol AND keeps us on the contest's scored list.
             universe = filter_universe(self.cfg["cmc"]["basket_symbols"])[:20]
+            # v2.3.5: stash the universe for the per-tick log in tick().
+            self._last_universe = list(universe)
             ohlc = await self.data_source.ohlcv_historical(
                 universe, time_period="hour", count=24 * 7, convert="USD",
             )
