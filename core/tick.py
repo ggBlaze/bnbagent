@@ -435,8 +435,11 @@ class Agent:
         keep the paper path (no real network).
         """
         if not (self.bsc and self.pancake and self.wallet):
+            log.warning("_can_do_onchain: missing components bsc=%s pancake=%s wallet=%s", bool(self.bsc), bool(self.pancake), bool(self.wallet))
             return False
         mode = (self.components.get("config") or {}).get("mode") or "testnet"
+        if mode != "mainnet":
+            log.warning("_can_do_onchain: mode=%s (not mainnet)", mode)
         return mode == "mainnet"
 
     def _ensure_usdc_approval(self, amount_usdc_6dec: int) -> str | None:
@@ -452,6 +455,14 @@ class Agent:
         thousands of approvals. Returns the approval tx_hash, or
         None if already approved.
         """
+        # v2.2.0: reconcile the nonce cache from chain before signing
+        # anything, so a fresh boot doesn't sign with nonce 0 on a
+        # wallet that already has 3 txs (the chain rejects with
+        # 'nonce too low').
+        try:
+            self.bsc.resync_nonce(self.wallet.address)
+        except Exception as e:
+            log.warning(f"resync_nonce before approval failed: {e}")
         from web3 import Web3
         cfg = (self.components.get("config") or {})
         router = cfg["dex"]["pcs_v3_router"]
@@ -526,35 +537,57 @@ class Agent:
 
     async def _submit_onchain_swap(self, symbol: str, notional_usdc: Decimal,
                                     *, side: str = "buy") -> dict:
-        """Execute a real on-chain USDC->WBNB swap via PancakeSwap V3.
+        """Execute a real on-chain USDC-><symbol> swap via PancakeSwap V3.
 
         v2.2.0 (onchain-floor): the floor uses this helper to do a
-        tiny USDC->WBNB swap on mainnet. Notional is in USDC (6 dec).
+        tiny USDC->symbol swap on mainnet. Notional is in USDC (6 dec).
         Returns a dict with tx_hash, status, error (if any). On any
         failure, returns a dict with status='failed' so the caller
         can fall back to the paper path.
+
+        v2.2.0 bugfix: previously the symbol param was ignored and
+        the swap was hardcoded to USDC->WBNB, which reverted with STF
+        when WBNB was not in the wallet (and failed the eligibility
+        check anyway because WBNB is not on the BNB HACK 149 list).
+        Now we honor the symbol param so any USDC-><eligible_token>
+        swap works.
         """
+        # v2.2.0: reconcile the nonce cache from chain before building
+        # the swap tx, so a fresh boot doesn't sign with nonce 0 on a
+        # wallet that already has txs.
+        try:
+            self.bsc.resync_nonce(self.wallet.address)
+        except Exception as e:
+            log.warning(f"resync_nonce before swap failed: {e}")
+
+        log.warning("onchain_swap: starting, symbol=%s, notional=%s USDC", symbol, notional_usdc)
         cfg = (self.components.get("config") or {})
         try:
             from core.utils import token_address
             usdc_addr = token_address(cfg, "USDC")
-            wbnb_addr = token_address(cfg, "WBNB")
+            out_addr = token_address(cfg, symbol)
+            if out_addr.lower() == usdc_addr.lower():
+                return {"status": "failed", "error": f"USDC->{symbol} is identity swap"}
         except Exception as e:
             return {"status": "failed", "error": f"token_address: {e}"}
 
         amount_in = int(notional_usdc * Decimal(10**6))  # USDC has 6 decimals
         try:
-            # 1. Pick the best fee tier (USDC->WBNB typically 2500 bps)
+            # 1. Pick the best fee tier for this pair
             fee = self.pancake.best_pool_fee(
-                usdc_addr, wbnb_addr, [100, 500, 2500, 10000]
+                usdc_addr, out_addr, [100, 500, 2500, 10000]
             )
+            if fee is None or fee < 0:
+                return {"status": "failed", "error": f"no working pool for USDC->{symbol}"}
             # 2. Quote expected output
-            quote = self.pancake.quote(usdc_addr, wbnb_addr, fee, amount_in)
+            quote = self.pancake.quote(usdc_addr, out_addr, fee, amount_in)
+            if quote <= 0:
+                return {"status": "failed", "error": f"zero quote for USDC->{symbol} (no pool?)"}
             # 3. Apply 1% slippage tolerance
             min_out = int(quote * Decimal("0.99"))
             # 4. Build calldata
             calldata = self.pancake.encode_swap_v3(
-                token_in=usdc_addr, token_out=wbnb_addr, fee=fee,
+                token_in=usdc_addr, token_out=out_addr, fee=fee,
                 recipient=self.wallet.address, amount_in=amount_in, min_out=min_out,
             )
             # 5. Ensure USDC approval (no-op if already approved)
@@ -612,9 +645,16 @@ class Agent:
                                     # worth of WBNB; approximate using
                                     # the original notional)
                                     notional = float(pos.notional_usdc)
-                                    wbnb_amount = int(notional * 10**18)
+                                    # v2.2.0 (mainnet USDC->USDT): the
+                                    # closed amount is the USDT (6 dec)
+                                    # we received, not WBNB (18 dec).
+                                    if entry["symbol"] == "USDT":
+                                        close_amount = int(notional * 10**6)
+                                    else:
+                                        close_amount = int(notional * 10**18)
                                     close_tx = await self._submit_close_swap(
-                                        wbnb_amount_wei=wbnb_amount,
+                                        in_symbol=entry["symbol"],
+                                        in_amount_wei=close_amount,
                                     )
                                     log.info("floor_trade_closed_onchain", extra={
                                         "event": "floor_trade_close_onchain",
@@ -629,7 +669,7 @@ class Agent:
                                         ).append({
                                             "ts": now,
                                             "pos_id": pid,
-                                            "symbol": "WBNB",
+                                            "symbol": entry["symbol"],
                                             "side": "close",
                                             "notional_usdc": str(notional),
                                             "tx_hash": close_tx.get("tx_hash"),
@@ -655,31 +695,35 @@ class Agent:
                 log.warning("floor_close_loop: %s", e)
             await asyncio.sleep(30)
 
-    async def _submit_close_swap(self, wbnb_amount_wei: int) -> dict:
-        """WBNB -> USDC swap to close a floor position back to USDC.
+    async def _submit_close_swap(self, in_symbol: str, in_amount_wei: int) -> dict:
+        """<in_symbol> -> USDC swap to close a floor position back to USDC.
 
-        v2.2.0 (onchain-floor): the open was USDC->WBNB; the close is
-        the reverse. Same PancakeSwap V3 path, just with the tokens
-        swapped and the direction reversed.
+        v2.2.0 (onchain-floor): the open was USDC-><sym>; the close is
+        the reverse. Originally the open was USDC->WBNB, so close was
+        WBNB->USDC. After the 2026-06-22 mainnet bugfix the open is
+        USDC->USDT (USDC->USDT V3 pool is deep; USDC->WBNB is empty
+        on BSC mainnet), so close is USDT->USDC.
         """
         cfg = (self.components.get("config") or {})
         try:
             from core.utils import token_address
             usdc_addr = token_address(cfg, "USDC")
-            wbnb_addr = token_address(cfg, "WBNB")
+            in_addr = token_address(cfg, in_symbol)
         except Exception as e:
             return {"status": "failed", "error": f"token_address: {e}"}
 
         try:
             fee = self.pancake.best_pool_fee(
-                wbnb_addr, usdc_addr, [100, 500, 2500, 10000]
+                in_addr, usdc_addr, [100, 500, 2500, 10000]
             )
-            quote = self.pancake.quote(wbnb_addr, usdc_addr, fee, wbnb_amount_wei)
+            if fee is None or fee < 0:
+                return {"status": "failed", "error": f"no working pool for {in_symbol}->USDC"}
+            quote = self.pancake.quote(in_addr, usdc_addr, fee, in_amount_wei)
             min_out = int(quote * Decimal("0.99"))
             calldata = self.pancake.encode_swap_v3(
-                token_in=wbnb_addr, token_out=usdc_addr, fee=fee,
+                token_in=in_addr, token_out=usdc_addr, fee=fee,
                 recipient=self.wallet.address,
-                amount_in=wbnb_amount_wei, min_out=min_out,
+                amount_in=in_amount_wei, min_out=min_out,
             )
             signed = self.wallet.sign_transaction(
                 {"to": cfg["dex"]["pcs_v3_router"],

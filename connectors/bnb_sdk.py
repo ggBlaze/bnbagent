@@ -140,8 +140,8 @@ PCSV3_QUOTER_ABI = [
             "components": [
                 {"name": "tokenIn",           "type": "address"},
                 {"name": "tokenOut",          "type": "address"},
-                {"name": "fee",               "type": "uint24"},
                 {"name": "amountIn",          "type": "uint256"},
+                {"name": "fee",               "type": "uint24"},
                 {"name": "sqrtPriceLimitX96", "type": "uint160"},
             ]
         }],
@@ -329,7 +329,21 @@ class PancakeV3:
             # deterministic stub calldata (130 bytes) so the dashboard shows a real-looking hash
             seed = f"swap:{token_in}:{token_out}:{fee}:{amount_in}:{min_out}".encode()
             return b"\x00" * 4 + Web3.keccak(seed)[:100]
-        data = router.functions.exactInputSingle((
+        # v2.2.0 fix: build_transaction() runs an eth_estimateGas which
+        # simulates the call with the given `from` (default 0x0). For
+        # token swaps where the router needs to transferFrom the sender,
+        # the simulation reverts with STF (Safe Transfer From) when the
+        # simulated sender doesn't have the token allowance. Workaround:
+        # build the calldata using `encode_abi` which does NOT simulate.
+        # The calldata is just the function selector + ABI-encoded args,
+        # which is what we want for raw broadcasting.
+        from eth_abi import encode
+        from eth_utils import keccak
+        # Build the typed struct hash for ExactInputSingleParams:
+        # (address tokenIn, address tokenOut, uint24 fee, address recipient,
+        #  uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)
+        types = ['address', 'address', 'uint24', 'address', 'uint256', 'uint256', 'uint160']
+        values = (
             Web3.to_checksum_address(token_in),
             Web3.to_checksum_address(token_out),
             int(fee),
@@ -337,7 +351,11 @@ class PancakeV3:
             int(amount_in),
             int(min_out),
             int(sqrt_price_limit_x96),
-        )).build_transaction({"value": 0})["data"]
+        )
+        # The function selector for exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))
+        selector = keccak(text='exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))')[:4]
+        encoded = encode(types, values)
+        return selector + encoded
         # build_transaction()["data"] is a hex string ("0x..."). Normalize
         # to raw bytes so callers can do `calldata.hex()` consistently
         # with the testnet/replay stub branch (which already returns bytes).
@@ -354,16 +372,26 @@ class PancakeV3:
         return quoter.functions.quoteExactInputSingle((
             Web3.to_checksum_address(token_in),
             Web3.to_checksum_address(token_out),
+            int(amount_in),  # v2.2.0 fix: was int(fee), int(amount_in) -- the
+                              # actual QuoterV2 struct is (amountIn, fee, ...)
+                              # not (fee, amountIn, ...). The wrong order caused
+                              # the quoter to interpret fee_tier=1_USDC and
+                              # amountIn=fee_tier, which reverts with empty
+                              # data on every call.
             int(fee),
-            int(amount_in),
             0,
         )).call()
 
     def best_pool_fee(self, token_in: str, token_out: str, candidates: list[int]) -> int:
-        """Pick the fee tier with the most liquidity (deepest quote)."""
+        """Pick the fee tier with the most liquidity (deepest quote).
+
+        v2.2.0 fix: returns -1 if no candidate has a working pool, instead
+        of silently returning candidates[0] (which would cause the swap
+        to revert with empty data on mainnet).
+        """
         if self.client.mode in ("testnet", "replay"):
             return candidates[2] if len(candidates) >= 3 else candidates[0]
-        best_fee, best_out = candidates[0], 0
+        best_fee, best_out = -1, 0
         for fee in candidates:
             try:
                 out = self.quote(token_in, token_out, fee, 10**18)

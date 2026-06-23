@@ -41,16 +41,20 @@ tokens:
     symbol: ETH
     bsc_address: "0x2170Ed0880ac9A755fd29B2688956BD959F933F8"  # Binance-Peg ETH
     decimals: 18
+  USDT:
+    symbol: USDT
+    bsc_address: "0x55d398326f99059fF775485246999027B3197955"  # Tether USD on BSC
+    decimals: 6
   # (additional tokens loaded from allowlist.yaml)
 
 # --- DEX routers (PancakeSwap v3, BSC mainnet) ---
 # Source: https://developer.pancakeswap.finance/contracts/v3/addresses
 #   - Smart Router (BSC + ETH): 0x13f4EA83D0bd40E75C8222255bc855a974568Dd4
-#   - QuoterV2 (BSC):            0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518eE25997
+#   - QuoterV2 (BSC):            0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997
 #   - PancakeV3Factory (BSC):    0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865
 dex:
-  pcs_v3_router:   "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4"  # PCS Smart Router (BSC)
-  pcs_v3_quoter:   "0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997"  # PCS QuoterV2 (BSC mainnet)
+  pcs_v3_router:   "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4"  # PCS Smart Router (BSC, multi-hop, exactInputSingle compatible, allowance is set for this)
+  pcs_v3_quoter:   "0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997"   # PCS QuoterV2 (BSC mainnet)
   pcs_v3_factory:  "0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865"  # PCS V3 Factory (BSC)
   default_pool_fee: 2500                    # 0.25%
   pool_fees: [100, 500, 2500, 10000]

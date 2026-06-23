@@ -141,3 +141,37 @@ def clear_restart_request() -> None:
     if "restart" in c:
         del c["restart"]
         write_control(c)
+
+
+# --- v2.2.0: manual force-fire the daily trade floor ------------------
+#
+# Operator writes {"force_fire_floor": true, "reason": "..."} to
+# control.json. The daily_floor's tick() consumes it on the next
+# heartbeat (within 1s), bypasses the (hour, minute) gate and the
+# "already checked today" throttle, and calls _fire_floor_trade().
+# The trade appears in the portfolio + the on-chain tx lands in
+# BscTrace. Useful when the operator wants to verify the on-chain
+# path is healthy without waiting until 23:30 UTC.
+#
+# One-shot: the marker is consumed and removed from the control
+# file. A second fire requires writing it again.
+
+def request_force_fire_floor(reason: str = "manual force-fire") -> None:
+    """Write a force-fire marker to the control file."""
+    c = read_control()
+    c["force_fire_floor"] = {"reason": reason, "requested_at": time.time()}
+    write_control(c)
+
+
+def _consume_force_fire() -> bool:
+    """True iff a force-fire was requested AND we just consumed it.
+    Atomically removes the marker so a 1s-tick heart beat doesn't
+    re-fire."""
+    c = read_control()
+    if not c.get("force_fire_floor"):
+        return False
+    if "force_fire_floor" in c:
+        del c["force_fire_floor"]
+        write_control(c)
+    return True
+
