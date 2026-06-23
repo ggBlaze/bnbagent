@@ -84,7 +84,17 @@ def init_bsc(cfg: dict) -> dict:
         quoter=cfg["dex"]["pcs_v3_quoter"], factory=cfg["dex"]["pcs_v3_factory"],
     )
     perps = Perps(mode=cfg.get("mode", "testnet"))
-    erc8004 = ERC8004(client=bsc, registry_address="0x" + "80" + "04" + "0" * 36)
+    # v2.2.2: use the canonical BNB HACK 2026 identity registry instead
+    # of the 0x80040000...0000 placeholder. The placeholder was never
+    # deployed as a real contract, so the agent's identity never
+    # showed up on 8004scan.io. The real contract is
+    # 0x212c61b9b72c95d95bf29cf032f5e5635629aed5 (verified via
+    # isRegistered(0xed669AE6632be9440cdACBE5ac5181D5BC871CC9) == true
+    # on 2026-06-23). With this address the local ERC8004.register()
+    # stub's token_id is overwritten on the next boot, and the agent's
+    # identity starts being indexed by 8004scan.
+    _BNB_HACK_2026_REGISTRY = "0x212c61b9b72c95d95bf29cf032f5e5635629aed5"
+    erc8004 = ERC8004(client=bsc, registry_address=_BNB_HACK_2026_REGISTRY)
     erc8183 = ERC8183(client=bsc, escrow_address="0x" + "81" + "83" + "0" * 36)
     return {"bsc": bsc, "pancake": pancake, "perps": perps, "erc8004": erc8004, "erc8183": erc8183}
 

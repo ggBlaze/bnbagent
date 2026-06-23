@@ -10,6 +10,7 @@ Two implementations of MarketDataSource:
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from decimal import Decimal
@@ -231,33 +232,89 @@ class CMCX402Client(_LedgerMixin):
         #      ledger, even though zero actually moved.
         # Both fixed here: derive chain_id/token from `req`, and only
         # count spend on a successful (200) retry.
-        from .x402 import decode_payment_requirements
+        #
+        # v2.2.2 (x402-payable-accept): CMC offers 6+ accepts per
+        # 402 — 6 on BSC and 1 on Base at the time of writing. The
+        # first accept is usually a BSC alt-stable (United Stables,
+        # World Liberty Financial USD) that the agent has 0 of. The
+        # previous code blindly signed for accepts[0], the signed
+        # authorization settled against an empty balance, and the
+        # server returned 402 forever. The fix: walk the accepts
+        # list, query the wallet's balance for each token on its
+        # network, and pick the first one with sufficient balance.
+        # If none of the accepts are payable, raise so the caller
+        # can fall back to the mock data source.
+        import base64 as _b64
+        from .x402 import decode_payment_requirements, pick_payable_accept, _parse_chain_id
         try:
-            req = decode_payment_requirements(resp.headers.get("PAYMENT-REQUIRED", ""))
+            raw_b64 = resp.headers.get("PAYMENT-REQUIRED", "")
+            raw = _b64.b64decode(raw_b64)
+            d402 = json.loads(raw)
+            accepts = d402.get("accepts") or []
+            # Try to find a payable accept that matches the wallet.
+            chosen = None
+            if accepts and isinstance(accepts, list):
+                chosen = await pick_payable_accept(accepts, self.wallet.address)
+            if chosen is None:
+                # No accept is payable — fail loudly so the caller
+                # falls back to mock instead of signing for a token
+                # we don't hold.
+                self._record(method, path, params, Decimal("0"), 402)
+                raise RuntimeError(
+                    f"x402: none of the {len(accepts)} accepts are payable "
+                    f"by wallet {self.wallet.address} (no token balance on "
+                    f"the requested chains)"
+                )
+            # Build a synthetic PAYMENT-REQUIRED header for the chosen
+            # accept so decode_payment_requirements + x402_pay can sign
+            # against it directly. Preserve the outer `resource` field
+            # AND the inner `maxTimeoutSeconds`/`extra` because x402 V2
+            # servers require all of these in the PAYMENT-SIGNATURE
+            # payload (or the response is 'payment header resource is null'
+            # or 'permit2 authorization or witness is null').
+            chosen_b64 = _b64.b64encode(
+                json.dumps({
+                    "x402Version": 2,
+                    "resource":    d402.get("resource", {}),
+                    "accepts":     [chosen],
+                }).encode()
+            ).decode()
+            req = decode_payment_requirements(chosen_b64)
             cost = Decimal(req.amount) / Decimal(10 ** 6)  # USDC has 6 decimals
-            # Network → chain id. Accepts "eip155:<n>" or short names
-            # ("bsc", "base") per the x402 spec. Unknown networks fall
-            # back to the configured default rather than raising — the
-            # x402_pay call below will still validate.
-            if req.network.startswith("eip155:"):
-                network_chain_id = int(req.network.split(":", 1)[1])
-            elif req.network == "bsc":
-                network_chain_id = 56
-            elif req.network == "base":
-                network_chain_id = 8453
-            else:
-                network_chain_id = self.chain_id
+            network_chain_id = _parse_chain_id(req.network) or self.chain_id
             payment_token = req.token or self.token_address
-        except Exception:
-            # Unparseable challenge → sign for the configured default
-            # and use a $0.01 fallback cost (current x402 price floor).
-            cost = Decimal("0.01")
-            network_chain_id = self.chain_id
-            payment_token = self.token_address
+            log.info(
+                "x402 payable accept picked: chain=%d token=%s amount=%s (wallet %s)",
+                network_chain_id, payment_token, req.amount, self.wallet.address,
+            )
+        except Exception as e:
+            # If the balance-checked path itself blew up (RPC flake,
+            # etc.), fall back to the legacy single-accept path. The
+            # legacy path may also fail, but at least we tried.
+            if "x402: none of the" in str(e):
+                raise  # propagate the explicit "no payable accept" error
+            try:
+                req = decode_payment_requirements(resp.headers.get("PAYMENT-REQUIRED", ""))
+                cost = Decimal(req.amount) / Decimal(10 ** 6)
+                if req.network.startswith("eip155:"):
+                    network_chain_id = int(req.network.split(":", 1)[1])
+                elif req.network == "bsc":
+                    network_chain_id = 56
+                elif req.network == "base":
+                    network_chain_id = 8453
+                else:
+                    network_chain_id = self.chain_id
+                payment_token = req.token or self.token_address
+            except Exception:
+                # Unparseable challenge → sign for the configured default
+                # and use a $0.01 fallback cost (current x402 price floor).
+                cost = Decimal("0.01")
+                network_chain_id = self.chain_id
+                payment_token = self.token_address
 
         try:
             payment_hdr = await x402_pay(
-                required_b64=resp.headers.get("PAYMENT-REQUIRED", ""),
+                required_b64=chosen_b64,
                 wallet=self.wallet,
                 chain_id=network_chain_id,
                 token_address=payment_token,

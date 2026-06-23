@@ -41,6 +41,18 @@ DEFAULT_BASE_RPCS = [
     "https://base.publicnode.com",
     "https://1rpc.io/base",
 ]
+DEFAULT_BSC_RPCS = [
+    "https://bsc-dataseed.binance.org",
+    "https://bsc-dataseed1.defibit.io",
+    "https://bsc-dataseed1.ninicoin.io",
+]
+# v2.2.2: per-chain RPC map for pick_payable_accept. The agent may be
+# asked to pay on either BSC (eip155:56) or Base (eip155:8453) and
+# needs to query the right RPC to check the wallet's balance.
+_RPC_BY_CHAIN = {
+    56:  DEFAULT_BSC_RPCS[0],
+    8453: DEFAULT_BASE_RPCS[0],
+}
 
 
 def _default_chain_id() -> int:
@@ -83,6 +95,7 @@ class PaymentRequirements:
     nonce: str
     expiresAt: int
     extra: dict[str, Any]
+    resource: dict[str, Any] | None = None  # v2.2.2: x402 V2 resource field
 
 
 def decode_payment_requirements(b64_header: str) -> PaymentRequirements:
@@ -102,6 +115,9 @@ def decode_payment_requirements(b64_header: str) -> PaymentRequirements:
     # shape used by our own test fixtures still works because we fall
     # through to the same key reads on `d` itself.
     accepts = d.get("accepts")
+    # v2.2.2: capture the resource (x402 V2 requires it echoed back in
+    # the PAYMENT-SIGNATURE payload).
+    resource = d.get("resource")
     if isinstance(accepts, list):
         if not accepts:
             raise X402Required("empty 'accepts' array in payment requirements")
@@ -144,11 +160,97 @@ def decode_payment_requirements(b64_header: str) -> PaymentRequirements:
              "maxAmountRequired", "payTo", "payToAddress", "nonce",
              "expiresAt", "validBefore", "maxTimeoutSeconds"}
         },
+        resource=resource,
     )
 
 
 def _eip3009_nonce(s: str) -> bytes:
     return Web3.keccak(text=s) if not s.startswith("0x") else bytes.fromhex(s[2:])
+
+
+# v2.2.2: per-accept balance check so the agent picks the token+chain
+# it can actually pay. CMC's x402 endpoint offers ~7 accepts on a
+# typical request: 6 on BSC (USDC, USDT, plus 4 alt-stables the agent
+# doesn't hold) and 1 on Base (USDC). Without filtering, the client
+# picks accepts[0] which is usually a BSC alt-stable the agent has
+# 0 of, and the signed authorization settles against an empty balance
+# so the server returns 402 again forever. The fix is to query the
+# agent's balance for each accept and pick the first one with
+# sufficient balance. The cost is one extra eth_call per accept
+# (~7 RPCs per 402), well within the agent's per-tick budget.
+
+_ERC20_BALANCE_OF_ABI = [
+    {"inputs": [{"name": "_owner", "type": "address"}],
+     "name": "balanceOf", "outputs": [{"name": "", "type": "uint256"}],
+     "stateMutability": "view", "type": "function"},
+]
+
+
+def _parse_chain_id(network: str) -> int | None:
+    """Map an x402 `network` field to a numeric chain id.
+
+    Accepts "eip155:<n>" (canonical), "bsc"/"base" (legacy), and None.
+    Returns None if the network is unrecognised.
+    """
+    if not network:
+        return None
+    if network.startswith("eip155:"):
+        try:
+            return int(network.split(":", 1)[1])
+        except ValueError:
+            return None
+    if network == "bsc":
+        return 56
+    if network == "base":
+        return 8453
+    return None
+
+
+def _rpc_for_chain(chain_id: int) -> str | None:
+    return _RPC_BY_CHAIN.get(chain_id)
+
+
+async def pick_payable_accept(accepts: list[dict], wallet_address: str) -> dict | None:
+    """Iterate the 402 accepts in order; return the first one whose
+    token the wallet actually holds enough of to cover `amount`.
+
+    Returns None if no accept is payable. Cheap reject: if the
+    accept's amount is 0 or the chain is unknown, skip.
+    """
+    for a in accepts:
+        if not isinstance(a, dict):
+            continue
+        chain_id = _parse_chain_id(a.get("network", ""))
+        if chain_id is None:
+            continue
+        token = a.get("asset") or a.get("token") or ""
+        if not token:
+            continue
+        amount_str = a.get("amount") or a.get("maxAmountRequired") or "0"
+        try:
+            amount = int(amount_str)
+        except (TypeError, ValueError):
+            continue
+        if amount <= 0:
+            continue
+        rpc = _rpc_for_chain(chain_id)
+        if not rpc:
+            continue
+        try:
+            w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 5}))
+            token_c = w3.eth.contract(
+                address=Web3.to_checksum_address(token),
+                abi=_ERC20_BALANCE_OF_ABI,
+            )
+            bal = token_c.functions.balanceOf(
+                Web3.to_checksum_address(wallet_address)
+            ).call()
+        except Exception:
+            continue
+        if bal >= amount:
+            return a
+    return None
+
 
 
 async def x402_pay(
@@ -190,14 +292,45 @@ async def x402_pay(
         "nonce":       "0x" + _eip3009_nonce(req.nonce).hex(),
     }
     signable = encode_typed_data(domain, USDC_TRANSFER_WITH_AUTH_TYPES, message)
-    signed = Account.sign_message(signable, wallet.key)
+    # v2.2.2: TWAKWallet.sign_typed_data already returns the 0x-prefixed
+    # hex signature string; calling Account.sign_message(signable, wallet.key)
+    # would fail because the wallet object exposes a sign_typed_data method
+    # (not the raw `.key` bytes — and even when `.key` is set, the wallet
+    # has a different sign_transaction / sign_typed_data path that we want
+    # to reuse for consistency with the rest of the agent's signing).
+    signature_hex = wallet.sign_typed_data(domain, USDC_TRANSFER_WITH_AUTH_TYPES, message)
 
+    # v2.2.2: x402 V2 spec requires the chosen accept AND the resource
+    # to be echoed back in the PAYMENT-SIGNATURE payload. The V1 shape
+    # was {x402Version, scheme, network, payload: {signature, authorization}}
+    # but V2 (which CMC uses, x402Version: 2 in the 402 body) is:
+    #   {x402Version, accepted: {scheme, network, ...},
+    #    resource:  {url, description, mimeType},
+    #    payload:   {signature, authorization}}
+    # Without the `accepted` and `resource` keys the server returns:
+    #   "Missing accepted in PAYMENT-SIGNATURE payload (x402 V2)"
+    #   "payment header resource is null"
+    # The resource comes from `req.extra` if the chosen accept preserved
+    # it; otherwise we leave it out and let the server error out so
+    # we can see the diagnostic in the log.
+    resource = req.resource
     payload = {
-        "x402Version": 1,
-        "scheme":      req.scheme,
-        "network":     req.network,
+        "x402Version": 2,
+        "accepted": {
+            "scheme":   req.scheme,
+            "network":  req.network,
+            "asset":    req.token,
+            "payTo":    req.payTo,
+            "amount":   str(req.amount),
+            # v2.2.2: include `maxTimeoutSeconds` and `extra` so the
+            # server's permit2/eip3009 witness validation has the full
+            # accept description (otherwise it returns 'permit2
+            # authorization or witness is null' even when we picked
+            # the eip3009 accept).
+            "maxTimeoutSeconds": (req.extra or {}).get("maxTimeoutSeconds", 60) if isinstance(req.extra, dict) else 60,
+        },
         "payload": {
-            "signature": "0x" + signed.signature.hex(),
+            "signature": signature_hex,
             "authorization": {
                 **message,
                 "from":  message["from"],
@@ -206,6 +339,12 @@ async def x402_pay(
             },
         },
     }
+    if isinstance(req.extra, dict) and req.extra:
+        # Preserve any `extra` fields the server expects (e.g.,
+        # assetTransferMethod, name, version, x402PaymentConfigId).
+        payload["accepted"]["extra"] = req.extra
+    if resource is not None:
+        payload["resource"] = resource
     return base64.b64encode(json.dumps(payload).encode()).decode()
 
 

@@ -42,13 +42,25 @@ from typing import Any, Callable
 log = logging.getLogger(__name__)
 
 # 23:30 UTC = 23 * 3600 + 30 * 60 = 84600 seconds from midnight UTC.
-DEFAULT_CHECK_HOUR_UTC = 23
-DEFAULT_CHECK_MINUTE_UTC = 30
+# v2.2.2: moved from 23:30 to 14:00 UTC. The old time was the
+# last 30min of the UTC day, so any CMC / RPC / LLM failure at
+# 23:30 UTC = 17:30 CST meant the day was lost. 14:00 UTC = 08:00
+# CST is 10h earlier, giving the agent and operator half a day
+# to debug and re-fire if the cron missed. The contest measures
+# by UTC day, so any time before 23:59 UTC on the day counts.
+DEFAULT_CHECK_HOUR_UTC = 14
+DEFAULT_CHECK_MINUTE_UTC = 0
 
 # How much of the equity to deploy in the floor trade. Well below the
 # 1% per-trade cap, so even if it loses 100% it can't trip the
 # 5% daily circuit breaker.
-FLOOR_NOTIONAL_FRACTION = Decimal("0.001")  # 0.1%
+# v2.2.2: bumped from 0.001 (0.1%) to 0.0125 (1.25%) so the daily
+# floor trade is meaningful economics, not dust. With an $80 wallet
+# this is $1.00 per fire (matches the user's "1 dollar per day" target
+# on a small wallet); with a $1000 wallet it scales to $12.50. The
+# FLOOR_MIN_NOTIONAL_USDC cap (0.05) still applies so micro-wallets
+# below ~$4 still attempt the dust trade.
+FLOOR_NOTIONAL_FRACTION = Decimal("0.0125")  # 1.25%
 
 # Minimum notional for the floor trade. BSC accepts any dust, but the
 # daily floor was originally specced with a 0.1% of $80 = $0.08 target
