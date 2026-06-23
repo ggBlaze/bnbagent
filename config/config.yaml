@@ -28,7 +28,7 @@ tokens:
   USDC:
     symbol: USDC
     bsc_address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"  # native Circle USDC on BSC
-    decimals: 6
+    decimals: 18  # v2.2.4: was 6 (wrong). On-chain decimals() returns 18.
   CAKE:
     symbol: CAKE
     bsc_address: "0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82"  # PancakeSwap CAKE
@@ -44,7 +44,7 @@ tokens:
   USDT:
     symbol: USDT
     bsc_address: "0x55d398326f99059fF775485246999027B3197955"  # Tether USD on BSC
-    decimals: 6
+    decimals: 18  # v2.2.4: was 6 (wrong). On-chain decimals() returns 18.
   # (additional tokens loaded from allowlist.yaml)
 
 # --- DEX routers (PancakeSwap v3, BSC mainnet) ---

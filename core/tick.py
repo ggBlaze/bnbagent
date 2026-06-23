@@ -442,19 +442,20 @@ class Agent:
             log.warning("_can_do_onchain: mode=%s (not mainnet)", mode)
         return mode == "mainnet"
 
-    def _ensure_usdc_approval(self, amount_usdc_6dec: int) -> str | None:
-        """Best-effort USDC approval for the PancakeSwap router.
+    def _ensure_token_approval(self, token_addr: str, amount: int,
+                                token_symbol: str = "") -> str | None:
+        """Best-effort ERC20 approval for the PancakeSwap router.
 
-        v2.2.0 (onchain-floor): BSC tokens require the user to
-        approve the DEX router to spend their tokens before swapping.
-        Without this approval the swap reverts. We approve max
-        (uint256 max) once so subsequent floor trades don't need
-        re-approval.
+        v2.2.3 (close_loop bugfix): generalized from
+        `_ensure_usdc_approval` to support any token. The original
+        only approved USDC, so when the close_loop tried to send
+        USDT (the post-USDC->USDT floor position), the swap reverted
+        because the router had no USDT allowance.
 
-        The agent has enough gas for this -- 0.05 BNB is plenty for
-        thousands of approvals. Returns the approval tx_hash, or
-        None if already approved.
+        Returns the approval tx_hash, or None if already approved.
         """
+        cfg = (self.components.get("config") or {})
+        router = cfg["dex"]["pcs_v3_router"]
         # v2.2.0: reconcile the nonce cache from chain before signing
         # anything, so a fresh boot doesn't sign with nonce 0 on a
         # wallet that already has 3 txs (the chain rejects with
@@ -464,9 +465,6 @@ class Agent:
         except Exception as e:
             log.warning(f"resync_nonce before approval failed: {e}")
         from web3 import Web3
-        cfg = (self.components.get("config") or {})
-        router = cfg["dex"]["pcs_v3_router"]
-        usdc_addr = "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"
         erc20_abi = [
             {"inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}],
              "name": "allowance", "outputs": [{"name": "", "type": "uint256"}],
@@ -478,13 +476,13 @@ class Agent:
         try:
             w3 = self.bsc.w3()
             erc20 = w3.eth.contract(
-                address=Web3.to_checksum_address(usdc_addr), abi=erc20_abi
+                address=Web3.to_checksum_address(token_addr), abi=erc20_abi
             )
             current = erc20.functions.allowance(
                 Web3.to_checksum_address(self.wallet.address),
                 Web3.to_checksum_address(router),
             ).call()
-            if current >= amount_usdc_6dec:
+            if current >= amount:
                 return None  # already approved
             max_uint = (1 << 256) - 1
             # v2.2.0 fix: pass `from` so web3's gas estimator knows
@@ -502,7 +500,7 @@ class Agent:
             else:
                 data_bytes = data
             signed = self.wallet.sign_transaction(
-                {"to": usdc_addr, "data": "0x" + data_bytes.hex(),
+                {"to": token_addr, "data": "0x" + data_bytes.hex(),
                  "value": 0, "gas": 100_000,
                  "nonce": self.bsc.next_nonce(self.wallet.address),
                  "chainId": cfg["chain_id"]},
@@ -517,7 +515,7 @@ class Agent:
                 # rather than failing the whole floor.
                 err_str = str(broadcast_err).lower()
                 if "already known" in err_str or "known transaction" in err_str:
-                    log.info(f"usdc_approval already in mempool, waiting for receipt")
+                    log.info(f"{token_symbol or token_addr}_approval already in mempool")
                     # Use a short timeout: the agent's broadcast()
                     # already waited for a receipt once, so we just
                     # return None and let the swap proceed (the
@@ -525,15 +523,28 @@ class Agent:
                     # because of nonce ordering)
                     return None
                 raise
-            log.info("usdc_approval_sent", extra={
-                "event": "usdc_approval",
+            log.info("token_approval_sent", extra={
+                "event": "token_approval",
+                "token": token_symbol or token_addr,
                 "tx_hash": receipt.tx_hash,
                 "router": router,
             })
             return receipt.tx_hash
         except Exception as e:
-            log.warning(f"ensure_usdc_approval failed: {e}")
+            log.warning(f"token_approval({token_symbol or token_addr}) failed: {e}")
             return None
+
+    def _ensure_usdc_approval(self, amount_usdc_6dec: int) -> str | None:
+        """v2.2.3: backwards-compat alias for _ensure_token_approval(USDC).
+
+        Older call sites still use this name. Internally delegates to
+        the generalized function so we only have one approval path.
+        """
+        return self._ensure_token_approval(
+            "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+            amount_usdc_6dec,
+            "USDC",
+        )
 
     async def _submit_onchain_swap(self, symbol: str, notional_usdc: Decimal,
                                     *, side: str = "buy") -> dict:
@@ -571,7 +582,15 @@ class Agent:
         except Exception as e:
             return {"status": "failed", "error": f"token_address: {e}"}
 
-        amount_in = int(notional_usdc * Decimal(10**6))  # USDC has 6 decimals
+        # v2.2.4 (decimals bugfix): use the on-chain decimals of USDC,
+        # not the historical 6. The BSC mainnet USDC contract reports
+        # decimals() == 18, so amount_in must be scaled by 10**18 for
+        # $1 notional → 1e18 raw USDC. Using 10**6 produced dust
+        # (1e-12 USDC per dollar) and burned gas spam-mining.
+        from .utils import token_decimals
+        cfg = (self.components.get("config") or {})
+        usdc_decimals = token_decimals("USDC", cfg)
+        amount_in = int(notional_usdc * Decimal(10 ** usdc_decimals))
         try:
             # 1. Pick the best fee tier for this pair
             fee = self.pancake.best_pool_fee(
@@ -640,22 +659,73 @@ class Agent:
                             if entry.get("tx_hash") and self._can_do_onchain():
                                 try:
                                     pos = self.portfolio.positions[pid]
-                                    # Estimate the WBNB we hold
-                                    # (the swap returned ~quote USDC
-                                    # worth of WBNB; approximate using
-                                    # the original notional)
                                     notional = float(pos.notional_usdc)
-                                    # v2.2.0 (mainnet USDC->USDT): the
-                                    # closed amount is the USDT (6 dec)
-                                    # we received, not WBNB (18 dec).
-                                    if entry["symbol"] == "USDT":
-                                        close_amount = int(notional * 10**6)
+                                    # v2.2.4 (decimals bugfix): look up
+                                    # the close-side token's on-chain
+                                    # decimals instead of hardcoding 6
+                                    # for USDT. On BSC mainnet USDT has
+                                    # 18 decimals (like USDC), so the
+                                    # close amount must be scaled by
+                                    # 10**18 not 10**6.
+                                    from .utils import token_decimals, token_address
+                                    cfg = (self.components.get("config") or {})
+                                    usdc_addr = token_address(cfg, "USDC")
+                                    close_token = entry["symbol"]
+                                    close_decimals = token_decimals(close_token, cfg)
+                                    close_amount = int(notional * 10 ** close_decimals)
+                                    in_token_addr = token_address(cfg, close_token)
+                                    # v2.2.5 (close_loop balance bugfix):
+                                    # if the OPEN tx reverted or used
+                                    # the old 6-decimal amount (legacy
+                                    # bug), the wallet may hold far
+                                    # less of the close-side token than
+                                    # `close_amount`. Sending a swap
+                                    # for more than the wallet holds
+                                    # reverts on-chain with STF. Skip
+                                    # the on-chain close and just close
+                                    # the paper position — the next
+                                    # floor will do a fresh round-trip.
+                                    if in_token_addr.lower() != usdc_addr.lower():
+                                        try:
+                                            bal_raw = self.bsc.token_balance(
+                                                in_token_addr, self.wallet.address,
+                                                decimals=close_decimals,
+                                            )
+                                            bal_wei = int(float(bal_raw) * (10 ** close_decimals))
+                                        except Exception as bal_err:
+                                            log.warning(
+                                                f"close_loop: balance query failed "
+                                                f"for {close_token}: {bal_err}; "
+                                                f"skipping on-chain close"
+                                            )
+                                            bal_wei = 0
+                                        if bal_wei < int(close_amount * 0.95):
+                                            log.warning(
+                                                f"close_loop: wallet holds {bal_wei} raw "
+                                                f"{close_token} but close wants {close_amount}; "
+                                                f"skipping on-chain close (will rely on next floor)"
+                                            )
+                                            close_tx = {"status": "skipped_insufficient_balance"}
+                                        else:
+                                            # Use min(balance, expected) with 1% buffer
+                                            # so the tx doesn't hit the wallet's exact
+                                            # last wei (which can revert on gas estimation).
+                                            safe_amount = min(
+                                                bal_wei,
+                                                int(close_amount * 0.99),
+                                            )
+                                            # Approve the router for the safe amount.
+                                            self._ensure_token_approval(
+                                                in_token_addr,
+                                                safe_amount,
+                                                token_symbol=close_token,
+                                            )
+                                            close_tx = await self._submit_close_swap(
+                                                in_symbol=close_token,
+                                                in_amount_wei=safe_amount,
+                                            )
                                     else:
-                                        close_amount = int(notional * 10**18)
-                                    close_tx = await self._submit_close_swap(
-                                        in_symbol=entry["symbol"],
-                                        in_amount_wei=close_amount,
-                                    )
+                                        close_tx = {"status": "skipped_identity_swap"}
                                     log.info("floor_trade_closed_onchain", extra={
                                         "event": "floor_trade_close_onchain",
                                         "id": pid,

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 
 import httpx
+import json
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +49,12 @@ class BinanceClient:
         out = {}
         try:
             binance_symbols = [f"{s.upper()}USDT" for s in symbols]
-            params = {"symbols": str(binance_symbols).replace("'", '"')}
+            # v2.2.3: Binance bulk endpoint requires NO whitespace inside the
+            # JSON array. `str(list).replace("'", '"')` produces
+            # '["A", "B"]' (space after comma) which Binance rejects with
+            # -1100 "Illegal characters found in parameter 'symbols'".
+            # Use json.dumps with explicit separators to get '["A","B"]'.
+            params = {"symbols": json.dumps(binance_symbols, separators=(",", ":"))}
             resp = await self._client.get(f"{self.BASE}/ticker/price", params=params)
             resp.raise_for_status()
             rows = resp.json()

@@ -166,12 +166,28 @@ class SleeveBMomentum:
         token_addr = self._token_address(sym)
         usdc_addr = self._token_address("USDC")
         pool_fee = self.pancake.best_pool_fee(usdc_addr, token_addr, [100, 500, 2500, 10000])
-        amount_in = int(size * Decimal(10**6))
+        # v2.2.3: guard against -1 (no pool found). The fee is encoded
+        # as a uint24 in the calldata; -1 throws ValueOutOfBounds.
+        if pool_fee is None or pool_fee < 0:
+            log.info(f"Sleeve B skip {sym}: no working pool for USDC->{sym}")
+            return
+        # v2.2.4 (decimals bugfix): USDC has 18 decimals on BSC
+        # mainnet (was hardcoded as 6). Same as sleeve_a.
+        from core.utils import token_decimals
+        usdc_decimals = token_decimals("USDC", self.cfg)
+        amount_in = int(size * Decimal(10 ** usdc_decimals))
         min_out = int(amount_in / Decimal(str(px)) * Decimal("0.997"))
         calldata = self.pancake.encode_swap_v3(
             token_in=usdc_addr, token_out=token_addr, fee=pool_fee,
             recipient=self.wallet.address, amount_in=amount_in, min_out=min_out,
         )
+        # v2.2.3: reconcile the nonce cache from chain before signing,
+        # so a fresh boot doesn't sign with nonce 0 on a wallet that
+        # already has txs.
+        try:
+            self.bsc.resync_nonce(self.wallet.address)
+        except Exception as e:
+            log.warning(f"Sleeve B resync_nonce failed: {e}")
         # v2.0.8-H4: honor fees.max_gas_price_gwei. Sleeve B is the
         # most time-sensitive (momentum + 4h trend) so a stuck tx is
         # most expensive here. Skip with gas_too_high_skip — the
