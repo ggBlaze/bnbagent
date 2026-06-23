@@ -71,8 +71,15 @@ class Portfolio:
         self.equity_history: deque = deque(maxlen=86_400)  # 1 sample/sec for 1 day
         self.kill_switch: bool = False
         self.kill_reason: str = ""
+        # v2.3.4: per-day counter of OPENED positions, used by the
+        # max_daily_trades cap in core/risk.py::circuit_breaker_check.
+        # Increments on add_position; closes don't count. Same UTC day
+        # boundary as day_start_equity so the cap and the daily-loss
+        # breaker agree on what "today" means.
+        self.trades_opened_today: dict[str, int] = {}    # YYYY-MM-DD → count of opens
         # seed day_start for today so the daily-loss breaker is active from tick 1
         self.day_start_equity[self._today_static()] = starting_equity
+        self.trades_opened_today[self._today_static()] = 0
 
     @staticmethod
     def _today_static() -> str:
@@ -94,6 +101,27 @@ class Portfolio:
         today = self._today()
         if today not in self.day_start_equity:
             self.day_start_equity[today] = self.equity()
+        # v2.3.4: lazy-seed the trades_opened_today counter for today
+        # so the first open of a new UTC day starts from 0 even if the
+        # bot has been running across midnight without a restart.
+        self.trades_opened_today.setdefault(today, 0)
+
+    # v2.3.4: how many positions were OPENED since 00:00 UTC today.
+    # Used by circuit_breaker_check to enforce policy.global_risk.max_daily_trades.
+    def trades_opened_today_str(self, now: int | None = None) -> int:
+        """Number of position opens since 00:00 UTC today.
+
+        Day rollover is keyed on the same YYYY-MM-DD string as
+        day_start_equity so the cap and the daily-loss breaker agree.
+        `now` is a wall-clock epoch for testability; default = system clock.
+        """
+        import time as _t
+        if now is None:
+            today = _t.strftime("%Y-%m-%d", _t.gmtime())
+        else:
+            today = _t.strftime("%Y-%m-%d", _t.gmtime(int(now)))
+        self.trades_opened_today.setdefault(today, 0)
+        return self.trades_opened_today[today] or 0
 
     # --- core ---
 
@@ -134,10 +162,17 @@ class Portfolio:
     def add_position(self, pos_id: str, pos: Position) -> None:
         self.positions[pos_id] = pos
         self.cash_usdc -= pos.notional_usdc
+        # v2.3.4: count this open against today's max_daily_trades cap.
+        # Lazy-seed today so the first open after a midnight rollover
+        # starts from 0 even if add_position is the very first call
+        # of the day (before _maybe_seed_day ran).
+        today = self._today()
+        self.trades_opened_today[today] = self.trades_opened_today.get(today, 0) + 1
         log.info("position opened", extra={
             "event": "position_open", "id": pos_id, "sleeve": pos.sleeve,
             "symbol": pos.symbol, "side": pos.side,
             "notional": str(pos.notional_usdc), "risk": str(pos.risk_usdc),
+            "trades_opened_today": self.trades_opened_today[today],
         })
 
     def close_position(self, pos_id: str, exit_price: Decimal, reason: str = "manual") -> Decimal:
@@ -241,6 +276,10 @@ class Portfolio:
             "real_pnl_usdc":  float(self.real_pnl_usdc()),
             "paper_trades":   sum(1 for t in self.closed_trades if t.get("is_paper", True)),
             "real_trades":    sum(1 for t in self.closed_trades if not t.get("is_paper", True)),
+            # v2.3.4: today's position-open count, paired with the
+            # max_daily_trades cap from policy so the dashboard can
+            # show "2 / 3 trades used today" without a backend call.
+            "trades_opened_today": self.trades_opened_today_str(),
         }
 
     def sharpe(self, window: int = 200,

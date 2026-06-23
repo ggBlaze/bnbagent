@@ -46,6 +46,14 @@ def circuit_breaker_check(
     day_start_equity: Decimal | None = None,
     day_breach_active_until: int = 0,
     now_ts: int | None = None,
+    # v2.3.4: contest tuning knobs. `trades_opened_today` is the count of
+    # OPENED positions since 00:00 UTC (from Portfolio.trades_opened_today_str);
+    # `is_floor=True` is set by core/daily_trade_floor.py to exempt the
+    # contest-compliance safety-net fire from the cap (the floor is the
+    # BNB HACK 1-trade/day guarantee — if the sleeves already used all N
+    # daily slots, the floor must still fire or the agent is disqualified).
+    trades_opened_today: int = 0,
+    is_floor: bool = False,
 ) -> tuple[bool, str]:
     """Returns (allow: bool, reason: str).
 
@@ -94,6 +102,52 @@ def circuit_breaker_check(
                 return False, f"after live window end {le_iso}"
         except ValueError:
             log.warning("invalid live_window_end in policy: %r", live_end)
+
+    # 0d) Daily-trade cap (contest tuning knob).
+    # Block the proposed open if today's open count has already hit
+    # policy.global_risk.max_daily_trades. Closes (`proposed.is_new=False`)
+    # are not gated — closing positions doesn't consume the cap.
+    # The daily-trade-floor (`is_floor=True`) bypasses this check so it
+    # can guarantee the BNB HACK 1-trade/day minimum even when the sleeves
+    # have already used all N slots. Missing/0 cap = no limit (the
+    # policy.yaml default was 100 historically; an unset key also
+    # disables the check so this is backwards-compatible).
+    if (
+        not is_floor
+        and proposed is not None
+        and proposed.is_new
+    ):
+        cap = p.get("max_daily_trades")
+        if cap and trades_opened_today >= cap:
+            return False, (f"daily trade cap reached: "
+                           f"{trades_opened_today}/{cap} opened today")
+
+    # 0e) Hard USDC notional cap per trade (v2.3.5). The per-trade-risk
+    # check below only constrains risk_usdc (= notional × stop_distance);
+    # it does NOT cap the trade's USDC size. On a small wallet this is
+    # dangerous: sleeve A uses basis_trigger_pct=0.5 → very tight stops
+    # → very small risk_usdc per $1 of notional → the per-trade-risk
+    # cap (1% of equity = $1 risk on $100 paper, $0.80 on $80 wallet)
+    # allows $20+ of notional through. That's how 14 simultaneous
+    # spot-long buys of ETH/Cake/etc. drained the contest wallet.
+    # The fix: an ABSOLUTE notional cap in USDC, separate from any %
+    # of equity. Runs BEFORE per-trade-risk so it rejects over-sized
+    # trades regardless of stop distance. Floor is exempt (the floor is
+    # the contest-compliance safety net and is sized to 1.25% of equity,
+    # so on a $100 wallet it's only $1.25 — well under the cap anyway,
+    # but exempting it means a tiny-collision can't accidentally block
+    # the daily-floor fire).
+    if (
+        not is_floor
+        and proposed is not None
+        and proposed.is_new
+    ):
+        max_notional = p.get("max_notional_usdc_per_trade")
+        if max_notional is not None and float(max_notional) > 0:
+            if float(proposed.notional_usdc) > float(max_notional):
+                return False, (f"per-trade notional cap: "
+                               f"{float(proposed.notional_usdc):.4f} USDC > "
+                               f"{float(max_notional):.4f} USDC cap")
 
     # 1) Daily loss circuit breaker
     if day_start_equity is not None and day_start_equity > 0:

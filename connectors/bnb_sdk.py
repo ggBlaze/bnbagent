@@ -411,7 +411,7 @@ class Perps:
 
     def __init__(self, config_path: str = "config/perps_venues.yaml", mode: str = "testnet",
                  clock=None, mark_cache_ttl_s: int = 60,
-                 config: dict | None = None):
+                 config: dict | None = None, paper_perps: bool = False):
         import time as _time
         with open(config_path) as f:
             self.venues = yaml.safe_load(f) or {}
@@ -419,6 +419,14 @@ class Perps:
         # v2.1.8: merged config so venue clients can pull per-venue
         # api_key/api_secret from perps.<venue>.* in local.yaml.
         self.config = config or {}
+        # v2.3.5 (Option B): paper_perps=True means order placement
+        # routes through PaperStubClient (no real trade) while mark
+        # + funding still hit a real venue's read-only endpoint.
+        # Used in production when BSC perps venues aren't registered
+        # but we still want the carry strategy to act on real data.
+        # Defaults to False so existing testnet/replay behavior is
+        # unchanged.
+        self.paper_perps = paper_perps
         self._state: dict[tuple[str, str], dict] = {}
         self._historical: dict[tuple[str, str], list[float]] = {}
         self._rng = random.Random(42)
@@ -434,6 +442,12 @@ class Perps:
         # issuing another HTTP call.
         self._mark_cache: dict[tuple[str, str], tuple[float, float]] = {}
         self._mark_cache_ttl_s = mark_cache_ttl_s
+        # v2.3.5: lazy-init the read-only client the first time we
+        # need a real mark/funding on a venue that has no registered
+        # live client. Defaults to BinanceFuturesReadOnlyClient (the
+        # venue with the deepest USDT-margined books and no auth
+        # required for the read endpoints we use).
+        self._read_only_client = None
 
     def set_mark_provider(self, fn):
         """Set a callable (symbol) -> float that returns the current mark.
@@ -465,6 +479,20 @@ class Perps:
         return self._state[key]
 
     def current_funding(self, venue: str, market: str) -> float:
+        # v2.3.5 (Option B): if we're in mainnet+paper_perps mode,
+        # fetch the live funding rate from the read-only client first.
+        # On testnet/replay, keep the deterministic canned-stub rate
+        # so the replay tape is reproducible.
+        if self.mode not in ("testnet", "replay"):
+            roc = self._get_read_only_client()
+            if roc is not None:
+                try:
+                    rate = roc.fetch_funding_rate(market)
+                    if rate is not None:
+                        return float(rate)
+                except Exception as e:
+                    log.warning("Perps.current_funding: read-only fetch failed for %s: %s",
+                                market, e)
         s = self._ensure(venue, market)
         return s["last_funding"]
 
@@ -485,6 +513,22 @@ class Perps:
                 return spot * (1.0 + basis_bps)
             except Exception:
                 pass
+
+        # v2.3.5 (Option B): paper_perps mode in mainnet. Even though
+        # orders are papered (route through PaperStubClient), we still
+        # want a REAL mark price so the strategy math is honest.
+        # Consult the read-only client first; fall through to the
+        # existing fetch_mark() chain if it returns None.
+        if self.mode not in ("testnet", "replay") and self.paper_perps:
+            roc = self._get_read_only_client()
+            if roc is not None:
+                try:
+                    mark = roc.get_mark_price(market)
+                    if mark is not None:
+                        return float(mark)
+                except Exception as e:
+                    log.warning("Perps.mark: read-only fetch failed for %s: %s",
+                                market, e)
 
         # v2.1.8: production path. In mainnet mode, fetch the real mark
         # from the venue's mark_endpoint and cache it. In testnet/replay,
@@ -586,13 +630,42 @@ class Perps:
         """Pick the right venue client for the current mode.
 
         mode in ("testnet", "replay"): return PaperStubClient.
-        mode == "mainnet": return VenueRegistry.get(venue, self._venue_config(venue)).
+        mode == "mainnet" + paper_perps=True: return PaperStubClient too
+            (the orders are paper) — sleeve A still gets real mark/
+            funding from Binance via _get_read_only_client().
+        mode == "mainnet" + paper_perps=False: return
+            VenueRegistry.get(venue, self._venue_config(venue)) —
+            raises NotImplementedError if no live client is
+            registered for this venue (existing behavior).
         """
-        if self.mode in ("testnet", "replay"):
+        if self.mode in ("testnet", "replay") or self.paper_perps:
             from connectors.venues.paper_stub import PaperStubClient
             return PaperStubClient(venue, {"venue_name": venue})
         from connectors.venues.registry import VenueRegistry
         return VenueRegistry.get(venue, self._venue_config(venue))
+
+    def _get_read_only_client(self):
+        """Return a read-only client for live mark/funding lookups.
+
+        Used by mark() and current_funding() when:
+          - we're in mainnet + paper_perps mode (need real prices
+            to inform the strategy but can't actually trade perps),
+          - OR the configured venue client raises NotImplementedError
+            for the read path (existing venues are write-only stubs).
+
+        Returns None if no read-only client can be constructed (e.g.,
+        import failure). The caller falls back to its existing
+        canned-stub path so behavior degrades gracefully.
+        """
+        if self._read_only_client is not None:
+            return self._read_only_client
+        try:
+            from connectors.venues.binance_perp import BinanceFuturesReadOnlyClient
+            self._read_only_client = BinanceFuturesReadOnlyClient({})
+        except Exception as e:
+            log.warning("Perps: failed to construct read-only client: %s", e)
+            self._read_only_client = None
+        return self._read_only_client
 
     def open_short(self, venue: str, market: str, size_usd: float, leverage: float,
                    collateral_usdc: float) -> SignedTx:

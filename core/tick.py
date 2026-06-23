@@ -286,6 +286,11 @@ class Agent:
             policy=self.policy,
             day_start_equity=ds,
             day_breach_active_until=self.portfolio.day_breach_active_until,
+            # v2.3.4: contest max_daily_trades cap. Read fresh on every
+            # gate call so a dashboard-driven policy override (via
+            # apply_control in core/control.py) takes effect on the next
+            # tick without a bot restart.
+            trades_opened_today=self.portfolio.trades_opened_today_str(),
         )
         log.info("circuit_breaker_check", extra={
             "event": "risk_check",

@@ -813,6 +813,8 @@ body.demo-mode button[onclick^="toggleKill"] {
       <div class="row"><span class="lbl">Per-trade risk</span><span class="v" id="pol-trade">—</span></div>
       <div class="row"><span class="lbl">Max leverage</span><span class="v" id="pol-lev">—</span></div>
       <div class="row"><span class="lbl">Max position</span><span class="v" id="pol-pos">—</span></div>
+      <div class="row"><span class="lbl">Max trades/day</span><span class="v" id="pol-trades">—</span></div>
+      <div class="row"><span class="lbl">Max notional/trade</span><span class="v" id="pol-notional">—</span></div>
       <div class="row"><span class="lbl">A · B · C alloc</span><span class="v" id="pol-alloc">—</span></div>
       <div class="sig" id="pol-sig">—</div>
     </div>
@@ -1255,6 +1257,8 @@ body.demo-mode button[onclick^="toggleKill"] {
             <div class="kv"><span class="k">Per-trade risk %</span><input class="input" id="cfg-trade" type="number" step="0.1" style="width:80px;text-align:right;" /></div>
             <div class="kv"><span class="k">Max leverage ×</span><input class="input" id="cfg-lev" type="number" step="0.1" style="width:80px;text-align:right;" /></div>
             <div class="kv"><span class="k">Max position %</span><input class="input" id="cfg-pos" type="number" step="0.1" style="width:80px;text-align:right;" /></div>
+            <div class="kv"><span class="k">Max trades/day</span><input class="input" id="cfg-trades" type="number" step="1" min="0" style="width:80px;text-align:right;" /></div>
+            <div class="kv"><span class="k">Max notional/trade (USDC)</span><input class="input" id="cfg-notional" type="number" step="0.1" min="0" style="width:80px;text-align:right;" /></div>
             <button onclick="applyConfig()" style="margin-top:10px; background:var(--accent); border:none; color:var(--bg); padding:8px 14px; border-radius:4px; font:600 11px 'Inter'; text-transform:uppercase; letter-spacing:.14em; cursor:pointer;">Apply</button>
           </div>
         </div>
@@ -1959,6 +1963,8 @@ async function refresh() {
     $('pol-trade').textContent = (policy.global_risk?.per_trade_risk_pct ?? '—') + '%';
     $('pol-lev').textContent   = (policy.global_risk?.max_gross_leverage ?? '—') + '×';
     $('pol-pos').textContent   = (policy.global_risk?.max_single_position_pct ?? '—') + '%';
+    $('pol-trades').textContent = (policy.global_risk?.max_daily_trades ?? '—') + '/day';
+    $('pol-notional').textContent = (policy.global_risk?.max_notional_usdc_per_trade ?? '—') + ' USDC';
     $('pol-alloc').textContent = `${policy.sleeve_allocations?.A} · ${policy.sleeve_allocations?.B} · ${policy.sleeve_allocations?.C}`;
     $('pol-sig').textContent   = policy.signature || '—';
   }
@@ -3045,6 +3051,8 @@ async function applyConfig() {
       per_trade_risk_pct:             parseFloat($('cfg-trade').value),
       max_gross_leverage:             parseFloat($('cfg-lev').value),
       max_single_position_pct:        parseFloat($('cfg-pos').value),
+      max_daily_trades:               parseInt($('cfg-trades').value, 10),
+      max_notional_usdc_per_trade:    parseFloat($('cfg-notional').value),
     }
   });
   if (r.ok) { refresh(); alert('applied on next heartbeat'); }

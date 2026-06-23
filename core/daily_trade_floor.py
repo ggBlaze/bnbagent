@@ -341,6 +341,12 @@ class DailyTradeFloor:
             open_positions=list(getattr(pf, "positions", {}).values()) if pf else [],
             proposed=proposed,
             policy=policy,
+            # v2.3.4: the floor is the BNB HACK contest-compliance
+            # safety net — it MUST fire to guarantee the 1-trade/day
+            # minimum even if the sleeves have already consumed all N
+            # max_daily_trades slots. Without this flag the cap would
+            # block the floor and the agent would be disqualified.
+            is_floor=True,
         )
         if not ok:
             self.state.last_fire_utc_day = today

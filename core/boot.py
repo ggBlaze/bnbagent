@@ -83,7 +83,8 @@ def init_bsc(cfg: dict) -> dict:
         client=bsc, router=cfg["dex"]["pcs_v3_router"],
         quoter=cfg["dex"]["pcs_v3_quoter"], factory=cfg["dex"]["pcs_v3_factory"],
     )
-    perps = Perps(mode=cfg.get("mode", "testnet"))
+    perps = Perps(mode=cfg.get("mode", "testnet"),
+                  paper_perps=bool((cfg.get("perps") or {}).get("paper_perps", False)))
     # v2.3.0: switch from the placeholder to the canonical ERC-8004
     # IdentityRegistry at 0x8004A169FB4a3325136EB29fA0ceB6D2e539a432.
     # 8004scan.io (AltLayer's ERC-8004 explorer) only indexes this
@@ -295,6 +296,7 @@ def boot(starting_equity: Decimal = Decimal("100"),
         mode=cfg.get("mode", "testnet"),
         clock=clock,
         mark_cache_ttl_s=mark_cache_ttl_s,
+        paper_perps=bool((cfg.get("perps") or {}).get("paper_perps", False)),
     )
 
     # v2.3.0: wire the wallet into ERC8004 BEFORE register_identity runs.
