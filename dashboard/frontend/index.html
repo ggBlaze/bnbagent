@@ -1809,22 +1809,41 @@ async function refresh() {
   // way we keep the paper/real PnL visible in the chart stats below.
   //
   // v2.2.0 (live-balance): on mainnet, the hero is the actual on-chain
-  // USDC balance (from /api/live-balance), not the $100 paper book.
-  // The paper book is shown as a secondary line so the operator can
-  // see both. If the live balance hasn't been polled yet (None), we
-  // show '—' and trigger a poll instead of lying with $100.
+  // wallet value, not the $100 paper book.
+  // v2.3.5c: prefer wallet_total_usd (USDC + USDT + ETH + BNB) over
+  // just USDC. Sleeve A funding payouts arrive as BSC-pegged ETH,
+  // so showing only USDC understates the wallet by ~$80.
   const isMainnet = (stats.mode || '') === 'mainnet';
-  const liveUsdc = stats.wallet_usdc_balance;
-  const liveBnb  = stats.wallet_bnb_balance;
-  const hasLive  = isMainnet && liveUsdc != null;
-  const heroEquity = hasLive ? liveUsdc : stats.equity;
+  const liveTotal = stats.wallet_total_usd;
+  const liveUsdc  = stats.wallet_usdc_balance;
+  const liveUsdt  = stats.wallet_usdt_balance;
+  const liveEth   = stats.wallet_eth_balance;
+  const liveBnb   = stats.wallet_bnb_balance;
+  const hasLive   = isMainnet && liveTotal != null;
+  const heroEquity = hasLive ? liveTotal
+                    : (isMainnet && liveUsdc != null ? liveUsdc : stats.equity);
   $('equity').textContent     = heroEquity != null ? fmt(heroEquity) : '—';
   const eqSubParts = [];
   if (isMainnet) {
     if (hasLive) {
-      eqSubParts.push('<span style="color:var(--green);">●</span> mainnet · live funds');
+      eqSubParts.push('<span style="color:var(--green);">●</span> mainnet · live wallet');
+      // v2.3.5c: show the token breakdown so the operator can see
+      // ETH/USDT/USDC separately (sleeve A funding arrives as ETH).
+      const breakdown = [];
+      if (liveUsdc != null) breakdown.push('USDC ' + Number(liveUsdc).toFixed(2));
+      if (liveUsdt != null && liveUsdt > 0.001) breakdown.push('USDT ' + Number(liveUsdt).toFixed(2));
+      if (liveEth  != null && liveEth  > 0.0001) breakdown.push('ETH ' + Number(liveEth).toFixed(4));
+      if (liveBnb  != null) breakdown.push('BNB ' + Number(liveBnb).toFixed(4));
+      if (breakdown.length) eqSubParts.push(breakdown.join(' · '));
       eqSubParts.push('paper sim: $' + fmt(stats.equity));
-      if (liveBnb != null) eqSubParts.push('gas: ' + Number(liveBnb).toFixed(4) + ' BNB');
+      eqSubParts.push('real PnL: $' + fmt(stats.real_pnl_usdc || 0));
+    } else if (liveUsdc != null) {
+      // Pre-2.3.5c state: live balance polled but total not computed.
+      // Fall back to USDC + show ETH/USDT/BNB separately.
+      eqSubParts.push('<span style="color:var(--green);">●</span> mainnet · live funds');
+      eqSubParts.push('USDC ' + Number(liveUsdc).toFixed(2));
+      if (liveBnb != null) eqSubParts.push('BNB ' + Number(liveBnb).toFixed(4));
+      eqSubParts.push('paper sim: $' + fmt(stats.equity));
       eqSubParts.push('real PnL: $' + fmt(stats.real_pnl_usdc || 0));
     } else {
       // v2.2.0: never lie. Show the paper sim clearly labeled as such
