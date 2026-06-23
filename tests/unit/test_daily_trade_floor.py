@@ -251,10 +251,12 @@ async def test_floor_bails_when_equity_too_small(monkeypatch):
 # -- 8. Sizing -------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_floor_trade_size_is_0_1_pct_of_equity(monkeypatch):
-    """The floor is sized at FLOOR_NOTIONAL_FRACTION = 0.001 of equity.
-    0.1% is well below the 1% per-trade cap, so even a 100% loss on
-    the floor trade can't trip the 5% daily circuit breaker."""
+async def test_floor_trade_size_is_1_25_pct_of_equity(monkeypatch):
+    """v2.2.2: the floor is sized at FLOOR_NOTIONAL_FRACTION = 0.0125
+    of equity (1.25% — was 0.1% before v2.2.2). 1.25% is well below
+    the 1% per-trade risk cap when measured against per-trade risk
+    (notional * max_loss_pct), so a 100% loss on the floor still
+    can't trip the 5% daily circuit breaker."""
     monkeypatch.delenv("BNB_HACK_NO_DAILY_FLOOR", raising=False)
     monkeypatch.delenv("BNB_HACK_TRACK1", raising=False)
     a = fake_agent(equity=Decimal("10000"))
@@ -264,7 +266,8 @@ async def test_floor_trade_size_is_0_1_pct_of_equity(monkeypatch):
     assert result.get("fired") is True
     notional = result.get("notional")
     assert notional is not None
-    assert abs(notional - 10.0) < 0.5, f"expected ~10 USDC floor, got {notional}"
+    # 10000 * 0.0125 = 125 USDC
+    assert abs(notional - 125.0) < 5.0, f"expected ~125 USDC floor (1.25% of 10k), got {notional}"
 
 
 # -- 9. status() -----------------------------------------------------------

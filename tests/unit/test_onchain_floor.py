@@ -111,9 +111,13 @@ def test_usdc_approval_skipped_when_already_approved():
 # ------------------------------------------------------------------
 
 def test_submit_onchain_swap_happy_path():
-    """v2.2.0: the floor's on-chain swap helper picks a fee tier,
+    """v2.2.0 + v2.2.4: the floor's on-chain swap helper picks a fee tier,
     quotes, applies slippage, encodes calldata, ensures approval,
-    signs, and broadcasts. Returns a dict with tx_hash + BscTrace URL."""
+    signs, and broadcasts. Returns a dict with tx_hash + BscTrace URL.
+
+    Uses WBNB as the output token (v2.2.4 fix: USDC->USDC is an identity
+    swap and the helper correctly rejects it; WBNB exercises the full
+    approval + swap path)."""
     policy = {"global_risk": {}}
     pf = Portfolio(starting_equity=Decimal("100"))
 
@@ -174,7 +178,7 @@ def test_submit_onchain_swap_happy_path():
     )
 
     try:
-        result = asyncio.run(agent._submit_onchain_swap("USDC", Decimal("0.08")))
+        result = asyncio.run(agent._submit_onchain_swap("WBNB", Decimal("0.08")))
         assert result["status"] == "submitted"
         assert result["tx_hash"] == "0xswap123abc"
         assert "bsctrace.com/tx/0xswap123abc" in result["bsctrace_url"]
@@ -267,7 +271,7 @@ def test_submit_floor_trade_onchain_path_when_mainnet():
 
     try:
         proposed = ProposedTrade(
-            sleeve="B", symbol="USDC", side="buy",
+            sleeve="B", symbol="WBNB", side="buy",
             notional_usdc=Decimal("0.08"), risk_usdc=Decimal("0.0008"),
             is_new=True,
         )
@@ -329,7 +333,7 @@ def test_submit_floor_trade_falls_back_to_paper_on_onchain_failure():
 
     try:
         proposed = ProposedTrade(
-            sleeve="B", symbol="USDC", side="buy",
+            sleeve="B", symbol="WBNB", side="buy",
             notional_usdc=Decimal("0.08"), risk_usdc=Decimal("0.0008"),
             is_new=True,
         )
