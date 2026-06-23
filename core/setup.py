@@ -77,6 +77,11 @@ class SetupState:
     # zero, not a missing value).
     usdc_balance: float | None = None
     bnb_balance: float | None = None
+    # v2.3.5c: cache ETH + USDT + total USD so the hero shows the
+    # full wallet value (funding payouts arrive as BSC-pegged ETH).
+    eth_balance: float | None = None
+    usdt_balance: float | None = None
+    wallet_total_usd: float | None = None
     live_balance_ts: int = 0     # last poll unix ts; 0 = never
 
     def is_complete(self) -> bool:
@@ -205,11 +210,20 @@ def load_setup_state() -> SetupState:
             cached = json.loads(SUMMARY_PATH.read_text() or "{}")
             usdc = cached.get("usdc_balance")
             bnb = cached.get("bnb_balance")
+            eth = cached.get("eth_balance")
+            usdt = cached.get("usdt_balance")
+            total = cached.get("wallet_total_usd")
             ts = int(cached.get("live_balance_ts", 0) or 0)
             if usdc is not None:
                 state.usdc_balance = float(usdc)
             if bnb is not None:
                 state.bnb_balance = float(bnb)
+            if eth is not None:
+                state.eth_balance = float(eth)
+            if usdt is not None:
+                state.usdt_balance = float(usdt)
+            if total is not None:
+                state.wallet_total_usd = float(total)
             state.live_balance_ts = ts
     except Exception:
         # Stale or corrupt cache — ignore, dashboard will re-poll.
@@ -444,7 +458,10 @@ def _persist_summary(state: SetupState) -> None:
     SUMMARY_PATH.write_text(json.dumps(asdict(state), indent=2, sort_keys=True))
 
 
-def set_live_balance(usdc: float | None, bnb: float | None) -> SetupState:
+def set_live_balance(usdc: float | None, bnb: float | None,
+                     eth: float | None = None,
+                     usdt: float | None = None,
+                     wallet_total_usd: float | None = None) -> SetupState:
     """Cache the on-chain USDC + BNB balance for the dashboard hero.
 
     v2.2.0 (live-balance): the SetupState dataclass has no `usdc_balance`
@@ -453,10 +470,17 @@ def set_live_balance(usdc: float | None, bnb: float | None) -> SetupState:
     hero fell back to the $100 paper book, labeled 'mainnet · live funds'
     (a lie). This fixes it: the on-chain balance is now persisted into
     setup.json and surfaced through the `/api/live-balance` endpoint.
+
+    v2.3.5c: also cache ETH + USDT + wallet_total_usd so the hero
+    reflects the value of funding payouts received in BSC-pegged ETH
+    (sleeve A funding positions collect yield in ETH on BSC).
     """
     state = load_setup_state()
     state.usdc_balance = usdc
     state.bnb_balance = bnb
+    state.eth_balance = eth
+    state.usdt_balance = usdt
+    state.wallet_total_usd = wallet_total_usd
     state.live_balance_ts = int(time.time())
     state.updated_at = int(time.time())
     _persist_summary(state)
@@ -495,7 +519,9 @@ def poll_live_balance(*, rpcs: list[str] | None = None,
     usdc_addr = ("0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"
                  if chain_id == 56 else
                  "0x64544969ed7ebf2f2b6e6f1c7b1b3a5b3a3a3a3a")  # placeholder for testnet
-    usdc_abi = [
+    eth_addr  = "0x2170Ed0880ac9A755fd29B2688956BD959F933F8"  # BSC-pegged ETH
+    usdt_addr = "0x55d398326f99059fF775485246999027B3197955"
+    erc20_abi = [
         {"inputs": [{"name": "a", "type": "address"}], "name": "balanceOf",
          "outputs": [{"name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
         {"inputs": [], "name": "decimals",
@@ -511,20 +537,53 @@ def poll_live_balance(*, rpcs: list[str] | None = None,
             checksum = Web3.to_checksum_address(addr)
             bnb_wei = w3.eth.get_balance(checksum)
             bnb = float(w3.from_wei(bnb_wei, "ether"))
+
+            def _read_erc20(token_addr):
+                try:
+                    c = w3.eth.contract(
+                        address=Web3.to_checksum_address(token_addr), abi=erc20_abi)
+                    raw = c.functions.balanceOf(checksum).call()
+                    d = c.functions.decimals().call()
+                    return raw / (10 ** d)
+                except Exception as e:
+                    nonlocal last_err
+                    last_err = f"{rpc}: {token_addr[:10]} read failed: {e}"
+                    return None
+
+            usdc = _read_erc20(usdc_addr)
+            eth  = _read_erc20(eth_addr) if chain_id == 56 else None
+            usdt = _read_erc20(usdt_addr) if chain_id == 56 else None
+
+            # v2.3.5c: estimate USD value so the dashboard hero shows
+            # the wallet's actual dollar value (not just the USDC
+            # balance, which understates funding payouts in ETH).
+            # Uses Binance public API tickers — best-effort, no key.
             try:
-                usdc_c = w3.eth.contract(
-                    address=Web3.to_checksum_address(usdc_addr), abi=usdc_abi)
-                ub = usdc_c.functions.balanceOf(checksum).call()
-                d = usdc_c.functions.decimals().call()
-                usdc = ub / (10 ** d)
-            except Exception as e:
-                usdc = None
-                last_err = f"{rpc}: usdc read failed: {e}"
-            return {"usdc": usdc, "bnb": bnb, "ts": int(time.time()),
+                import urllib.request, json as _json
+                ticker_resp = urllib.request.urlopen(
+                    "https://api.binance.com/api/v3/ticker/price"
+                    "?symbols=%5B%22BNBUSDT%22%2C%22ETHUSDT%22%5D",
+                    timeout=4).read()
+                prices = {p["symbol"]: float(p["price"])
+                          for p in _json.loads(ticker_resp)}
+                bnb_usd = prices.get("BNBUSDT", 600)
+                eth_usd = prices.get("ETHUSDT", 2500)
+            except Exception:
+                bnb_usd, eth_usd = 600, 2500
+            wallet_total_usd = (
+                (usdc or 0) * 1.0
+                + (usdt or 0) * 1.0
+                + (eth or 0) * eth_usd
+                + (bnb or 0) * bnb_usd
+            )
+            return {"usdc": usdc, "bnb": bnb, "eth": eth, "usdt": usdt,
+                    "wallet_total_usd": round(wallet_total_usd, 2),
+                    "ts": int(time.time()),
                     "error": last_err, "address": addr, "rpc": rpc,
                     "chain_id": chain_id}
         except Exception as e:
             last_err = f"{rpc}: {type(e).__name__}: {e}"
             continue
-    return {"usdc": None, "bnb": None, "ts": int(time.time()),
+    return {"usdc": None, "bnb": None, "eth": None, "usdt": None,
+            "wallet_total_usd": None, "ts": int(time.time()),
             "error": last_err, "address": addr}

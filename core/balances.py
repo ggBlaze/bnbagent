@@ -38,6 +38,11 @@ BSC_TOKENS: list[tuple[str, str, str, int]] = [
     ("USDT", "0x55d398326f99059fF775485246999027B3197955", "0x337610d27c682E347C9c60F4F926C341e33a4e99", 18),
     ("USDC", "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", "0x64544969ed7EBf2f0B664F8c1F8f2F8B4b1F8E8E", 18),
     ("BUSD", "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56", "", 18),
+    # v2.3.5c: include the BSC-pegged ETH (BEP-20 0x2170...) so the
+    # wallet-total panel shows the value of funding payouts the bot
+    # received in ETH. Decimals match ETH on Ethereum (18). Not a
+    # stable — priced in USD via the oracle like BNB.
+    ("ETH",  "0x2170Ed0880ac9A755fd29B2688956BD959F933F8", "", 18),
 ]
 
 BASE_TOKENS: list[tuple[str, str, str, int]] = [

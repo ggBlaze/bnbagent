@@ -180,7 +180,33 @@ class Agent:
                     }
                     for p in self.portfolio.positions.values()
                 ]
-                trades_all = list(self.portfolio.closed_trades)
+                # v2.3.5c: prefer the persistence file (closed_trades.jsonl)
+                # over in-memory portfolio.closed_trades. The persistence
+                # file is the source of truth across restarts AND after
+                # manual backfills (e.g. draining-trade history repair).
+                # The in-memory deque is only correct within a single
+                # process run; once we restart, we re-hydrate from disk,
+                # but between restarts a backfilled entry lives only on
+                # disk. Reading from disk every tick keeps the dashboard
+                # honest without a restart.
+                try:
+                    pp = getattr(self.portfolio, "trades_persistence_path", None)
+                    if pp:
+                        import json as _json
+                        _persisted = []
+                        with open(pp) as _pf:
+                            for _pline in _pf:
+                                if _pline.strip():
+                                    try:
+                                        _persisted.append(_json.loads(_pline))
+                                    except _json.JSONDecodeError:
+                                        continue
+                        trades_all = list(_persisted)
+                    else:
+                        trades_all = list(self.portfolio.closed_trades)
+                except Exception as _e:
+                    log.debug("trades persistence read for IPC failed: %s", _e)
+                    trades_all = list(self.portfolio.closed_trades)
                 cfg = (self.dashboard_state.get("config") or {})
                 is_mainnet = (cfg.get("mode") or "") == "mainnet"
                 if is_mainnet:

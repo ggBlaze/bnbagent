@@ -1854,16 +1854,28 @@ async function refresh() {
   // USDC (real money). The paper book (strategy sim) is shown in
   // a separate panel below the chart so the operator can see what
   // the strategy would do, but the hero/Net PnL/Trades are real.
+  // v2.3.5c: prefer wallet_total_usd (USDC + USDT + ETH + BNB) over
+  // just USDC. Sleeve A funding payouts arrive as BSC-pegged ETH,
+  // so showing only USDC understates the wallet by ~$100.
   const isMainnet2 = (stats.mode || '') === 'mainnet';
-  const hasLive2   = isMainnet2 && stats.wallet_usdc_balance != null;
+  const walletTotal = stats.wallet_total_usd;
+  const hasLive2   = isMainnet2 && (walletTotal != null || stats.wallet_usdc_balance != null);
   if (hasLive2) {
-    // Starting = wallet USDC at the live window open (we don't have
-    // a separate "starting" snapshot yet; use the current wallet
-    // USDC as a baseline that grows from this point on).
-    const liveUsdc = stats.wallet_usdc_balance;
-    $('cs-start').textContent  = usd(liveUsdc) + ' (window open)';
-    $('cs-peak').textContent   = usd(liveUsdc);
-    $('cs-pnl').textContent    = '+' + usd(0);  // 0 until first real trade
+    // Starting = wallet total USD at the live window open. We don't
+    // have a separate historical "starting" snapshot, so use the
+    // current value as the baseline; future ticks compute deltas
+    // against the recorded live_balance_ts peak.
+    const liveTotal = walletTotal != null ? walletTotal : stats.wallet_usdc_balance;
+    const liveEth   = stats.wallet_eth_balance;
+    const liveUsdt  = stats.wallet_usdt_balance;
+    $('cs-start').textContent  = usd(liveTotal) + ' (wallet total)';
+    $('cs-peak').textContent   = usd(liveTotal);
+    // Sub-breakdown for transparency: how much is USDC vs ETH vs USDT
+    let breakdown = '';
+    if (stats.wallet_usdc_balance != null) breakdown += `USDC ${stats.wallet_usdc_balance.toFixed(2)} `;
+    if (liveUsdt != null && liveUsdt > 0.01) breakdown += `USDT ${liveUsdt.toFixed(2)} `;
+    if (liveEth != null && liveEth > 0.0001) breakdown += `ETH ${liveEth.toFixed(4)} `;
+    $('cs-pnl').textContent    = breakdown || '+' + usd(0);
     $('cs-pnl').className      = 'val';
     $('cs-trades').textContent = (stats.real_trades || 0);
   } else {

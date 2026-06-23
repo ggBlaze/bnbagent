@@ -273,6 +273,13 @@ def _mode_aware_stats() -> dict:
     out["wallet_usdc_balance"] = getattr(setup, "usdc_balance", None)
     out["wallet_bnb_balance"] = getattr(setup, "bnb_balance", None)
     out["wallet_balance_ts"] = getattr(setup, "live_balance_ts", 0)
+    # v2.3.5c: include ETH + USDT in the live-balance panel so the
+    # operator sees the value of funding payouts received in BSC-pegged
+    # ETH (sleeve A collects funding as ETH on BSC). Without this, the
+    # hero shows "$3 USDC" while the wallet actually holds $116 in ETH.
+    out["wallet_eth_balance"] = getattr(setup, "eth_balance", None)
+    out["wallet_usdt_balance"] = getattr(setup, "usdt_balance", None)
+    out["wallet_total_usd"] = getattr(setup, "wallet_total_usd", None)
     # v2.2.0 (onchain-floor): surface the on-chain floor trades so the
     # dashboard's BNB HACK panel can link to BscTrace. The agent writes
     # these into dashboard_state["floor_onchain_txs"] on every successful
@@ -951,11 +958,23 @@ def build_app() -> FastAPI:
             })
         if refresh or s.live_balance_ts == 0 or (int(time.time()) - s.live_balance_ts) > 60:
             result = poll_live_balance()
-            if result.get("usdc") is not None or result.get("bnb") is not None:
-                set_live_balance(result.get("usdc"), result.get("bnb"))
+            if (result.get("usdc") is not None or result.get("bnb") is not None
+                    or result.get("eth") is not None):
+                # v2.3.5c: pass through ETH + USDT + total so the
+                # /api/stats hero shows the full wallet value, not
+                # just USDC (which understates sleeve A funding payouts).
+                set_live_balance(
+                    result.get("usdc"), result.get("bnb"),
+                    eth=result.get("eth"),
+                    usdt=result.get("usdt"),
+                    wallet_total_usd=result.get("wallet_total_usd"),
+                )
             return JSONResponse(result)
         return JSONResponse({
             "usdc": s.usdc_balance, "bnb": s.bnb_balance,
+            "eth": getattr(s, "eth_balance", None),
+            "usdt": getattr(s, "usdt_balance", None),
+            "wallet_total_usd": getattr(s, "wallet_total_usd", None),
             "ts": s.live_balance_ts, "address": s.wallet_address,
             "error": None, "cached": True,
         })
