@@ -324,6 +324,46 @@ def test_pinata_path_returns_gateway_url(monkeypatch):
     assert kwargs["headers"]["pinata_api_key"] == "test-pinata-key"
 
 
+def test_pinata_jwt_path_takes_precedence(monkeypatch):
+    """v2.3.2: when PINATA_JWT is set, it takes precedence over legacy
+    (key, secret) auth — JWT is the modern, recommended Pinata auth."""
+    from connectors.ipfs import IPFSClient
+    monkeypatch.setenv("PINATA_JWT", "eyJhbGciOiJIUzI1NiJ9.test.jwt")
+    # Legacy auth is also set; JWT must still win.
+    monkeypatch.setenv("PINATA_API_KEY", "legacy-key-should-be-ignored")
+    monkeypatch.setenv("PINATA_SECRET_API_KEY", "legacy-secret-should-be-ignored")
+
+    fake_response = MagicMock()
+    fake_response.json.return_value = {"IpfsHash": "QmJwtCid456"}
+    fake_response.raise_for_status = MagicMock()
+
+    with patch("connectors.ipfs.httpx.post", return_value=fake_response) as mock_post:
+        ipfs = IPFSClient(mode="mainnet")
+        cid, url = ipfs.pin_to_public_gateway({"name": "BNB Agent"})
+
+    assert cid == "QmJwtCid456"
+    assert url == "https://gateway.pinata.cloud/ipfs/QmJwtCid456"
+    # JWT must be in Authorization Bearer header — NOT the legacy key/secret
+    args, kwargs = mock_post.call_args
+    assert kwargs["headers"]["Authorization"] == "Bearer eyJhbGciOiJIUzI1NiJ9.test.jwt"
+    assert "pinata_api_key" not in kwargs["headers"]
+
+
+def test_legacy_pinata_requires_both_key_and_secret(monkeypatch):
+    """v2.3.2: legacy Pinata auth needs BOTH key + secret (Pinata rejects
+    key-only with 401). If only one is set, fall through to local CID."""
+    from connectors.ipfs import IPFSClient
+    monkeypatch.delenv("PINATA_JWT", raising=False)
+    monkeypatch.setenv("PINATA_API_KEY", "only-key-no-secret")
+    monkeypatch.delenv("PINATA_SECRET_API_KEY", raising=False)
+
+    ipfs = IPFSClient(mode="mainnet")
+    # Without secret, no Pinata path attempted → local CID
+    cid, url = ipfs.pin_to_public_gateway({"name": "BNB Agent"})
+    assert cid.startswith("Qm")
+    assert url.startswith("ipfs://")
+
+
 def test_pinata_failure_falls_through_to_local_cid(monkeypatch):
     """v2.3.0: if Pinata fails (no key, network error, etc.) we fall
     back to a local CID. The NFT will still be indexed, only metadata

@@ -39,6 +39,12 @@ class IPFSClient:
         # v2.3.0: optional Pinata pinning for ERC-8004 agentURI metadata.
         # Reading at construction so behaviour is consistent for the
         # lifetime of the process.
+        #
+        # Pinata auth — three acceptable shapes (auto-detected):
+        #   1. PINATA_JWT set → Bearer token (modern, recommended)
+        #   2. PINATA_API_KEY + PINATA_SECRET_API_KEY → legacy auth
+        #   3. Neither → no Pinata path, falls through to daemon/local
+        self._pinata_jwt = os.environ.get("PINATA_JWT", "").strip()
         self._pinata_key = os.environ.get("PINATA_API_KEY", "").strip()
         self._pinata_secret = os.environ.get("PINATA_SECRET_API_KEY", "").strip()
         self._public_gateway = os.environ.get(
@@ -106,11 +112,10 @@ class IPFSClient:
         """
         blob = json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
         # 1. Pinata (preferred — most reliable for 8004scan crawler)
-        if self._pinata_key:
+        # JWT takes precedence over legacy (key, secret) auth.
+        if self._pinata_jwt:
             try:
-                headers = {"pinata_api_key": self._pinata_key}
-                if self._pinata_secret:
-                    headers["pinata_secret_api_key"] = self._pinata_secret
+                headers = {"Authorization": f"Bearer {self._pinata_jwt}"}
                 r = httpx.post(
                     "https://api.pinata.cloud/pinning/pinJSONToIPFS",
                     headers=headers,
@@ -123,11 +128,34 @@ class IPFSClient:
                 r.raise_for_status()
                 cid = r.json()["IpfsHash"]
                 url = f"{self._public_gateway}/ipfs/{cid}"
-                log.info("pinata pin ok → cid=%s url=%s", cid, url)
+                log.info("pinata (jwt) pin ok → cid=%s url=%s", cid, url)
                 self._local_store[cid] = blob
                 return cid, url
             except Exception as e:
-                log.warning("pinata pin failed (%s); falling back", e)
+                log.warning("pinata (jwt) pin failed (%s); falling back", e)
+        elif self._pinata_key and self._pinata_secret:
+            try:
+                headers = {
+                    "pinata_api_key": self._pinata_key,
+                    "pinata_secret_api_key": self._pinata_secret,
+                }
+                r = httpx.post(
+                    "https://api.pinata.cloud/pinning/pinJSONToIPFS",
+                    headers=headers,
+                    json={
+                        "pinataContent": obj,
+                        "pinataMetadata": {"name": "bnbagent-identity.json"},
+                    },
+                    timeout=15,
+                )
+                r.raise_for_status()
+                cid = r.json()["IpfsHash"]
+                url = f"{self._public_gateway}/ipfs/{cid}"
+                log.info("pinata (key+secret) pin ok → cid=%s url=%s", cid, url)
+                self._local_store[cid] = blob
+                return cid, url
+            except Exception as e:
+                log.warning("pinata (key+secret) pin failed (%s); falling back", e)
         # 2. Local IPFS daemon
         if self.mode not in ("testnet", "replay"):
             try:
