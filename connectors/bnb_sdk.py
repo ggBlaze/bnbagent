@@ -722,7 +722,18 @@ class ERC8004:
                 self.registry,
             )
         w3 = self.client.w3()
+        # v2.3.0: resync nonce from chain state FIRST. The cache starts
+        # empty on a fresh process; next_nonce() would return 0, which
+        # gets rejected as 'nonce too low' on wallets that already have
+        # prior txs (e.g. our wallet is at on-chain nonce 70 from the
+        # v2.2.x dust-swap spam). resync_nonce seeds the cache from
+        # eth_getTransactionCount(address, 'pending').
+        self.client.resync_nonce(self.wallet.address)
         nonce = self.client.next_nonce(self.wallet.address)
+        log.info(
+            "ERC8004.register: nonce=%d for wallet=%s",
+            nonce, self.wallet.address,
+        )
         # Encode register(string)
         contract = w3.eth.contract(address=self.registry, abi=ERC8004_REGISTRY_ABI)
         tx = contract.functions.register(agent_uri).build_transaction({
