@@ -102,6 +102,21 @@ async def run(args):
     policy = components["policy"]
     cfg = components["config"]
 
+    # v2.3.7: announce the effective mode + its source. Operators
+    # who keep getting surprised by "the bot reverted to testnet"
+    # can see at a glance whether the env var is doing its job
+    # (the dashboard's wizard writes to local.yaml; only the env
+    # var can override it).
+    _env_mode = os.environ.get("BNBAGENT_MODE", "").strip().lower()
+    _mode_source = (
+        f"env BNBAGENT_MODE={_env_mode}" if _env_mode in ("testnet", "mainnet", "replay")
+        else f"config file (local.yaml / config.yaml)"
+    )
+    log.info(
+        "agent mode: %s (chain_id=%d, source=%s)",
+        cfg.get("mode"), cfg.get("chain_id"), _mode_source,
+    )
+
     # v2.1.8: wire a real mark-price feed for portfolio accounting.
     # Without this, portfolio._mark_price() returns the hard-coded
     # stub 100.0 and every position's unrealized PnL is wildly wrong

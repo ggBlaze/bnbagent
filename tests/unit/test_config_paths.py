@@ -228,3 +228,113 @@ def test_explicit_path_does_not_use_shadow(tmp_path, monkeypatch):
     # helper. For tests that want a known config, they should chdir
     # to a tmp dir with their fixture files. This test just confirms
     # the chdir-based resolution works as documented.
+
+
+# --- v2.3.7: BNBAGENT_MODE env var override (12-factor) ---
+
+def test_env_var_overrides_testnet_local_with_mainnet(tmp_path, monkeypatch):
+    """BNBAGENT_MODE=mainnet wins even when local.yaml says testnet.
+
+    This is the exact failure mode the operator hit: a wizard click
+    or manual edit wrote `mode: testnet` to local.yaml, the bot kept
+    reverting to testnet on every restart, and the only way to break
+    out was to edit local.yaml again. The env var provides a stable
+    override the dashboard's wizard can't touch.
+    """
+    monkeypatch.chdir(tmp_path)
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump({"mode": "mainnet"}))
+    (cfg_dir / "local.yaml").write_text(yaml.safe_dump({"mode": "testnet"}))
+    monkeypatch.setenv("BNBAGENT_MODE", "mainnet")
+    cfg = load_config()
+    assert cfg["mode"] == "mainnet"
+
+
+def test_env_var_overrides_mainnet_local_with_testnet(tmp_path, monkeypatch):
+    """The env var wins in both directions — useful for dev/sandbox runs."""
+    monkeypatch.chdir(tmp_path)
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump({"mode": "mainnet"}))
+    (cfg_dir / "local.yaml").write_text(yaml.safe_dump({"mode": "mainnet"}))
+    monkeypatch.setenv("BNBAGENT_MODE", "testnet")
+    cfg = load_config()
+    assert cfg["mode"] == "testnet"
+
+
+def test_env_var_overrides_with_replay(tmp_path, monkeypatch):
+    """The env var accepts the same {testnet, mainnet, replay} set as the wizard."""
+    monkeypatch.chdir(tmp_path)
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump({"mode": "mainnet"}))
+    (cfg_dir / "local.yaml").write_text(yaml.safe_dump({"mode": "mainnet"}))
+    monkeypatch.setenv("BNBAGENT_MODE", "replay")
+    cfg = load_config()
+    assert cfg["mode"] == "replay"
+
+
+def test_no_env_var_falls_back_to_merged_config(tmp_path, monkeypatch):
+    """When BNBAGENT_MODE is unset, the merged file-based config wins."""
+    monkeypatch.chdir(tmp_path)
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump({"mode": "mainnet"}))
+    (cfg_dir / "local.yaml").write_text(yaml.safe_dump({"mode": "testnet"}))
+    monkeypatch.delenv("BNBAGENT_MODE", raising=False)
+    cfg = load_config()
+    assert cfg["mode"] == "testnet"  # local wins over shipped
+
+
+def test_empty_env_var_falls_back_to_config(tmp_path, monkeypatch):
+    """BNBAGENT_MODE='' (set but empty) is treated as unset."""
+    monkeypatch.chdir(tmp_path)
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump({"mode": "mainnet"}))
+    (cfg_dir / "local.yaml").write_text(yaml.safe_dump({"mode": "testnet"}))
+    monkeypatch.setenv("BNBAGENT_MODE", "")
+    cfg = load_config()
+    assert cfg["mode"] == "testnet"
+
+
+def test_invalid_env_var_falls_back_to_config_with_warning(tmp_path, monkeypatch, caplog):
+    """BNBAGENT_MODE='banana' is invalid; warn and use the file value."""
+    monkeypatch.chdir(tmp_path)
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump({"mode": "mainnet"}))
+    (cfg_dir / "local.yaml").write_text(yaml.safe_dump({"mode": "testnet"}))
+    monkeypatch.setenv("BNBAGENT_MODE", "banana")
+    with caplog.at_level("WARNING", logger="core.config_paths"):
+        cfg = load_config()
+    assert cfg["mode"] == "testnet"
+    assert any(
+        "BNBAGENT_MODE='banana'" in rec.message or 'BNBAGENT_MODE="banana"' in rec.message
+        for rec in caplog.records
+    ), f"expected a WARNING about BNBAGENT_MODE=banana, got: {[r.message for r in caplog.records]}"
+
+
+def test_env_var_uppercase_normalized(tmp_path, monkeypatch):
+    """BNBAGENT_MODE=MAINNET (uppercase) works — operator types fast."""
+    monkeypatch.chdir(tmp_path)
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump({"mode": "testnet"}))
+    (cfg_dir / "local.yaml").write_text(yaml.safe_dump({"mode": "testnet"}))
+    monkeypatch.setenv("BNBAGENT_MODE", "MAINNET")
+    cfg = load_config()
+    assert cfg["mode"] == "mainnet"
+
+
+def test_env_var_with_surrounding_whitespace(tmp_path, monkeypatch):
+    """BNBAGENT_MODE='  mainnet  ' is stripped before validation."""
+    monkeypatch.chdir(tmp_path)
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump({"mode": "testnet"}))
+    (cfg_dir / "local.yaml").write_text(yaml.safe_dump({"mode": "testnet"}))
+    monkeypatch.setenv("BNBAGENT_MODE", "  mainnet  ")
+    cfg = load_config()
+    assert cfg["mode"] == "mainnet"

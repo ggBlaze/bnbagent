@@ -32,10 +32,14 @@ reading the shipped defaults only (no user overrides).
 """
 from __future__ import annotations
 
+import logging
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+log = logging.getLogger(__name__)
 
 # These are intentionally module-level so tests can monkeypatch.chdir and
 # have the helper resolve paths relative to the new cwd. The shape is
@@ -70,6 +74,17 @@ def load_config(*, base_dir: Path | None = None) -> dict:
     a tmp directory; production callers leave it None and the paths
     resolve relative to cwd (which is the repo root when running via
     `bash bnbagent` or `pytest` from the repo).
+
+    v2.3.7: BNBAGENT_MODE env var overrides the file-based mode
+    (12-factor convention). Lets the operator pin the mode across
+    restarts regardless of what local.yaml contains — useful when a
+    wizard click or manual edit accidentally flipped to testnet and
+    the bot keeps reverting on reboot. Validated against the same
+    {testnet, mainnet, replay} set as the wizard. Set in `.env` (which
+    the systemd unit loads via `EnvironmentFile=`) or exported in the
+    shell before `python3 -m core.main`. Tests that need to control
+    the env var should monkeypatch `os.environ` (or use
+    `monkeypatch.setenv("BNBAGENT_MODE", ...)` with pytest).
     """
     base = base_dir or Path.cwd()
     default = base / DEFAULT_CONFIG
@@ -80,6 +95,23 @@ def load_config(*, base_dir: Path | None = None) -> dict:
     if local.exists():
         override = yaml.safe_load(local.read_text()) or {}
         _deep_merge(cfg, override)
+
+    # v2.3.7: BNBAGENT_MODE env var wins over file-based mode.
+    env_mode = os.environ.get("BNBAGENT_MODE", "").strip().lower()
+    if env_mode in ("testnet", "mainnet", "replay"):
+        if cfg.get("mode") != env_mode:
+            log.info(
+                "BNBAGENT_MODE=%s overrides config-file mode=%s",
+                env_mode, cfg.get("mode"),
+            )
+        cfg["mode"] = env_mode
+    elif env_mode:
+        log.warning(
+            "BNBAGENT_MODE=%r is not one of {testnet, mainnet, replay} "
+            "— ignoring, falling back to config-file mode=%r",
+            env_mode, cfg.get("mode"),
+        )
+
     return cfg
 
 
