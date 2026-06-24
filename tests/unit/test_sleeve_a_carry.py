@@ -119,3 +119,86 @@ def test_rebalance_closes_pair_atomically():
         f"expected 3 close_position calls (one per row), got "
         f"{components['portfolio'].close_position.call_count}"
     )
+
+
+# ---- v2.x.x: per-token notional must clamp to policy["global_risk"]["max_notional_usdc_per_trade"]
+
+
+def test_rebalance_clamps_per_token_to_max_notional_cap():
+    """Without the clamp, 100 * 0.7 / 20 = 3.50 USDC > 1.00 cap and every
+    proposal dies at the risk gate. With the clamp, per_token becomes 1.00.
+    """
+    components = _make_components()
+    components["policy"]["sleeve_allocations"]["A"] = 0.7
+    components["policy"]["global_risk"]["max_notional_usdc_per_trade"] = 1.0
+    # Use a basket of eligible symbols so filter_universe doesn't empty it.
+    components["config"]["cmc"]["basket_symbols"] = ["BTC", "ETH", "SOL", "XRP"]
+    components["perps"].select_venue = MagicMock(return_value=("aster", {}))
+    components["perps"].mark = MagicMock(return_value=100.0)
+    components["perps"].close_short = MagicMock(return_value=MagicMock())
+    components["pancake"].buy = MagicMock(return_value=MagicMock())
+    components["perps"].open_short = MagicMock(return_value=MagicMock())
+    components["wallet"].address = "0x" + "1" * 40
+
+    # capture every proposed notional
+    captured = []
+
+    class _CaptureAgent(_AgentShim):
+        def allow_trade(self, proposed):
+            captured.append(float(proposed.notional_usdc))
+            return True, "ok"
+
+    s = SleeveACarry(name="A", components=components, agent=_CaptureAgent())
+    s.last_rebalance = 0
+    s.venue = "OLD_VENUE"  # force rebalance to fire
+    s.basket = ["DIFFERENT"]
+
+    asyncio.run(s._rebalance(Decimal("100")))
+
+    assert captured, "rebalance produced no proposals"
+    # Every proposed trade must be <= 1.00 USDC (the configured cap).
+    # Without the clamp every value would be 3.50 / 4 = 17.50 each.
+    # With the clamp, every value must be exactly 1.00.
+    over = [n for n in captured if n > 1.0]
+    assert not over, f"un-clamped notionals: {over}"
+    assert max(captured) <= 1.0
+
+
+def test_rebalance_pass_through_when_cap_above_strategy_size():
+    """If dashboard raises cap to 100.00, sleeve A's per-token math goes through unclamped."""
+    components = _make_components()
+    components["policy"]["sleeve_allocations"]["A"] = 0.7
+    components["policy"]["global_risk"]["max_notional_usdc_per_trade"] = 100.0
+    components["config"]["cmc"]["basket_symbols"] = ["BTC", "ETH", "SOL", "XRP"]
+    components["perps"].select_venue = MagicMock(return_value=("aster", {}))
+    components["perps"].mark = MagicMock(return_value=100.0)
+    components["perps"].close_short = MagicMock(return_value=MagicMock())
+    components["pancake"].buy = MagicMock(return_value=MagicMock())
+    components["perps"].open_short = MagicMock(return_value=MagicMock())
+    components["wallet"].address = "0x" + "1" * 40
+
+    captured = []
+
+    class _CaptureAgent(_AgentShim):
+        def allow_trade(self, proposed):
+            captured.append(float(proposed.notional_usdc))
+            return True, "ok"
+
+    s = SleeveACarry(name="A", components=components, agent=_CaptureAgent())
+    s.last_rebalance = 0
+    s.venue = "OLD_VENUE"
+    s.basket = ["DIFFERENT"]
+
+    asyncio.run(s._rebalance(Decimal("100")))
+
+    assert captured, "rebalance produced no proposals"
+    # With cap=100, NO notional should be clamped to 1.0. Every notional
+    # should equal equity * 0.7 / N where N = symbols that survived quote
+    # fetch. We assert all notionals > 1.0 (the previous cap value) and
+    # at most one unique value (each token gets the same per_token_usdc).
+    assert all(n > 1.0 for n in captured), (
+        f"some notionals still clamped to 1.0 despite cap=100: {captured}"
+    )
+    assert len(set(captured)) == 1, (
+        f"expected one unique per_token size, got {set(captured)}"
+    )

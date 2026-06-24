@@ -15,7 +15,7 @@ import numpy as np
 
 from core.eligibility import filter_universe, is_eligible
 from core.portfolio import Position
-from core.risk import ProposedTrade, kelly_size, cap_by_risk
+from core.risk import ProposedTrade, kelly_size, cap_by_risk, cap_by_max_notional
 from core.utils import token_address
 
 log = logging.getLogger(__name__)
@@ -114,6 +114,11 @@ class SleeveCMeanRev:
         if size <= 0 or size < Decimal("1"):
             return
         size = min(size, equity * Decimal(str(sleeve_cfg["max_position_pct"] / 100)))
+        # v2.x.x: clamp to the absolute per-trade cap from policy
+        # (editable from the dashboard as `cfg-notional`). Without this
+        # the Kelly sizing for sleeve C gives ~$2.50 which exceeds the
+        # 1.00 USDC cap and gets rejected at the risk gate.
+        size = cap_by_max_notional(size, self.policy)
 
         proposed = ProposedTrade(
             sleeve="C", symbol=sym, side="long",

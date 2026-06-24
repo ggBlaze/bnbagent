@@ -23,7 +23,7 @@ CHANGED:  README first-fold rewritten — centered banner image, punchier
           tagline, "What you get" section organized per sponsor (CMC /
           TWAK / BNB Chain), table of three sleeves, risk-envelope
           bullets, and a one-command install/run block.
-CHANGED:  README test badge 475/475 → **619/621 passing** (real pytest
+CHANGED:  README test badge 475/475 → **619 of 621 tests passing** (real pytest
           output). 2 pre-existing failures (replay JSON drift +
           IPC identity drift) are documented and non-blocking.
 

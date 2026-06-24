@@ -249,6 +249,30 @@ def cap_by_risk(fraction: float, equity: Decimal, stop_distance_fraction: float,
     return min(Decimal(str(fraction)) * equity, max_size_by_risk)
 
 
+def cap_by_max_notional(size: Decimal, policy: dict) -> Decimal:
+    """Cap size to the absolute per-trade USDC limit in policy.
+
+    Layer in front of allow_trade so strategies size WITHIN safety rails
+    instead of getting every proposal rejected at the risk gate with
+    "per-trade notional cap: 3.5000 USDC > 1.0000 USDC cap".
+
+    Reads policy["global_risk"]["max_notional_usdc_per_trade"], which is
+    editable from the dashboard (`cfg-notional` form field, line 3086 of
+    dashboard/frontend/index.html). Returns size unchanged when the cap is
+    missing or zero (legacy / opt-out).
+    """
+    max_per_trade = policy.get("global_risk", {}).get("max_notional_usdc_per_trade")
+    if max_per_trade is None:
+        return size
+    try:
+        cap = Decimal(str(max_per_trade))
+    except Exception:
+        return size
+    if cap <= 0:
+        return size
+    return min(size, cap)
+
+
 def day_loss_breach_today(
     portfolio_equity: Decimal,
     day_start_equity: Decimal | None,

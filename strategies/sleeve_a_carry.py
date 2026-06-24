@@ -24,7 +24,7 @@ from typing import Any
 from connectors.bnb_sdk import Perps
 from core.eligibility import filter_universe, is_eligible
 from core.portfolio import Position
-from core.risk import ProposedTrade
+from core.risk import ProposedTrade, cap_by_max_notional
 from core.utils import token_address
 
 log = logging.getLogger(__name__)
@@ -217,6 +217,12 @@ class SleeveACarry:
 
         # Enter new carry
         per_token_usdc = equity * Decimal(str(self.notional_budget_pct)) / len(basket)
+        # v2.x.x: clamp per-token notional to the absolute per-trade cap
+        # from policy (editable from the dashboard as `cfg-notional`).
+        # Without this, the math gives 100*0.7/20 = 3.50 USDC per token
+        # and every proposal dies at the risk gate with "per-trade
+        # notional cap: 3.5000 USDC > 1.0000 USDC cap".
+        per_token_usdc = cap_by_max_notional(per_token_usdc, self.policy)
         if per_token_usdc < Decimal("1"):
             log.info("Sleeve A: equity too small for carry (%s)", per_token_usdc)
             return
