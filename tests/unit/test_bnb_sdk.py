@@ -1,6 +1,7 @@
 """bnbagent-sdk — BSC, PancakeV3, Perps, ERC-8004, ERC-8183."""
 import time
 from decimal import Decimal
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -27,6 +28,55 @@ class TestBSCClient:
         bsc = BSCClient(rpcs=["http://x"], chain_id=97, mode="testnet")
         assert bsc.eth_balance("0xabc") == Decimal("5.0")
         assert bsc.token_balance("0xtoken", "0xholder") == Decimal("1000")
+
+    # ---- v2.3.8: has_gas pre-flight check for broadcast path ----
+
+    def test_has_gas_testnet_mode_always_ok(self):
+        """Testnet/replay mode never blocks on gas (no real fees)."""
+        bsc = BSCClient(rpcs=["http://x"], chain_id=97, mode="testnet")
+        ok, reason = bsc.has_gas("0xabc", gas_units=250_000)
+        assert ok is True
+        assert reason == "ok"
+
+    def test_has_gas_mainnet_sufficient(self, monkeypatch):
+        """Mainnet with plenty of BNB returns ok=True."""
+        bsc = BSCClient(rpcs=["http://x"], chain_id=56, mode="mainnet")
+        # 0.05 BNB balance, gas_price 1 gwei, 100k gas → cost ~0.0001 BNB
+        fake_w3 = MagicMock()
+        fake_w3.eth.get_balance.return_value = 50 * 10**15  # 0.05 BNB
+        fake_w3.eth.gas_price = 10**9  # 1 gwei
+        monkeypatch.setattr(bsc, "_w3", fake_w3)
+        ok, reason = bsc.has_gas("0x" + "a" * 40, gas_units=100_000)
+        assert ok is True
+        assert reason == "ok"
+
+    def test_has_gas_mainnet_insufficient(self, monkeypatch):
+        """Mainnet with low BNB returns ok=False + reason with numbers."""
+        bsc = BSCClient(rpcs=["http://x"], chain_id=56, mode="mainnet")
+        fake_w3 = MagicMock()
+        # 0.0001 BNB balance vs 250k gas @ 5 gwei = 0.00125 BNB needed (×1.2 buffer = 0.0015)
+        fake_w3.eth.get_balance.return_value = 10**14  # 0.0001 BNB
+        fake_w3.eth.gas_price = 5 * 10**9  # 5 gwei
+        monkeypatch.setattr(bsc, "_w3", fake_w3)
+        ok, reason = bsc.has_gas("0x" + "a" * 40, gas_units=250_000)
+        assert ok is False
+        # Reason must carry human-readable numbers so an operator can see at a glance
+        assert "bnb_insufficient_gas" in reason
+        assert "have" in reason and "need" in reason and "overshot" in reason
+        assert "250000 gas" in reason
+        assert "1.20 buffer" in reason
+
+    def test_has_gas_chain_query_failure_does_not_block(self, monkeypatch):
+        """If we can't reach the chain to check, allow the broadcast to proceed
+        (broadcast itself will surface a better error; circuit breaker handles
+        repeat failures)."""
+        bsc = BSCClient(rpcs=["http://x"], chain_id=56, mode="mainnet")
+        fake_w3 = MagicMock()
+        fake_w3.eth.get_balance.side_effect = RuntimeError("rpc down")
+        monkeypatch.setattr(bsc, "_w3", fake_w3)
+        ok, reason = bsc.has_gas("0x" + "a" * 40, gas_units=250_000)
+        assert ok is True
+        assert "gas_check_skipped" in reason
 
 
 class TestPancakeV3:

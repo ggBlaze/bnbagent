@@ -11,7 +11,7 @@ import asyncio
 import time
 from decimal import Decimal
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -202,3 +202,91 @@ def test_rebalance_pass_through_when_cap_above_strategy_size():
     assert len(set(captured)) == 1, (
         f"expected one unique per_token size, got {set(captured)}"
     )
+
+
+# ---- v2.3.8: pre-flight BNB-for-gas check before broadcast ----
+
+def _make_rebalance_setup(components):
+    """Wire up the mocks needed for sleeve A's _rebalance to reach the
+    broadcast path: perps select_venue returns a NEW venue so the early
+    return doesn't fire, pancake encodes a swap, wallet signs, bsc
+    broadcasts."""
+    components["perps"].select_venue = MagicMock(return_value=("aster", {}))
+    components["perps"].mark = MagicMock(return_value=100.0)
+    components["perps"].close_short = MagicMock(return_value=MagicMock())
+    components["perps"].open_short = MagicMock(return_value=MagicMock())
+    components["pancake"].best_pool_fee = MagicMock(return_value=2500)
+    components["pancake"].encode_swap_v3 = MagicMock(return_value=b"\x00" * 4)
+    components["data_source"].quotes_latest = AsyncMock(
+        return_value={"data": {
+            "BTC": {"quote": {"USD": {"price": 100.0}}},
+            "ETH": {"quote": {"USD": {"price": 100.0}}},
+            "SOL": {"quote": {"USD": {"price": 100.0}}},
+        }},
+    )
+    components["wallet"].address = "0x" + "1" * 40
+    components["wallet"].sign_transaction = MagicMock(
+        return_value=MagicMock(raw_tx=b"\x00" * 32),
+    )
+    components["bsc"].resync_nonce = MagicMock()
+
+
+def test_rebalance_skips_when_insufficient_bnb_for_gas():
+    """If bsc.has_gas() returns ok=False, _rebalance must skip the
+    broadcast (no spurious 'insufficient funds for gas' errors)."""
+    components = _make_components()
+    _make_rebalance_setup(components)
+    components["bsc"].has_gas = MagicMock(
+        return_value=(False, "bnb_insufficient_gas: have 0.000100 BNB, need 0.001500 BNB"),
+    )
+    components["bsc"].broadcast = MagicMock(return_value=MagicMock(tx_hash="0xDEAD"))
+
+    s = SleeveACarry(name="A", components=components, agent=_AgentShim())
+    s.last_rebalance = 0
+    s.venue = "OLD_VENUE"
+    s.basket = ["DIFFERENT"]  # force the venue/basket mismatch path
+
+    asyncio.run(s._rebalance(Decimal("100")))
+
+    assert components["bsc"].broadcast.call_count == 0, (
+        f"broadcast should have been blocked by gas check, was called "
+        f"{components['bsc'].broadcast.call_count} time(s)"
+    )
+    assert components["bsc"].has_gas.call_count >= 1
+    assert components["portfolio"].positions == {}
+
+
+def test_rebalance_proceeds_when_gas_check_passes():
+    """If bsc.has_gas() returns ok=True, the broadcast proceeds."""
+    components = _make_components()
+    _make_rebalance_setup(components)
+    components["bsc"].has_gas = MagicMock(return_value=(True, "ok"))
+    components["bsc"].broadcast = MagicMock(return_value=MagicMock(tx_hash="0xALIVE"))
+
+    s = SleeveACarry(name="A", components=components, agent=_AgentShim())
+    s.last_rebalance = 0
+    s.venue = "OLD_VENUE"
+    s.basket = ["DIFFERENT"]
+
+    asyncio.run(s._rebalance(Decimal("100")))
+
+    assert components["bsc"].broadcast.call_count >= 1
+    assert components["bsc"].has_gas.call_count >= 1
+
+
+def test_rebalance_proceeds_when_gas_check_itself_fails():
+    """If bsc.has_gas() raises (chain RPC down), don't block trades —
+    let broadcast surface the real error."""
+    components = _make_components()
+    _make_rebalance_setup(components)
+    components["bsc"].has_gas = MagicMock(side_effect=RuntimeError("rpc down"))
+    components["bsc"].broadcast = MagicMock(return_value=MagicMock(tx_hash="0xALIVE"))
+
+    s = SleeveACarry(name="A", components=components, agent=_AgentShim())
+    s.last_rebalance = 0
+    s.venue = "OLD_VENUE"
+    s.basket = ["DIFFERENT"]
+
+    asyncio.run(s._rebalance(Decimal("100")))
+
+    assert components["bsc"].broadcast.call_count >= 1

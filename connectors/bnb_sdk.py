@@ -299,6 +299,47 @@ class BSCClient:
             return Decimal("5.0")
         return Decimal(Web3.from_wei(self.w3().eth.get_balance(address), "ether"))
 
+    # v2.3.8: pre-flight gas-balance check for the broadcast path.
+    # Returns (ok, reason). ok=True means the wallet has at least
+    # `gas_units * gas_price * safety_multiplier` BNB to cover the tx
+    # plus a buffer for in-flight price spikes. ok=False carries the
+    # shortfall so the caller can log it and skip the trade instead of
+    # spamming "insufficient funds for gas" at every tick.
+    #
+    # The reason string is intentional: callers (sleeve A, daily floor,
+    # close-swap) log it as-is so an operator skimming the journal can
+    # see "balance X, need Y, overshot Z" without re-querying.
+    def has_gas(
+        self,
+        address: str,
+        gas_units: int,
+        *,
+        safety_multiplier: float = 1.2,
+    ) -> tuple[bool, str]:
+        if self.mode in ("testnet", "replay"):
+            # Testnet/replay clients don't pay real gas; always allow.
+            return True, "ok"
+        try:
+            balance_wei = self.w3().eth.get_balance(Web3.to_checksum_address(address))
+            gas_price_wei = self.w3().eth.gas_price
+        except Exception as e:
+            # If we can't even read the chain, treat as ok — the broadcast
+            # itself will fail with a more useful error and the circuit
+            # breaker will catch repeated failures.
+            return True, f"gas_check_skipped ({e})"
+        required_wei = int(gas_price_wei * gas_units * safety_multiplier)
+        if balance_wei >= required_wei:
+            return True, "ok"
+        bnb_have = Web3.from_wei(balance_wei, "ether")
+        bnb_need = Web3.from_wei(required_wei, "ether")
+        bnb_over = Web3.from_wei(required_wei - balance_wei, "ether")
+        return False, (
+            f"bnb_insufficient_gas: have {bnb_have:.6f} BNB, "
+            f"need {bnb_need:.6f} BNB ({gas_units} gas @ "
+            f"{Web3.from_wei(gas_price_wei, 'gwei'):.2f} gwei × "
+            f"{safety_multiplier:.2f} buffer), overshot {bnb_over:.6f} BNB"
+        )
+
     def token_balance(self, token: str, holder: str, decimals: int = 18) -> Decimal:
         if self.mode in ("testnet", "replay"):
             return Decimal("1000")

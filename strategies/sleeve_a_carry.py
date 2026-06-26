@@ -321,6 +321,26 @@ class SleeveACarry:
                     log.info(f"Sleeve A spot {sym}: gas_too_high_skip — {e}")
                     continue
                 raise
+            # v2.3.8: pre-flight BNB-for-gas check. Without this, every
+            # tick signs and broadcasts even when the wallet can't cover
+            # gas, the chain rejects with "insufficient funds for gas",
+            # and we spam the journal + burn the ~0.0001 BNB the chain
+            # may have charged for the failed mempool entry. The
+            # 1.2× buffer absorbs in-flight gas-price spikes between
+            # check and broadcast.
+            try:
+                ok, gas_reason = self.bsc.has_gas(
+                    self.wallet.address,
+                    self.cfg["gas"]["swap_gas"],
+                )
+            except Exception as gas_check_err:
+                # Don't block trades if the gas check itself fails to
+                # query the chain — broadcast will surface the real error.
+                log.warning(f"Sleeve A gas check failed for {sym}: {gas_check_err}")
+                ok, gas_reason = True, "gas_check_skipped"
+            if not ok:
+                log.info(f"Sleeve A spot {sym}: {gas_reason}")
+                continue
             rcpt_spot = self.bsc.broadcast(tx_spot)
 
             # Open perp short leg

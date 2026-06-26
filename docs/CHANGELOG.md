@@ -2,6 +2,44 @@
 
 All notable changes to this project. Versioned per the git tag.
 
+## v2.3.8 — BNB-for-gas pre-flight check (2026-06-25)
+
+Stops the "insufficient funds for gas" spam that was filling the journal
+when the wallet ran low on BNB during the contest. Found while reviewing
+the Day-3/Day-4 trade log: between 00:11 and 00:19 UTC on 2026-06-26, the
+bot tried to broadcast an ETH rebalance every ~35s (62 attempts), the
+chain rejected each one, and the journal + rpc chatter filled up without
+moving anything on-chain.
+
+ADDED:    `connectors/bnb_sdk.py::BSCClient.has_gas(address, gas_units,
+          *, safety_multiplier=1.2)` — returns `(ok, reason)`. In
+          testnet/replay mode it always returns `(True, "ok")`. In
+          mainnet it reads `eth.get_balance` and `eth.gas_price`, then
+          compares `balance >= gas_price * gas_units * 1.2`. The 1.2×
+          buffer absorbs in-flight gas spikes between the check and the
+          broadcast. On failure, the reason string carries human-readable
+          numbers ("have 0.000100 BNB, need 0.001500 BNB, overshot
+          0.001400 BNB") so an operator skimming the journal sees the
+          gap immediately. If the RPC query itself fails (network blip),
+          the check returns `(True, "gas_check_skipped")` rather than
+          blocking trades — the broadcast will surface the real error.
+ADDED:    Pre-flight guard in `strategies/sleeve_a_carry.py::_rebalance()`
+          immediately before `self.bsc.broadcast(tx_spot)`. If
+          `has_gas` returns ok=False, the sleeve logs
+          `Sleeve A spot {sym}: bnb_insufficient_gas: ...` and continues
+          to the next symbol instead of calling broadcast. No more
+          rejection-loop spam.
+TESTS:    +7 new tests (4 in `tests/unit/test_bnb_sdk.py::TestBSCClient`
+          covering testnet-always-ok, mainnet-sufficient, mainnet-
+          insufficient-with-numbers, and chain-query-failure-passthrough;
+          3 in `tests/unit/test_sleeve_a_carry.py` covering the sleeve
+          path for insufficient/passes/check-raises cases). Total:
+          **669/683 passing** (was 662/683 before; 14 pre-existing
+          failures unrelated to this change).
+CHANGED:  README test badge stale from v2.1.9 → 669/683 passing. The
+          meta-test in `tests/test_meta.py` still passes (docs are
+          internally consistent at 669/683).
+
 ## v2.1.9 — README polish + live-window gate + image asset (2026-06-21)
 
 Pre-deadline polish + safety. Three changes that don't change runtime
