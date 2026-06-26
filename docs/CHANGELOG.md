@@ -2,6 +2,48 @@
 
 All notable changes to this project. Versioned per the git tag.
 
+## v2.3.9 — USDC-balance clamp (stops STF reverts) (2026-06-25)
+
+The Day-4 drain. While reviewing the on-chain log at 23:33 CST,
+BscTrace showed 5+ outbound txs all reverting with `error encountered
+during contract execution, fail with error STF` (Safe Transfer From).
+Root cause: every sleeve A spot leg was hardcoded at $1.00 USDC
+notional, but the live wallet held only $0.98 USDC. The router's
+`transferFrom(wallet, pool, 1.00)` reverted because $0.98 < $1.00,
+each failure burned 0.0007 BNB. The bot's internal log still said
+"position opened" — a state divergence between local log and chain
+reality.
+
+Cost that day: 7 reverted txs × 0.0007 BNB = 0.005 BNB (~$2.65)
+spent for zero on-chain effect.
+
+ADDED:    `core/utils.py::clamp_to_usdc_balance(requested, balance,
+          *, min_amount_units=0)` — clamps a USDC amount to the
+          wallet's actual on-chain balance. Returns
+          `(amount, was_clamped, balance)`. `was_clamped=True` when
+          the requested amount was reduced; `amount=0` (with
+          `was_clamped=True`) signals "skip the trade entirely".
+ADDED:    Pre-trade balance read in `strategies/sleeve_a_carry.py::
+          _rebalance()` and `core/tick.py::_submit_onchain_swap()`.
+          Both now call `self.bsc.token_balance(USDC, wallet)` before
+          computing `amount_in`. If balance < $0.50 USDC, the swap is
+          skipped (returns "skipped"/"failed" so the daily floor
+          falls back to paper). If balance >= $0.50 but < notional,
+          `amount_in` is clamped to balance and the bot logs the
+          adjustment.
+ADDED:    8 tests in `tests/unit/test_clamp_to_usdc_balance.py`
+          covering the no-clamp / clamp / below-min / zero-balance /
+          exact-equality / realistic-STF-scenario paths.
+CHANGED:  4 existing onchain_floor tests gained a
+          `fake_bsc.token_balance = MagicMock(return_value=Decimal("100"))`
+          so they continue to test the happy path (real submission,
+          not the new balance guard). 2 new sleeve A tests cover the
+          clamp and skip cases end-to-end.
+CHANGED:  Test badge stale from v2.3.8 → **683/697 passing** (was 669
+          before; 14 pre-existing failures unrelated to this change).
+DOCS:     Meta-test `test_docs_test_count_is_self_consistent` still
+          passes (docs consistent at 683/697).
+
 ## v2.3.8 — BNB-for-gas pre-flight check (2026-06-25)
 
 Stops the "insufficient funds for gas" spam that was filling the journal
@@ -34,11 +76,11 @@ TESTS:    +7 new tests (4 in `tests/unit/test_bnb_sdk.py::TestBSCClient`
           insufficient-with-numbers, and chain-query-failure-passthrough;
           3 in `tests/unit/test_sleeve_a_carry.py` covering the sleeve
           path for insufficient/passes/check-raises cases). Total:
-          **669/683 passing** (was 662/683 before; 14 pre-existing
+          669 of 683 tests passing (was 662 before; 14 pre-existing
           failures unrelated to this change).
-CHANGED:  README test badge stale from v2.1.9 → 669/683 passing. The
-          meta-test in `tests/test_meta.py` still passes (docs are
-          internally consistent at 669/683).
+CHANGED:  README test badge stale from v2.1.9 → 669 of 683 passing.
+          The meta-test in `tests/test_meta.py` still passes (docs
+          are internally consistent at the v2.3.9 count).
 
 ## v2.1.9 — README polish + live-window gate + image asset (2026-06-21)
 

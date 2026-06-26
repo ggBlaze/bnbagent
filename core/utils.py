@@ -116,3 +116,83 @@ def safe_div(numer: Decimal, denom: Decimal, default: Decimal = Decimal(0)) -> D
     if denom == 0:
         return default
     return numer / denom
+
+
+# v2.3.9: clamp a USDC swap amount to the wallet's actual on-chain
+# USDC balance. Without this, every swap where the configured notional
+# exceeds the live balance reverts on-chain with STF (Safe Transfer
+# From) when the router calls transferFrom(user, pool, amount). The
+# bot's internal state thinks the trade opened (because the broadcast
+# was submitted), but the on-chain reality is a revert — a silent state
+# divergence that burns gas on every attempt.
+#
+# Returns (amount_in_units, was_clamped, balance_units). was_clamped
+# is True when the requested amount was reduced because of insufficient
+# balance. Callers should log was_clamped and consider whether to skip
+# the trade entirely (e.g. if requested == clamped + small change, the
+# notional is too tiny to bother).
+def clamp_to_usdc_balance(
+    requested_units: int,
+    balance_units: int,
+    *,
+    min_amount_units: int = 0,
+) -> tuple[int, bool, int]:
+    """Clamp requested_units to balance_units (the wallet's actual
+    USDC balance in raw token units).
+
+    Args:
+        requested_units: the amount the strategy wants to swap, in
+            raw token units (already scaled by 10**decimals).
+        balance_units: the on-chain USDC balance in raw token units.
+        min_amount_units: skip (return 0) if the clamped amount would
+            be below this threshold. 0 means "always proceed".
+
+    Returns:
+        (clamped_amount, was_clamped, balance). When balance is below
+        min_amount_units, clamped_amount is 0 and was_clamped is True.
+    """
+    if balance_units < min_amount_units:
+        return 0, True, balance_units
+    if requested_units <= balance_units:
+        return requested_units, False, balance_units
+    return balance_units, True, balance_units
+
+
+# v2.3.9: clamp a USDC swap amount to the wallet's actual on-chain
+# USDC balance. Without this, every swap where the configured notional
+# exceeds the live balance reverts on-chain with STF (Safe Transfer
+# From) when the router calls transferFrom(user, pool, amount). The
+# bot's internal state thinks the trade opened (because the broadcast
+# was submitted), but the on-chain reality is a revert — a silent state
+# divergence that burns gas on every attempt.
+#
+# Returns (amount_in_units, was_clamped, balance_units). was_clamped
+# is True when the requested amount was reduced because of insufficient
+# balance. Callers should log was_clamped and consider whether to skip
+# the trade entirely (e.g. if requested == clamped + small change, the
+# notional is too tiny to bother).
+def clamp_to_usdc_balance(
+    requested_units: int,
+    balance_units: int,
+    *,
+    min_amount_units: int = 0,
+) -> tuple[int, bool, int]:
+    """Clamp requested_units to balance_units (the wallet's actual
+    USDC balance in raw token units).
+
+    Args:
+        requested_units: the amount the strategy wants to swap, in
+            raw token units (already scaled by 10**decimals).
+        balance_units: the on-chain USDC balance in raw token units.
+        min_amount_units: skip (return 0) if the clamped amount would
+            be below this threshold. 0 means "always proceed".
+
+    Returns:
+        (clamped_amount, was_clamped, balance). When balance is below
+        min_amount_units, clamped_amount is 0 and was_clamped is True.
+    """
+    if balance_units < min_amount_units:
+        return 0, True, balance_units
+    if requested_units <= balance_units:
+        return requested_units, False, balance_units
+    return balance_units, True, balance_units

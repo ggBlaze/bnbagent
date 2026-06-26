@@ -26,6 +26,7 @@ from core.eligibility import filter_universe, is_eligible
 from core.portfolio import Position
 from core.risk import ProposedTrade, kelly_size, cap_by_risk, cap_by_max_notional
 from core.utils import token_address
+from connectors.bnb_sdk import InsufficientGasError
 
 log = logging.getLogger(__name__)
 
@@ -228,7 +229,14 @@ class SleeveBMomentum:
                 log.info(f"Sleeve B {sym}: gas_too_high_skip — {e}")
                 return
             raise
-        self.bsc.broadcast(tx)
+        try:
+            self.bsc.broadcast(tx)
+        except InsufficientGasError as e:
+            # v2.3.8a: broadcast() now runs a pre-flight gas check
+            # internally. If BNB ran out, skip silently and let the
+            # next tick re-evaluate.
+            log.info(f"Sleeve B {sym}: broadcast aborted — {e}")
+            return
 
         pos = Position(
             sleeve="B", symbol=sym, side="long",

@@ -194,6 +194,16 @@ class TxReceipt:
     logs: list = field(default_factory=list)
 
 
+# v2.3.8a: raised by BSCClient.broadcast() when the wallet can't
+# cover the tx's gas cost. Carries the same human-readable reason
+# string has_gas() returns so callers can log it directly. Callers
+# that have a paper fallback should catch this and continue; callers
+# that don't (token module, sleeves B/C, ERC-8004 register) can let
+# it propagate.
+class InsufficientGasError(RuntimeError):
+    pass
+
+
 class BSCClient:
     """Connection-pooled BSC RPC client. Rotates across multiple endpoints."""
 
@@ -260,6 +270,40 @@ class BSCClient:
         return pending
 
     def broadcast(self, signed: SignedTx) -> TxReceipt:
+        # v2.3.8a: pre-flight gas check before any on-chain broadcast.
+        # Without this, every broadcast path (sleeve A rebalance,
+        # _submit_onchain_swap, _floor_close_loop, ERC-8004 register,
+        # token module, sleeves B/C) calls send_raw_transaction
+        # directly. If the wallet doesn't have enough BNB for gas,
+        # the chain rejects with "insufficient funds for gas" and we
+        # burn ~0.0007 BNB per attempt. We had 10+ failed attempts
+        # in the 25-27 min window before the daily floor on 2026-06-26
+        # — this guard makes those attempts fail fast (no chain call)
+        # with a clear reason string the caller can log.
+        if self.mode not in ("testnet", "replay"):
+            try:
+                sender = (signed.signed or {}).get("from")
+                gas_units = int((signed.signed or {}).get("gas") or 0)
+                # Legacy txs have gasPrice, EIP-1559 have maxFeePerGas.
+                # gas_price() picks the higher of the two so the check
+                # is conservative on both tx types.
+                gp_legacy = int((signed.signed or {}).get("gasPrice") or 0)
+                gp_1559 = int((signed.signed or {}).get("maxFeePerGas") or 0)
+                tx_gas_price = max(gp_legacy, gp_1559)
+                if sender and gas_units > 0 and tx_gas_price > 0:
+                    ok, reason = self.has_gas(sender, gas_units)
+                    if not ok:
+                        raise InsufficientGasError(reason)
+            except InsufficientGasError:
+                raise
+            except Exception as gas_check_err:
+                # If we can't even read the chain to check, let the
+                # broadcast proceed — it will surface the real error
+                # and the circuit breaker will catch repeats.
+                log.warning(
+                    "broadcast: pre-flight gas check skipped (%s)",
+                    gas_check_err,
+                )
         if self.mode in ("testnet", "replay"):
             # stub: deterministic hash, no network call. For contract-create
             # txs (to=None / data starts with the ERC-20 init code), derive

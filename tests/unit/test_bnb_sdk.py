@@ -78,6 +78,97 @@ class TestBSCClient:
         assert ok is True
         assert "gas_check_skipped" in reason
 
+    # ---- v2.3.8a: broadcast() runs has_gas() pre-flight on mainnet ----
+
+    def test_broadcast_raises_insufficient_gas_when_wallet_empty(self, monkeypatch):
+        """broadcast() must refuse to send a tx when the wallet can't
+        cover gas, raising InsufficientGasError with the human-readable
+        reason string from has_gas()."""
+        from connectors.bnb_sdk import InsufficientGasError
+        bsc = BSCClient(rpcs=["http://x"], chain_id=56, mode="mainnet")
+        fake_w3 = MagicMock()
+        fake_w3.eth.get_balance.return_value = 10**14  # 0.0001 BNB
+        fake_w3.eth.gas_price = 5 * 10**9  # 5 gwei
+        monkeypatch.setattr(bsc, "_w3", fake_w3)
+        # Make sure broadcast doesn't actually try to send
+        monkeypatch.setattr(
+            "web3.Web3.HTTPProvider", lambda *a, **k: MagicMock()
+        )
+        signed = MagicMock()
+        signed.signed = {
+            "from": "0x" + "a" * 40,
+            "gas": 250_000,
+            "gasPrice": 5 * 10**9,
+            "nonce": 0,
+        }
+        signed.tx_hash = "0x" + "0" * 64
+        signed.raw_tx = b"\x00" * 32
+        with pytest.raises(InsufficientGasError) as exc:
+            bsc.broadcast(signed)
+        assert "bnb_insufficient_gas" in str(exc.value)
+
+    def test_broadcast_testnet_skips_gas_check(self, monkeypatch):
+        """testnet/replay mode must not block on gas — there is none to pay."""
+        from connectors.bnb_sdk import InsufficientGasError
+        bsc = BSCClient(rpcs=["http://x"], chain_id=97, mode="testnet")
+        # Even if has_gas() would say no, testnet path never calls it
+        # because the testnet branch returns early with a stub receipt.
+        signed = MagicMock()
+        signed.signed = {"from": "0x" + "a" * 40, "nonce": 0}
+        signed.tx_hash = "0x" + "0" * 64
+        # Should NOT raise — testnet always returns stub
+        rcpt = bsc.broadcast(signed)
+        assert rcpt.status == 1
+
+    def test_broadcast_proceeds_when_gas_sufficient(self, monkeypatch):
+        """If wallet has enough BNB, broadcast() proceeds past the
+        pre-flight check. We don't actually broadcast in tests (would
+        need real signing), so we patch send_raw_transaction to short
+        circuit and just verify the gas check passes."""
+        from connectors.bnb_sdk import InsufficientGasError
+        bsc = BSCClient(rpcs=["http://x"], chain_id=56, mode="mainnet")
+        fake_w3 = MagicMock()
+        fake_w3.eth.get_balance.return_value = 10**18  # 1 BNB, plenty
+        fake_w3.eth.gas_price = 5 * 10**9
+        monkeypatch.setattr(bsc, "_w3", fake_w3)
+        signed = MagicMock()
+        signed.signed = {
+            "from": "0x" + "a" * 40,
+            "gas": 250_000,
+            "gasPrice": 5 * 10**9,
+            "nonce": 0,
+        }
+        signed.tx_hash = "0x" + "1" * 64
+        signed.raw_tx = b"\x00" * 32
+        # Patch send_raw_transaction to raise something other than InsufficientGasError
+        # so we can confirm the gas check passed and execution continued
+        fake_w3.eth.send_raw_transaction.side_effect = RuntimeError("test-only sentinel")
+        with pytest.raises(RuntimeError, match="test-only sentinel"):
+            bsc.broadcast(signed)
+        # send_raw_transaction was called → gas check passed
+        assert fake_w3.eth.send_raw_transaction.called
+
+    def test_broadcast_handles_eip1559_tx(self, monkeypatch):
+        """EIP-1559 txs have maxFeePerGas, not gasPrice. The check
+        must read maxFeePerGas in that case."""
+        from connectors.bnb_sdk import InsufficientGasError
+        bsc = BSCClient(rpcs=["http://x"], chain_id=56, mode="mainnet")
+        fake_w3 = MagicMock()
+        fake_w3.eth.get_balance.return_value = 10**14  # 0.0001 BNB
+        fake_w3.eth.gas_price = 5 * 10**9
+        monkeypatch.setattr(bsc, "_w3", fake_w3)
+        signed = MagicMock()
+        signed.signed = {
+            "from": "0x" + "a" * 40,
+            "gas": 250_000,
+            "maxFeePerGas": 5 * 10**9,  # EIP-1559, no gasPrice
+            "nonce": 0,
+        }
+        signed.tx_hash = "0x" + "0" * 64
+        signed.raw_tx = b"\x00" * 32
+        with pytest.raises(InsufficientGasError):
+            bsc.broadcast(signed)
+
 
 class TestPancakeV3:
     def test_encode_swap_returns_calldata(self):

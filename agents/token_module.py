@@ -36,6 +36,7 @@ import yaml
 from eth_abi import encode as abi_encode
 from eth_account import Account
 from web3 import Web3
+from connectors.bnb_sdk import InsufficientGasError
 
 log = logging.getLogger(__name__)
 logger = log  # alias for parity with the rest of the codebase
@@ -222,7 +223,16 @@ class TokenModule:
                 max_gas_gwei = float(v)
         signed = wallet.sign_transaction(tx, chain_id=bsc.chain_id,
                                          max_gas_price_gwei=max_gas_gwei)
-        rcpt = bsc.broadcast(signed)
+        try:
+            rcpt = bsc.broadcast(signed)
+        except InsufficientGasError as e:
+            # v2.3.8a: wallet can't cover gas. Re-raise so the wizard
+            # shows the operator a clean error message instead of
+            # letting the chain burn gas on a tx that can't pay for itself.
+            log.error(f"token deploy aborted — {e}")
+            raise RuntimeError(
+                f"Cannot deploy token: wallet has insufficient BNB for gas. {e}"
+            ) from e
 
         # 4. pin metadata to IPFS
         cid = None

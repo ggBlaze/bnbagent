@@ -80,6 +80,10 @@ def test_usdc_approval_skipped_when_already_approved():
     pf = Portfolio(starting_equity=Decimal("100"))
 
     fake_bsc = MagicMock()
+    # v2.3.9: _submit_onchain_swap reads on-chain USDC balance.
+    # Default to plenty so existing happy-path tests still see
+    # 'submitted'; insufficient-balance tests override this.
+    fake_bsc.token_balance = MagicMock(return_value=Decimal("100"))
     fake_w3 = MagicMock()
     fake_erc20 = MagicMock()
     fake_erc20.functions.allowance.return_value.call.return_value = 10**18  # 1 USDC enough
@@ -123,6 +127,10 @@ def test_submit_onchain_swap_happy_path():
 
     # Mock the chain layer
     fake_bsc = MagicMock()
+    # v2.3.9: _submit_onchain_swap reads on-chain USDC balance.
+    # Default to plenty so existing happy-path tests still see
+    # 'submitted'; insufficient-balance tests override this.
+    fake_bsc.token_balance = MagicMock(return_value=Decimal("100"))
     fake_w3 = MagicMock()
     fake_erc20 = MagicMock()
     fake_erc20.functions.allowance.return_value.call.return_value = 0  # needs approval
@@ -225,6 +233,10 @@ def test_submit_floor_trade_onchain_path_when_mainnet():
     pf = Portfolio(starting_equity=Decimal("100"))
 
     fake_bsc = MagicMock()
+    # v2.3.9: _submit_onchain_swap reads on-chain USDC balance.
+    # Default to plenty so existing happy-path tests still see
+    # 'submitted'; insufficient-balance tests override this.
+    fake_bsc.token_balance = MagicMock(return_value=Decimal("100"))
     fake_w3 = MagicMock()
     fake_erc20 = MagicMock()
     fake_erc20.functions.allowance.return_value.call.return_value = 10**18
@@ -298,6 +310,10 @@ def test_submit_floor_trade_falls_back_to_paper_on_onchain_failure():
     pf = Portfolio(starting_equity=Decimal("100"))
 
     fake_bsc = MagicMock()
+    # v2.3.9: _submit_onchain_swap reads on-chain USDC balance.
+    # Default to plenty so existing happy-path tests still see
+    # 'submitted'; insufficient-balance tests override this.
+    fake_bsc.token_balance = MagicMock(return_value=Decimal("100"))
     fake_w3 = MagicMock()
     fake_erc20 = MagicMock()
     fake_erc20.functions.allowance.return_value.call.return_value = 10**18

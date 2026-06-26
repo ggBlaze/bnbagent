@@ -229,6 +229,12 @@ def _make_rebalance_setup(components):
         return_value=MagicMock(raw_tx=b"\x00" * 32),
     )
     components["bsc"].resync_nonce = MagicMock()
+    # v2.3.9: USDC balance read in _rebalance. Default to plenty so
+    # the existing tests still see "broadcast happened"; tests that
+    # want to exercise the STF clamp override this.
+    components["bsc"].token_balance = MagicMock(
+        return_value=Decimal("100"),
+    )
 
 
 def test_rebalance_skips_when_insufficient_bnb_for_gas():
@@ -290,3 +296,59 @@ def test_rebalance_proceeds_when_gas_check_itself_fails():
     asyncio.run(s._rebalance(Decimal("100")))
 
     assert components["bsc"].broadcast.call_count >= 1
+
+
+def test_rebalance_clamps_amount_in_to_usdc_balance():
+    """v2.3.9: when wallet has less USDC than the requested notional,
+    the broadcast must use the clamped amount, not the requested one.
+    Without this, the swap reverts on-chain with STF.
+    """
+    components = _make_components()
+    _make_rebalance_setup(components)
+    components["bsc"].has_gas = MagicMock(return_value=(True, "ok"))
+    components["bsc"].broadcast = MagicMock(return_value=MagicMock(tx_hash="0xALIVE"))
+    # Wallet has $0.50 USDC; bot wants $1.00. token_balance returns Decimal.
+    components["bsc"].token_balance = MagicMock(return_value=Decimal("0.50"))
+
+    s = SleeveACarry(name="A", components=components, agent=_AgentShim())
+    s.last_rebalance = 0
+    s.venue = "OLD_VENUE"
+    s.basket = ["DIFFERENT"]
+
+    asyncio.run(s._rebalance(Decimal("100")))
+
+    # Broadcast happened (gas check passed, balance above min)
+    assert components["bsc"].broadcast.call_count >= 1
+    # The calldata should be for $0.50, not $1.00. We can't decode the
+    # calldata directly, but we can verify amount_in was clamped.
+    # The encode_swap_v3 mock was called with the clamped amount.
+    encode_call = components["pancake"].encode_swap_v3.call_args
+    if encode_call:
+        amount_in_arg = encode_call.kwargs.get("amount_in") or encode_call.args[5]
+        # amount_in for $0.50 with 18 decimals = 5e17
+        assert amount_in_arg <= 5 * 10**17, (
+            f"expected amount_in clamped to <= $0.50, got {amount_in_arg}"
+        )
+
+
+def test_rebalance_skips_when_usdc_below_minimum():
+    """v2.3.9: when wallet has < $0.50 USDC, sleeve A must skip the
+    broadcast entirely (not try to swap an amount that's too tiny).
+    """
+    components = _make_components()
+    _make_rebalance_setup(components)
+    components["bsc"].has_gas = MagicMock(return_value=(True, "ok"))
+    components["bsc"].broadcast = MagicMock(return_value=MagicMock(tx_hash="0xALIVE"))
+    # Wallet has only $0.30 USDC (below 0.50 minimum)
+    components["bsc"].token_balance = MagicMock(return_value=Decimal("0.30"))
+
+    s = SleeveACarry(name="A", components=components, agent=_AgentShim())
+    s.last_rebalance = 0
+    s.venue = "OLD_VENUE"
+    s.basket = ["DIFFERENT"]
+
+    asyncio.run(s._rebalance(Decimal("100")))
+
+    # No broadcast — balance too low
+    assert components["bsc"].broadcast.call_count == 0
+    assert components["portfolio"].positions == {}

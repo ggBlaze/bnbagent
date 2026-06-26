@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from connectors.bnb_sdk import Perps
+from connectors.bnb_sdk import Perps, InsufficientGasError
 from core.eligibility import filter_universe, is_eligible
 from core.portfolio import Position
 from core.risk import ProposedTrade, cap_by_max_notional
@@ -279,9 +279,45 @@ class SleeveACarry:
             # v2.2.4 (decimals bugfix): USDC has 18 decimals on BSC
             # mainnet (was hardcoded as 6, producing dust swaps and
             # burning ~$30 of BNB in 60+ spam txs). Use the helper.
-            from core.utils import token_decimals
+            from core.utils import token_decimals, clamp_to_usdc_balance
             usdc_decimals = token_decimals("USDC", self.cfg)
             amount_in = int(per_token_usdc * Decimal(10 ** usdc_decimals))
+            # v2.3.9: clamp to the wallet's actual on-chain USDC
+            # balance. Without this, a swap for $1.00 USDC against a
+            # wallet that only has $0.98 USDC will broadcast, hit
+            # transferFrom, and revert on-chain with STF (Safe Transfer
+            # From) — burning gas for nothing and creating a state
+            # divergence between "position opened" (internal log) and
+            # "swap reverted" (chain reality). Tested 2026-06-25: this
+            # was happening on every funding_floor close.
+            try:
+                usdc_balance_raw = self.bsc.token_balance(
+                    usdc_addr, self.wallet.address, decimals=usdc_decimals,
+                )
+                balance_units = int(usdc_balance_raw * Decimal(10 ** usdc_decimals))
+                amount_in, was_clamped, _ = clamp_to_usdc_balance(
+                    amount_in, balance_units,
+                    # If the wallet has less than 0.50 USDC, don't bother
+                    # — the swap will be too tiny to be useful and just
+                    # burns gas. The daily floor will top us up tomorrow.
+                    min_amount_units=int(Decimal("0.50") * Decimal(10 ** usdc_decimals)),
+                )
+                if was_clamped and amount_in == 0:
+                    log.info(
+                        f"Sleeve A skip {sym}: USDC balance too low "
+                        f"({usdc_balance_raw} USDC < 0.50 minimum)"
+                    )
+                    continue
+                if was_clamped:
+                    log.info(
+                        f"Sleeve A {sym}: clamped amount_in from "
+                        f"{per_token_usdc} USDC to {amount_in / Decimal(10 ** usdc_decimals)} "
+                        f"USDC (wallet balance)"
+                    )
+            except Exception as bal_err:
+                # Don't block trades if the balance read fails — let the
+                # broadcast proceed and surface a real error if any.
+                log.warning(f"Sleeve A {sym}: USDC balance check failed: {bal_err}")
             min_out = int(amount_in / spot_price * Decimal("0.997"))
             calldata = self.pancake.encode_swap_v3(
                 token_in=usdc_addr, token_out=token_addr, fee=pool_fee,
@@ -341,7 +377,14 @@ class SleeveACarry:
             if not ok:
                 log.info(f"Sleeve A spot {sym}: {gas_reason}")
                 continue
-            rcpt_spot = self.bsc.broadcast(tx_spot)
+            try:
+                rcpt_spot = self.bsc.broadcast(tx_spot)
+            except InsufficientGasError as e:
+                # Belt-and-suspenders: broadcast() already runs has_gas()
+                # internally. Catching here too protects against a race
+                # where BNB ran out between the check and the broadcast.
+                log.info(f"Sleeve A spot {sym}: broadcast aborted — {e}")
+                continue
 
             # Open perp short leg
             tx_perp = self.perps.open_short(

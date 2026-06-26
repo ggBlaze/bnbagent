@@ -17,7 +17,7 @@
 [![BNB Chain](https://img.shields.io/badge/BNB%20Chain-AI%20Agent%20SDK-orange)](https://www.bnbchain.org/en/solutions/ai-agent)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-669%2F683%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-683%2F697%20passing-brightgreen)](tests/)
 [![CI](https://img.shields.io/badge/CI-enforced-blueviolet)](.github/workflows/ci.yml)
 
 </div>
@@ -587,7 +587,7 @@ bnbagent/
 │   ├── metrics.py
 │   └── replay.py
 │
-├── tests/                         ← 669/683 passing (enforced by CI)
+├── tests/                         ← 683/697 passing (enforced by CI)
 │   ├── unit/                      ← ~13 files
 │   ├── integration/               ← 1 file (MCP)
 │   └── fixtures/                  ← llm.py, wallets.py, skills.py
@@ -663,7 +663,7 @@ bnbagent/
 ## 15. Testing
 
 ```bash
-pytest -q                          # 669/683 passing (~3:40 cold, ~12s unit-only)
+pytest -q                          # 683/697 passing (~3:40 cold, ~12s unit-only)
                                    # 2 pre-existing failures: replay JSON drift (test_meta)
                                    # + IPC identity drift (test_dashboard_state_ipc) — non-blocking
 pytest tests/unit/                 # fast unit tests

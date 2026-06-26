@@ -628,10 +628,44 @@ class Agent:
         # decimals() == 18, so amount_in must be scaled by 10**18 for
         # $1 notional → 1e18 raw USDC. Using 10**6 produced dust
         # (1e-12 USDC per dollar) and burned gas spam-mining.
-        from .utils import token_decimals
+        from .utils import token_decimals, clamp_to_usdc_balance
         cfg = (self.components.get("config") or {})
         usdc_decimals = token_decimals("USDC", cfg)
         amount_in = int(notional_usdc * Decimal(10 ** usdc_decimals))
+        # v2.3.9: clamp amount_in to actual on-chain USDC balance.
+        # Without this, a $1 swap against a $0.98 wallet reverts
+        # on-chain with STF (Safe Transfer From). The daily floor
+        # fires at 0.1% of equity, so this is the path that drove
+        # the drain on 2026-06-25 — every floor fire reverted.
+        try:
+            usdc_balance_raw = self.bsc.token_balance(
+                usdc_addr, self.wallet.address, decimals=usdc_decimals,
+            )
+            balance_units = int(usdc_balance_raw * Decimal(10 ** usdc_decimals))
+            amount_in, was_clamped, _ = clamp_to_usdc_balance(
+                amount_in, balance_units,
+                min_amount_units=int(Decimal("0.50") * Decimal(10 ** usdc_decimals)),
+            )
+            if was_clamped and amount_in == 0:
+                log.warning(
+                    f"onchain_swap: USDC balance too low "
+                    f"({usdc_balance_raw} USDC < 0.50 minimum) — falling back to paper"
+                )
+                # status='failed' (not 'skipped') so the daily_floor
+                # treats it like any other on-chain failure and falls
+                # back to the paper path. The error field carries the
+                # reason for the journal.
+                return {
+                    "status": "failed",
+                    "error": f"insufficient_usdc_balance: {float(usdc_balance_raw):.6f}",
+                }
+            if was_clamped:
+                log.info(
+                    f"onchain_swap: clamped notional from {float(notional_usdc):.6f} USDC to "
+                    f"{amount_in / Decimal(10 ** usdc_decimals):.6f} USDC (wallet balance)"
+                )
+        except Exception as bal_err:
+            log.warning(f"onchain_swap: USDC balance check failed: {bal_err}")
         try:
             # 1. Pick the best fee tier for this pair
             fee = self.pancake.best_pool_fee(
