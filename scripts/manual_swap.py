@@ -38,6 +38,9 @@ from eth_account import Account
 from connectors import BSCClient, PancakeV3
 from connectors.twak import TWAKWallet
 
+# Set after wallet loads (used by the daily-cap guard)
+WALLET_ADDRESS_FOR_CAP: str = ""
+
 WBNB = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
 USDC = "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"
 USDT = "0x55d398326f99059fF775485246999027B3197955"
@@ -132,6 +135,7 @@ def ensure_approval(bsc: BSCClient, wallet: TWAKWallet, token: str, amount: int,
     try:
         receipt = bsc.broadcast(signed)
         print(f"  [{symbol}] approve tx: {receipt.tx_hash} (status={receipt.status})")
+        log_swap(wallet.address, f"approve_{symbol}", receipt.tx_hash)
         return receipt.tx_hash
     except Exception as e:
         if "already known" in str(e).lower():
@@ -193,28 +197,207 @@ def swap_v3(bsc: BSCClient, wallet: TWAKWallet, pancake: PancakeV3,
     receipt = bsc.broadcast(signed)
     print(f"  swap {symbol} ({amount_in / 10**18:.6f} in, min {min_out / 10**18:.6f} out) tx: {receipt.tx_hash} (status={receipt.status}, gas={receipt.gas_used})")
     print(f"  bsctrace: https://bsctrace.com/tx/{receipt.tx_hash}")
+    log_swap(wallet.address, symbol, receipt.tx_hash)
     return receipt.tx_hash
 
 
 def cmd_status():
-    """Print wallet balances + nonce + last tx hash."""
+    """Print wallet balances + nonce + last tx hash + today's tx count vs cap."""
     wallet, bsc, _ = get_wallet_and_client()
     bnb = get_bnb_balance(bsc, wallet.address)
     wbnb = get_token_balance(bsc, WBNB, wallet.address, 18)
     usdc = get_token_balance(bsc, USDC, wallet.address, 18)
     usdt = get_token_balance(bsc, USDT, wallet.address, 18)
     nonce = bsc.w3().eth.get_transaction_count(wallet.address)
+    today_count, cap = count_today_tx_with_cap(wallet.address)
     print(f"=== Wallet status @ {wallet.address}")
     print(f"  BNB:  {bnb:.8f}")
     print(f"  WBNB: {wbnb:.8f}")
     print(f"  USDC: {usdc:.8f}")
     print(f"  USDT: {usdt:.8f}")
     print(f"  nonce: {nonce}")
+    print(f"  tx today (UTC): {today_count} / {cap} cap")
+
+
+def count_today_tx_with_cap(wallet_address: str) -> tuple[int, int]:
+    """Count outgoing tx from wallet_address in the current UTC day.
+
+    Returns (count, daily_cap). The cap is read from policy.yaml's
+    `global_risk.max_daily_trades` — same value the bot enforces.
+    Falls back to 3 if policy.yaml is unreadable.
+
+    v6: use a local counter file (~/.bnbagent/manual_swap_log.jsonl) that
+    each successful tx appends to. Each entry has timestamp + tx_hash +
+    action. Counting today's entries is O(today_tx) = a handful.
+    This is the most reliable approach because:
+      - On-chain RPC historical queries are slow / flaky
+      - The local log records what THIS script did (the only operator
+        path that bypasses the bot's own max_daily_trades guard)
+      - Bot's sleeve trades are counted by the bot itself, not here
+
+    If the log file doesn't exist yet (first run), count = 0 — but the
+    cap will be enforced on the FIRST tx, so we'll get a count from
+    that point forward.
+    """
+    cap = 3
+    try:
+        import yaml as _yaml
+        p = Path(__file__).resolve().parent.parent / "config" / "policy.yaml"
+        if p.exists():
+            data = _yaml.safe_load(p.read_text())
+            cap = int((data.get("global_risk") or {}).get("max_daily_trades") or 3)
+    except Exception:
+        pass
+
+    log_path = Path(os.path.expanduser("~/.bnbagent/manual_swap_log.jsonl"))
+    if not log_path.exists():
+        return 0, cap
+
+    now_ts = int(time.time())
+    utc_day_start = now_ts - (now_ts % 86400)  # 00:00 UTC today
+    count = 0
+    try:
+        with open(log_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except Exception:
+                    continue
+                ts = entry.get("ts", 0)
+                if ts >= utc_day_start and entry.get("from", "").lower() == wallet_address.lower():
+                    count += 1
+    except Exception as e:
+        print(f"  (warn: could not read manual_swap_log: {e})")
+        return 0, cap
+
+    return count, cap
+
+
+def log_swap(wallet_address: str, action: str, tx_hash: str) -> None:
+    """Append a successful swap entry to the local counter log."""
+    log_path = Path(os.path.expanduser("~/.bnbagent/manual_swap_log.jsonl"))
+    entry = {
+        "ts": int(time.time()),
+        "from": wallet_address,
+        "action": action,
+        "tx_hash": tx_hash,
+    }
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        print(f"  (warn: could not write manual_swap_log: {e})")
+    cap = 3
+    try:
+        import yaml as _yaml
+        p = Path(__file__).resolve().parent.parent / "config" / "policy.yaml"
+        if p.exists():
+            data = _yaml.safe_load(p.read_text())
+            cap = int((data.get("global_risk") or {}).get("max_daily_trades") or 3)
+    except Exception:
+        pass
+
+    try:
+        # Use the project's BSCClient — it injects the POA middleware that
+        # raw web3.py lacks (BSC has extraData > 32 bytes, raw web3 raises
+        # ExtraDataLengthError on every get_block call).
+        rpcs = [
+            os.environ.get("BSC_RPC_PRIMARY", "https://bsc-dataseed.binance.org"),
+            "https://bsc-dataseed1.defibit.io",
+            "https://bsc-dataseed1.ninicoin.io",
+        ]
+        bsc = BSCClient(rpcs=rpcs, chain_id=CHAIN_ID, mode="mainnet")
+        w3 = bsc.w3()
+        latest = w3.eth.block_number
+        current_nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(wallet_address))
+        now_ts = int(time.time())
+        utc_day_start = now_ts - (now_ts % 86400)  # 00:00 UTC today
+        wallet_lower = wallet_address.lower()
+
+        # v5: walk backwards block-by-block from `latest`, count tx from
+        # our wallet, break at UTC day boundary. To make this fast, we
+        # use a HYBRID: binary-search for the midnight block (just
+        # headers, fast), then scan ONLY today's blocks with full tx
+        # payload. Today's UTC day is ~28800 blocks max — too slow to
+        # scan one-by-one. Use get_block(block, full_transactions=True)
+        # in 1000-block chunks and break on UTC midnight.
+        # Binary search first
+        lo, hi = max(latest - 50000, 1), latest
+        while lo < hi:
+            mid = (lo + hi) // 2
+            try:
+                bm = w3.eth.get_block(mid, full_transactions=False)
+            except Exception:
+                lo = mid + 1
+                continue
+            if bm.timestamp >= utc_day_start:
+                hi = mid
+            else:
+                lo = mid + 1
+        midnight_block = lo
+
+        # Scan from midnight_block to latest, in chunks, counting our tx.
+        # Most blocks are empty for our wallet — cache headers and only
+        # fetch full tx when header timestamp is within today.
+        count = 0
+        chunk = 1000
+        for start in range(midnight_block, latest + 1, chunk):
+            end = min(start + chunk - 1, latest)
+            # Use a single batch via get_block for the LAST block in chunk
+            # to get full transactions (only this block has them indexed).
+            # Other blocks in the chunk: we still need to scan for tx —
+            # web3.py has no batch get_blocks API. So we go block-by-block
+            # but skip empty ones via header-only.
+            for blk in range(start, end + 1):
+                try:
+                    sb = w3.eth.get_block(blk, full_transactions=True)
+                except Exception:
+                    continue
+                # Optional filter: skip blocks clearly outside today (shouldn't happen)
+                if sb.timestamp < utc_day_start:
+                    continue
+                for tx in sb.transactions:
+                    if tx["from"].lower() == wallet_lower:
+                        count += 1
+        return count, cap
+    except Exception as e:
+        print(f"  (warn: could not count today's tx — {e})")
+        return 0, cap
+
+
+def enforce_daily_cap(action_label: str) -> None:
+    """Refuse to proceed if today's tx count + 1 would exceed policy cap.
+
+    Without this guard, the operator (me, 2026-06-27) batched 6 tx in 12
+    minutes and forced Blaze to hit the kill switch. The bot's own
+    circuit breaker checks `max_daily_trades` for sleeve trades, but
+    manual operator swaps bypass it. This guard closes that hole.
+    """
+    count, cap = count_today_tx_with_cap(WALLET_ADDRESS_FOR_CAP)
+    if count >= cap:
+        raise SystemExit(
+            f"\n  ⛔ DAILY CAP REACHED: {count}/{cap} tx today (UTC).\n"
+            f"  policy.yaml `global_risk.max_daily_trades` = {cap}.\n"
+            f"  '{action_label}' would push us to {count + 1}/{cap}.\n"
+            f"  Wait until 00:00 UTC, raise the cap in policy.yaml, or "
+            f"ask Blaze before continuing.\n"
+        )
+    if count >= cap - 1:
+        print(f"  ⚠️  warning: {count}/{cap} tx today — this is your last slot.")
+    else:
+        print(f"  tx today: {count}/{cap} (after this: {count + 1})")
 
 
 def cmd_wrap():
-    """Wrap almost all BNB to WBNB, leaving 0.0015 BNB for gas."""
+    """Wrap almost all BNB to WBNB, leaving 0.003 BNB for gas."""
+    global WALLET_ADDRESS_FOR_CAP
     wallet, bsc, _ = get_wallet_and_client()
+    WALLET_ADDRESS_FOR_CAP = wallet.address
+    enforce_daily_cap("wrap")
     bnb = get_bnb_balance(bsc, wallet.address)
     gas_reserve = Decimal("0.0015")
     wrap_amount = bnb - gas_reserve
@@ -228,7 +411,10 @@ def cmd_wrap():
 
 def cmd_wb2usdc():
     """Swap WBNB -> USDC on PancakeSwap V3 (use ~99% of WBNB)."""
+    global WALLET_ADDRESS_FOR_CAP
     wallet, bsc, pancake = get_wallet_and_client()
+    WALLET_ADDRESS_FOR_CAP = wallet.address
+    enforce_daily_cap("wb2usdc")
     wbnb = get_token_balance(bsc, WBNB, wallet.address, 18)
     if wbnb < Decimal("0.001"):
         print(f"Not enough WBNB ({wbnb}) to swap")
@@ -245,7 +431,10 @@ def cmd_wb2usdc():
 
 def cmd_usdc2usdt(amount_usdc: str | None = None):
     """Swap USDC -> USDT on PancakeSwap V3 (the 'trade' — must be >= $0.50)."""
+    global WALLET_ADDRESS_FOR_CAP
     wallet, bsc, pancake = get_wallet_and_client()
+    WALLET_ADDRESS_FOR_CAP = wallet.address
+    enforce_daily_cap("usdc2usdt")
     usdc = get_token_balance(bsc, USDC, wallet.address, 18)
     if usdc < Decimal("0.50"):
         print(f"Not enough USDC ({usdc}) — need >= 0.50 minimum")
@@ -268,7 +457,10 @@ def cmd_usdc2usdt(amount_usdc: str | None = None):
 
 def cmd_usdt2usdc(amount_usdt: str | None = None):
     """Swap USDT -> USDC on PancakeSwap V3 (closes the round-trip)."""
+    global WALLET_ADDRESS_FOR_CAP
     wallet, bsc, pancake = get_wallet_and_client()
+    WALLET_ADDRESS_FOR_CAP = wallet.address
+    enforce_daily_cap("usdt2usdc")
     usdt = get_token_balance(bsc, USDT, wallet.address, 18)
     if usdt < Decimal("0.001"):
         print(f"Not enough USDT ({usdt}) to swap")
