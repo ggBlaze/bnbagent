@@ -34,7 +34,9 @@ class _FakeERC8004:
         # v2.3.0: register_identity() now also stores the registry
         # address in the saved identity so the dashboard can verify
         # the agent was registered against the 8004scan-indexed contract.
-        self.registry = "0x" + "80" * 20
+        # v2.3.9: must be the canonical 8004scan.io-indexed registry
+        # so the saved-identity reuse path kicks in.
+        self.registry = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
         self.tx_hash = "0x" + "ab" * 32
     def register(self, agent_uri: str):
         self.calls += 1
@@ -79,11 +81,18 @@ def tmp_identity_home(monkeypatch, tmp_path):
     yield fake_home / ".bnbagent"
 
 
-def test_identity_re_registered_when_wallet_address_changes(tmp_identity_home, monkeypatch):
-    """The recorded scenario: first boot registers with ephemeral
-    0xAAA..., operator imports real wallet, second boot must re-register
-    so dashboard shows the operator's actual address — not the orphan
-    ephemeral."""
+def test_identity_reused_when_wallet_address_changes(tmp_identity_home, monkeypatch, caplog):
+    """v2.3.9 (Kai, 2026-06-26): a saved valid identity is REUSED
+    across wallet changes — wallet mismatch is a WARNING, not a
+    re-register trigger. The operator can force a fresh on-chain
+    registration by setting BNBAGENT_FORCE_REGISTER=1.
+
+    Recorded scenario: first boot registers with ephemeral 0xAAA...,
+    operator imports real wallet, second boot must NOT re-register
+    (the on-chain NFT from the first boot is permanent and 8004scan.io
+    already indexes it — churning through new NFTs just costs gas and
+    pollutes the registry).
+    """
     from core.boot import register_identity
     erc, ipfs = _FakeERC8004(), _FakeIPFS()
     policy = _policy()
@@ -94,16 +103,48 @@ def test_identity_re_registered_when_wallet_address_changes(tmp_identity_home, m
     assert first["agent_address"] == ephemeral.address
     assert erc.calls == 1
 
-    # Second boot — operator's real wallet
+    # Second boot — operator's real wallet. Saved identity is reused,
+    # the agent_address field still points at the ephemeral (because we
+    # don't rewrite the saved file on a no-op path), and the operator
+    # sees a WARNING in the logs.
+    real = _FakeWallet(address="0x" + "BB" * 20)
+    with caplog.at_level("WARNING", logger="core.boot"):
+        second = register_identity(erc, ipfs, real, policy)
+    assert second == first, (
+        f"identity must be reused unchanged when the saved file is "
+        f"structurally valid; got a different identity: {second!r}"
+    )
+    assert erc.calls == 1, (
+        f"register_identity should NOT re-register on wallet mismatch "
+        f"(v2.3.9 idempotent-restart policy); calls={erc.calls}"
+    )
+    # Operator must see a clear warning so they're not blindsided
+    assert any("BNBAGENT_FORCE_REGISTER=1" in r.message for r in caplog.records), (
+        f"operator should be warned that the saved identity is bound "
+        f"to a different wallet; warnings: {[r.message for r in caplog.records]}"
+    )
+
+
+def test_identity_force_register_env_re_registers_on_wallet_change(tmp_identity_home, monkeypatch):
+    """Setting BNBAGENT_FORCE_REGISTER=1 forces a fresh on-chain
+    registration even when the saved identity is structurally valid —
+    escape hatch for the operator who genuinely wants a new NFT bound
+    to a new wallet."""
+    monkeypatch.setenv("BNBAGENT_FORCE_REGISTER", "1")
+    from core.boot import register_identity
+    erc, ipfs = _FakeERC8004(), _FakeIPFS()
+    policy = _policy()
+
+    ephemeral = _FakeWallet(address="0x" + "AA" * 20)
+    first = register_identity(erc, ipfs, ephemeral, policy)
+    assert erc.calls == 1
+
     real = _FakeWallet(address="0x" + "BB" * 20)
     second = register_identity(erc, ipfs, real, policy)
-    assert second["agent_address"] == real.address, (
-        f"identity must update to the new wallet on mismatch; "
-        f"still showing {second['agent_address']!r}"
-    )
+    assert second["agent_address"] == real.address
     assert erc.calls == 2, (
-        f"register_identity should re-register on-chain when the wallet "
-        f"changes; calls={erc.calls}"
+        f"BNBAGENT_FORCE_REGISTER=1 must trigger a fresh registration "
+        f"even with a valid saved identity; calls={erc.calls}"
     )
 
 

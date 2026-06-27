@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bnbagent"
-version = "2.1.7"
+version = "2.3.10"
 description = "BNB Agent — Autonomous three-sleeve BSC trading agent for the BNB HACK hackathon (by Blaze)"
 authors = [{name = "Blaze"}]
 license = {text = "MIT"}

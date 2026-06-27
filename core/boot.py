@@ -119,6 +119,25 @@ def register_identity(erc8004: ERC8004, ipfs: IPFSClient, wallet: TWAKWallet,
                      policy: dict, version: str = "1.0.0") -> dict:
     """Build ERC-8004 metadata, pin to a public IPFS gateway, register on-chain.
 
+    v2.3.9 (Kai, 2026-06-26): **idempotent restart** — reuse the saved
+    identity whenever it's structurally valid (has token_id + agent_uri
+    + a registry we trust). The previous v2.1.8 behavior re-registered
+    on every restart whenever the saved ``agent_address`` didn't match
+    the current wallet, which minted a fresh NFT every time the
+    dashboard's graceful-restart loop fired (~$0.015 × N NFTs, plus
+    pollution of the registry, plus the risk of draining the wallet if
+    it ever ran while USDC was zero). Wallet-mismatch is now a WARNING
+    only; the operator can force a fresh registration by setting
+    ``BNBAGENT_FORCE_REGISTER=1`` in the env (e.g. after importing a
+    new wallet they genuinely want bound to a new on-chain identity).
+
+    Rationale: an ERC-8004 identity NFT is permanent on-chain. The
+    ``operator`` field of the metadata is the binding; the wallet that
+    signed the registration matters for 8004scan.io's view but not for
+    the bot's correctness. We do NOT want to churn through NFTs every
+    restart just because identity.json was temporarily polluted by a
+    stale test fixture or an ephemeral keystore fallthrough.
+
     v2.3.0: pin the metadata to a public-resolvable gateway (Pinata if
     PINATA_API_KEY is set, else local IPFS daemon, else local-only CID)
     so 8004scan.io's crawler can HTTP-GET the agentURI from
@@ -126,35 +145,72 @@ def register_identity(erc8004: ERC8004, ipfs: IPFSClient, wallet: TWAKWallet,
     The agentURI returned from ``pin_to_public_gateway`` is what we
     pass to the IdentityRegistry's ``register(string)``.
 
-    v2.1.8 (#9): if a saved identity exists, reuse it ONLY when its
-    `agent_address` matches the current wallet. Mismatch (operator
-    imported a new wallet after a prior boot registered with an
-    ephemeral one) re-registers so /api/identity reflects the wallet
-    the operator actually controls. Same for a corrupt or
-    pre-v2.1.8 file with no `agent_address` field.
+    v2.1.8 (#9): original mismatch-re-register behavior — now softened
+    to a warning (see v2.3.9 note above).
     """
     identity_path = Path("~/.bnbagent/identity.json").expanduser()
-    if identity_path.exists():
+    force_register = os.environ.get("BNBAGENT_FORCE_REGISTER", "").strip() in (
+        "1", "true", "yes",
+    )
+
+    if not force_register and identity_path.exists():
         try:
             saved = json.load(open(identity_path))
         except Exception as e:
             log.warning("identity.json corrupt (%s) — re-registering", e)
             saved = None
         if saved is not None:
-            saved_addr = saved.get("agent_address")
-            if saved_addr and saved_addr.lower() == wallet.address.lower():
+            # Structural validity: we need token_id + agent_uri + a
+            # 8004scan-indexed registry address. Without these, the
+            # saved file is unusable and we must re-register.
+            saved_token_id = saved.get("token_id")
+            saved_uri = saved.get("agent_uri")
+            saved_registry = (saved.get("registry_address") or "").lower()
+            canonical_registry = "0x8004a169fb4a3325136eb29fa0ceb6d2e539a432"
+            if (
+                saved_token_id is not None
+                and saved_uri
+                and saved_registry == canonical_registry
+            ):
+                # Reuse. Log a warning if the bound operator differs
+                # from the current wallet, but DO NOT re-register.
+                saved_addr = (saved.get("agent_address") or "").lower()
+                current_addr = wallet.address.lower()
+                if saved_addr and saved_addr != current_addr:
+                    log.warning(
+                        "identity.json bound to %s but current wallet is %s — "
+                        "reusing saved identity anyway (set BNBAGENT_FORCE_REGISTER=1 "
+                        "to force a fresh on-chain registration). "
+                        "saved tokenId=%s registry=%s",
+                        saved.get("agent_address"), wallet.address,
+                        saved_token_id, saved.get("registry_address"),
+                    )
+                else:
+                    log.info(
+                        "identity already registered: tokenId=%s registry=%s — reusing",
+                        saved_token_id, saved.get("registry_address"),
+                    )
                 return saved
-            if saved_addr:
-                log.warning(
-                    "identity.json was registered to %s but the current "
-                    "wallet is %s — re-registering on-chain",
-                    saved_addr, wallet.address,
-                )
-            else:
-                log.warning(
-                    "identity.json missing 'agent_address' (pre-v2.1.8?) — "
-                    "re-registering to attach to wallet %s", wallet.address,
-                )
+            # else: fall through to fresh registration
+            missing = [
+                k for k, v in (
+                    ("token_id", saved_token_id),
+                    ("agent_uri", saved_uri),
+                    ("registry_address", saved_registry == canonical_registry),
+                ) if not v
+            ]
+            log.warning(
+                "identity.json is missing required fields (%s) — re-registering on-chain",
+                ",".join(missing) or "structural",
+            )
+
+    # Fresh on-chain registration path.
+    if force_register:
+        log.warning("BNBAGENT_FORCE_REGISTER=1 — forcing fresh on-chain registration")
+    log.info(
+        "registering ERC-8004 identity: wallet=%s registry=%s",
+        wallet.address, erc8004.registry,
+    )
 
     meta = {
         "name": "BNB Agent",
